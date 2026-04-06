@@ -1,0 +1,23 @@
+{
+  "name": "autoauto",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.tsx",
+    "lint": "oxlint",
+    "typecheck": "bun tsc --noEmit"
+  },
+  "bin": {
+    "autoauto": "./src/index.tsx"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "latest",
+    "@opentui/core": "latest",
+    "@opentui/react": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "oxlint": "^1.58.0",
+    "typescript": "^5.7.0"
+  }
+}
