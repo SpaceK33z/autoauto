@@ -187,10 +187,10 @@ Manages per-iteration experiment agent sessions:
 Three-panel dashboard for live experiment monitoring:
 
 - **StatsHeader** — Fixed-height panel: experiment count, keeps/discards/crashes, baseline vs best metric with improvement %, cumulative cost, and a Unicode sparkline of keep-only metric values
-- **ResultsTable** — Scrollable table of experiment outcomes, color-coded by status (green=keep, red=discard/crash, yellow=measurement_failure), auto-scrolls to latest
-- **AgentPanel** — Fixed-height scrollable panel showing streaming agent text output and current tool use status, resets between experiments
+- **ResultsTable** — Navigable table of experiment outcomes, color-coded by status (green=keep, red=discard/crash, yellow=measurement_failure). Tab to focus, j/k/arrows to browse, Enter to select. Auto-scrolls to latest when unfocused.
+- **AgentPanel** — Dual-purpose panel: shows live streaming agent text and tool status by default; switches to a structured experiment detail view (status, commit, metric, quality gates, description) when a result row is selected. Escape deselects and returns to live view.
 
-State management: ExecutionScreen owns all dashboard state (results array, metric history, streaming text, cost accumulator). Components receive props — no component-local data fetching. LoopCallbacks drive all updates.
+State management: ExecutionScreen owns all dashboard state (results array, metric history, streaming text, cost accumulator, table focus, selected experiment). Components receive props — no component-local data fetching. LoopCallbacks drive all updates.
 
 ## Results & Events (`src/lib/run.ts`, `src/lib/events.ts`)
 

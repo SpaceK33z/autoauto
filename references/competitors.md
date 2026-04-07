@@ -12,3 +12,5 @@ https://github.com/alfonsograziano/auto-agent
 TODO compare codebase / idea against auto-agent, see what we can salvage
 
 https://github.com/gianfrancopiana/openclaw-autoresearch
+
+https://github.com/uditgoenka/autoresearch
