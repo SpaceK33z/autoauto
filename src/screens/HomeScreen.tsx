@@ -5,9 +5,10 @@ import { listPrograms, type Program, type Screen } from "../lib/programs.ts"
 interface HomeScreenProps {
   cwd: string
   navigate: (screen: Screen) => void
+  onSelectProgram: (slug: string) => void
 }
 
-export function HomeScreen({ cwd, navigate }: HomeScreenProps) {
+export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) {
   const [programs, setPrograms] = useState<Program[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -32,6 +33,8 @@ export function HomeScreen({ cwd, navigate }: HomeScreenProps) {
         setSelected((s) => Math.max(0, s - 1))
       } else if (key.name === "down" || key.name === "j") {
         setSelected((s) => Math.min(programs.length - 1, s + 1))
+      } else if (key.name === "return") {
+        onSelectProgram(programs[selected].name)
       }
     }
   })

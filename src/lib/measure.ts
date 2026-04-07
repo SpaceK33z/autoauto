@@ -35,7 +35,12 @@ export async function runMeasurement(
   measureShPath: string,
   projectRoot: string,
   timeoutMs?: number,
+  signal?: AbortSignal,
 ): Promise<MeasurementResult> {
+  if (signal?.aborted) {
+    return { success: false, error: "aborted", duration_ms: 0 }
+  }
+
   const start = performance.now()
   return new Promise((resolve) => {
     const proc = spawn("bash", [measureShPath], {
@@ -44,6 +49,11 @@ export async function runMeasurement(
       stdio: ["ignore", "pipe", "pipe"],
       timeout: timeoutMs ?? 60_000,
     })
+
+    const onAbort = () => {
+      if (!proc.killed) proc.kill("SIGTERM")
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
 
     proc.stdout!.setEncoding("utf-8")
     proc.stderr!.setEncoding("utf-8")
@@ -59,7 +69,13 @@ export async function runMeasurement(
     })
 
     proc.on("close", (exitCode) => {
+      signal?.removeEventListener("abort", onAbort)
       const duration_ms = Math.round(performance.now() - start)
+
+      if (signal?.aborted) {
+        resolve({ success: false, error: "aborted", duration_ms })
+        return
+      }
 
       if (exitCode !== 0) {
         resolve({
@@ -95,6 +111,7 @@ export async function runMeasurement(
     })
 
     proc.on("error", (err) => {
+      signal?.removeEventListener("abort", onAbort)
       const duration_ms = Math.round(performance.now() - start)
       resolve({ success: false, error: err.message, duration_ms })
     })
@@ -160,6 +177,7 @@ export async function runMeasurementSeries(
   measureShPath: string,
   projectRoot: string,
   config: ProgramConfig,
+  signal?: AbortSignal,
 ): Promise<MeasurementSeriesResult> {
   const totalStart = performance.now()
   const runs: MeasurementResult[] = []
@@ -167,8 +185,9 @@ export async function runMeasurementSeries(
   const validGateValues: Record<string, number[]> = {}
 
   for (let i = 0; i < config.repeats; i++) {
+    if (signal?.aborted) break
     // eslint-disable-next-line no-await-in-loop -- measurements must run sequentially
-    const result = await runMeasurement(measureShPath, projectRoot)
+    const result = await runMeasurement(measureShPath, projectRoot, undefined, signal)
     runs.push(result)
 
     if (!result.success) continue
@@ -188,6 +207,19 @@ export async function runMeasurementSeries(
   }
 
   const duration_ms = Math.round(performance.now() - totalStart)
+
+  if (signal?.aborted) {
+    return {
+      success: false,
+      median_metric: 0,
+      median_quality_gates: {},
+      quality_gates_passed: false,
+      gate_violations: [],
+      individual_runs: runs,
+      duration_ms,
+    }
+  }
+
   const minRequired = Math.ceil(config.repeats / 2)
 
   if (validMetrics.length < minRequired) {

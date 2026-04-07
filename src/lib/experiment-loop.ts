@@ -13,6 +13,7 @@ import {
   getFullSha,
   revertCommits,
   resetHard,
+  isWorkingTreeClean,
   countCommitsBetween,
 } from "./git.ts"
 import {
@@ -43,6 +44,7 @@ export interface LoopCallbacks {
   onAgentToolUse: (status: string) => void
   onError: (error: string) => void
   onRebaseline?: (oldBaseline: number, newBaseline: number, reason: string) => void
+  onLoopComplete?: (state: RunState, reason: "aborted" | "max_experiments" | "stopped") => void
 }
 
 /** Options to control the experiment loop */
@@ -68,13 +70,14 @@ async function maybeRebaseline(
   state: RunState,
   runDir: string,
   callbacks: LoopCallbacks,
+  signal?: AbortSignal,
 ): Promise<RunState> {
   if (consecutiveDiscards <= 0 || consecutiveDiscards % REBASELINE_AFTER_DISCARDS !== 0) {
     return state
   }
 
   callbacks.onPhaseChange("measuring", `re-baselining after ${consecutiveDiscards} consecutive discards`)
-  const driftCheck = await runMeasurementSeries(measureShPath, projectRoot, config)
+  const driftCheck = await runMeasurementSeries(measureShPath, projectRoot, config, signal)
 
   if (!driftCheck.success) return state
 
@@ -116,6 +119,7 @@ async function runMeasurementAndDecide(
   candidateSha: string,
   description: string,
   callbacks: LoopCallbacks,
+  signal?: AbortSignal,
 ): Promise<{ state: RunState; kept: boolean }> {
 
   // 1. Measure
@@ -123,7 +127,7 @@ async function runMeasurementAndDecide(
   let currentState: RunState = { ...state, phase: "measuring", updated_at: now() }
   await writeState(runDir, currentState)
 
-  const series = await runMeasurementSeries(measureShPath, projectRoot, config)
+  const series = await runMeasurementSeries(measureShPath, projectRoot, config, signal)
 
   // 2. Handle measurement failure
   if (!series.success) {
@@ -214,7 +218,7 @@ async function runMeasurementAndDecide(
 
     // Re-baseline: fresh measurement on the kept code
     callbacks.onPhaseChange("measuring", "re-baselining after keep")
-    const rebaseline = await runMeasurementSeries(measureShPath, projectRoot, config)
+    const rebaseline = await runMeasurementSeries(measureShPath, projectRoot, config, signal)
     const newBaseline = rebaseline.success ? rebaseline.median_metric : series.median_metric
 
     if (rebaseline.success && newBaseline !== series.median_metric) {
@@ -322,6 +326,7 @@ export async function runExperimentLoop(
     },
     onStateUpdate: callbacks.onStateUpdate,
     onAgentStream: callbacks.onAgentStream,
+    onLoopComplete: callbacks.onLoopComplete,
   }
 
   while (true) {
@@ -377,7 +382,40 @@ export async function runExperimentLoop(
 
     // Log cost data if available
     if (outcome.cost) {
-      void eventLogger.logExperimentCost(experimentNumber, outcome.cost)
+      void eventLogger.logExperimentCost(outcome.cost)
+    }
+
+    // --- Abort detection + cleanup ---
+    if (options.signal?.aborted) {
+      wrappedCallbacks.onPhaseChange("stopping", "aborted by user")
+
+      const currentSha = await getFullSha(projectRoot)
+      if (currentSha !== startSha) {
+        await revertToStart(projectRoot, startSha, currentSha)
+      } else if (!(await isWorkingTreeClean(projectRoot))) {
+        await resetHard(projectRoot, startSha)
+      }
+
+      const abortResult: ExperimentResult = {
+        experiment_number: experimentNumber,
+        commit: startSha.slice(0, 7),
+        metric_value: 0,
+        secondary_values: "",
+        status: "crash",
+        description: "aborted by user",
+      }
+      await appendResult(runDir, abortResult)
+      wrappedCallbacks.onExperimentEnd(abortResult)
+
+      state = {
+        ...state,
+        total_crashes: state.total_crashes + 1,
+        candidate_sha: null,
+        phase: "stopping",
+        updated_at: now(),
+      }
+      await writeState(runDir, state)
+      break
     }
 
     // --- Handle no-commit or error (no code change — skip drift check) ---
@@ -433,7 +471,7 @@ export async function runExperimentLoop(
       await writeState(runDir, state)
       wrappedCallbacks.onStateUpdate(state)
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
       continue
     }
 
@@ -447,15 +485,22 @@ export async function runExperimentLoop(
     const measurementResult = await runMeasurementAndDecide(
       projectRoot, runDir, measureShPath,
       config, state, startSha, candidateSha, outcome.description,
-      wrappedCallbacks,
+      wrappedCallbacks, options.signal,
     )
+
+    // Check if abort fired during measurement
+    if (options.signal?.aborted) {
+      state = { ...measurementResult.state, phase: "stopping", updated_at: now() }
+      await writeState(runDir, state)
+      break
+    }
 
     state = measurementResult.state
     if (measurementResult.kept) {
       consecutiveDiscards = 0
     } else {
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
     }
 
     wrappedCallbacks.onStateUpdate(state)
@@ -472,6 +517,15 @@ export async function runExperimentLoop(
   await writeState(runDir, finalState)
   await eventLogger.logRunComplete(finalState)
   wrappedCallbacks.onStateUpdate(finalState)
+
+  // Determine termination reason
+  const reason = options.signal?.aborted
+    ? "aborted" as const
+    : state.experiment_number >= (options.maxExperiments ?? Infinity)
+      ? "max_experiments" as const
+      : "stopped" as const
+  await eventLogger.logLoopComplete(finalState, reason)
+  wrappedCallbacks.onLoopComplete?.(finalState, reason)
 
   return finalState
 }

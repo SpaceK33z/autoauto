@@ -7,6 +7,7 @@ import {
 import { HomeScreen } from "./screens/HomeScreen.tsx"
 import { SetupScreen } from "./screens/SetupScreen.tsx"
 import { SettingsScreen } from "./screens/SettingsScreen.tsx"
+import { ExecutionScreen } from "./screens/ExecutionScreen.tsx"
 import { AuthErrorScreen } from "./screens/AuthErrorScreen.tsx"
 import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.ts"
 import { checkAuth } from "./lib/auth.ts"
@@ -18,6 +19,7 @@ export function App() {
   const renderer = useRenderer()
   const { width, height } = useTerminalDimensions()
   const [screen, setScreen] = useState<Screen>("home")
+  const [selectedProgram, setSelectedProgram] = useState<string | null>(null)
   const [projectRoot, setProjectRoot] = useState(cwd)
   const [authState, setAuthState] = useState<"checking" | "authenticated" | "error">("checking")
   const [authError, setAuthError] = useState("")
@@ -52,6 +54,7 @@ export function App() {
       if (screen === "home" || authState === "error") {
         renderer.destroy()
       }
+      // execution screen handles its own Escape
     }
   })
 
@@ -94,7 +97,16 @@ export function App() {
         </text>
       </box>
 
-      {screen === "home" && <HomeScreen cwd={cwd} navigate={setScreen} />}
+      {screen === "home" && (
+        <HomeScreen
+          cwd={cwd}
+          navigate={setScreen}
+          onSelectProgram={(slug) => {
+            setSelectedProgram(slug)
+            setScreen("execution")
+          }}
+        />
+      )}
       {screen === "setup" && (
         <SetupScreen
           cwd={projectRoot}
@@ -110,13 +122,23 @@ export function App() {
           onConfigChange={setProjectConfig}
         />
       )}
+      {screen === "execution" && selectedProgram && (
+        <ExecutionScreen
+          cwd={projectRoot}
+          programSlug={selectedProgram}
+          modelConfig={projectConfig.executionModel}
+          navigate={setScreen}
+        />
+      )}
 
       <text fg="#888888">
         {screen === "home"
-          ? " n: new program | s: settings | Escape: quit"
-          : screen === "settings"
-            ? " ↑↓: navigate | ←→: change | Escape: back"
-            : " Escape: back"}
+          ? " n: new program | s: settings | Enter: run | Escape: quit"
+          : screen === "execution"
+            ? " q: abort run | Escape: back (after completion)"
+            : screen === "settings"
+              ? " ↑↓: navigate | ←→: change | Escape: back"
+              : " Escape: back"}
       </text>
     </box>
   )

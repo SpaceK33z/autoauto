@@ -16,6 +16,7 @@ export type LoopEventType =
   | "run_start"
   | "run_complete"
   | "experiment_cost"
+  | "loop_complete"
 
 /** A single event in events.ndjson */
 export interface LoopEvent {
@@ -35,7 +36,8 @@ export interface EventLogger {
   logAgentTool: (status: string) => Promise<void>
   logRunStart: (state: RunState) => Promise<void>
   logRunComplete: (state: RunState) => Promise<void>
-  logExperimentCost: (experimentNumber: number, cost: ExperimentCost) => Promise<void>
+  logExperimentCost: (cost: ExperimentCost) => Promise<void>
+  logLoopComplete: (state: RunState, reason: string) => Promise<void>
 }
 
 // --- Append / Read ---
@@ -91,7 +93,6 @@ export function createEventLogger(
     logPhaseChange: (phase, detail) => emit("phase_change", { phase, detail }),
     logExperimentStart: (num) => emit("experiment_start", { experiment_number: num }),
     logExperimentEnd: (result) => emit("experiment_end", {
-      experiment_number: result.experiment_number,
       status: result.status,
       metric_value: result.metric_value,
       description: result.description,
@@ -115,7 +116,15 @@ export function createEventLogger(
       best_metric: state.best_metric,
       original_baseline: state.original_baseline,
     }),
-    logExperimentCost: (experimentNumber, cost) =>
-      emit("experiment_cost", { experiment_number: experimentNumber, ...cost }),
+    logExperimentCost: (cost) => emit("experiment_cost", { ...cost }),
+    logLoopComplete: (state, reason) => emit("loop_complete", {
+      run_id: state.run_id,
+      reason,
+      total_keeps: state.total_keeps,
+      total_discards: state.total_discards,
+      total_crashes: state.total_crashes,
+      best_metric: state.best_metric,
+      original_baseline: state.original_baseline,
+    }),
   }
 }

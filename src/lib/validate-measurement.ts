@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 /* eslint-disable no-console, no-await-in-loop */
-import { spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { dirname } from "node:path"
 import type { ProgramConfig } from "./programs.ts"
+import { runMeasurement as runMeasurementCore, validateMeasurementOutput } from "./measure.ts"
 
 interface RunResult {
   run: number
@@ -74,73 +74,11 @@ if (!config.metric_field || !config.direction) {
 // --- Measurement Execution ---
 
 async function runMeasurement(scriptPath: string, run: number, cwd: string): Promise<RunResult> {
-  const start = performance.now()
-  return new Promise((resolve) => {
-    const proc = spawn("bash", [scriptPath], {
-      cwd,
-      env: { ...process.env },
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 60_000,
-    })
-
-    proc.stdout!.setEncoding("utf-8")
-    proc.stderr!.setEncoding("utf-8")
-
-    let stdout = ""
-    let stderr = ""
-
-    proc.stdout!.on("data", (chunk: string) => { stdout += chunk })
-    proc.stderr!.on("data", (chunk: string) => { stderr += chunk })
-
-    proc.on("close", (exitCode) => {
-      const duration_ms = Math.round(performance.now() - start)
-
-      if (exitCode !== 0) {
-        resolve({
-          run,
-          success: false,
-          error: `exit code ${exitCode}${stderr ? `: ${stderr.trim().slice(0, 200)}` : ""}`,
-          duration_ms,
-        })
-        return
-      }
-
-      let parsed: Record<string, unknown>
-      try {
-        parsed = JSON.parse(stdout.trim())
-      } catch {
-        resolve({
-          run,
-          success: false,
-          error: `invalid JSON on stdout: ${stdout.trim().slice(0, 200)}`,
-          duration_ms,
-        })
-        return
-      }
-
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        resolve({
-          run,
-          success: false,
-          error: `stdout must be a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`,
-          duration_ms,
-        })
-        return
-      }
-
-      resolve({ run, success: true, output: parsed, duration_ms })
-    })
-
-    proc.on("error", (err) => {
-      const duration_ms = Math.round(performance.now() - start)
-      resolve({
-        run,
-        success: false,
-        error: err.message,
-        duration_ms,
-      })
-    })
-  })
+  const result = await runMeasurementCore(scriptPath, cwd)
+  if (result.success) {
+    return { run, success: true, output: result.output, duration_ms: result.duration_ms }
+  }
+  return { run, success: false, error: result.error, duration_ms: result.duration_ms }
 }
 
 // --- Field Validation ---
@@ -149,25 +87,7 @@ function validateOutput(
   output: Record<string, unknown>,
   cfg: ProgramConfig,
 ): { valid: boolean; errors: string[] } {
-  const errors: string[] = []
-
-  const metricValue = output[cfg.metric_field]
-  if (metricValue === undefined) {
-    errors.push(`metric_field "${cfg.metric_field}" missing from output`)
-  } else if (typeof metricValue !== "number" || !isFinite(metricValue)) {
-    errors.push(`metric_field "${cfg.metric_field}" is not a finite number: ${metricValue}`)
-  }
-
-  for (const field of Object.keys(cfg.quality_gates)) {
-    const value = output[field]
-    if (value === undefined) {
-      errors.push(`quality gate field "${field}" missing from output`)
-    } else if (typeof value !== "number" || !isFinite(value)) {
-      errors.push(`quality gate field "${field}" is not a finite number: ${value}`)
-    }
-  }
-
-  return { valid: errors.length === 0, errors }
+  return validateMeasurementOutput(output, cfg)
 }
 
 // --- Statistics ---

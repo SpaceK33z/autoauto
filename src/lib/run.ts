@@ -90,9 +90,6 @@ export async function initRunDir(programDir: string, runId: string): Promise<str
     "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\n",
   )
 
-  // Initialize events.ndjson as empty file
-  await writeFile(join(runDir, "events.ndjson"), "")
-
   return runDir
 }
 
@@ -120,6 +117,20 @@ export async function appendResult(runDir: string, result: ExperimentResult): Pr
 
 // --- Results Parsing (synchronous — operate on pre-read content) ---
 
+/** Parses a single TSV row into a typed result. Returns null if malformed. */
+function parseTsvRow(line: string): ExperimentResult | null {
+  const parts = line.split("\t")
+  if (parts.length < 6) return null
+  return {
+    experiment_number: parseInt(parts[0], 10),
+    commit: parts[1],
+    metric_value: parseFloat(parts[2]),
+    secondary_values: parts[3],
+    status: parts[4] as ExperimentStatus,
+    description: parts[5],
+  }
+}
+
 /** Formats header + last N data rows from raw results.tsv content. */
 export function formatRecentResults(raw: string, count = 15): string {
   const lines = raw.split("\n").filter(Boolean)
@@ -135,19 +146,7 @@ export function formatRecentResults(raw: string, count = 15): string {
 export function parseLastResult(raw: string): ExperimentResult | null {
   const lines = raw.trim().split("\n")
   if (lines.length <= 1) return null // only header
-
-  const lastLine = lines[lines.length - 1]
-  const parts = lastLine.split("\t")
-  if (parts.length < 6) return null
-
-  return {
-    experiment_number: parseInt(parts[0], 10),
-    commit: parts[1],
-    metric_value: parseFloat(parts[2]),
-    secondary_values: parts[3],
-    status: parts[4] as ExperimentStatus,
-    description: parts[5],
-  }
+  return parseTsvRow(lines[lines.length - 1])
 }
 
 /** Extracts SHAs of recent discarded/crashed experiments from raw results.tsv content. */
@@ -178,16 +177,8 @@ export async function readAllResults(runDir: string): Promise<ExperimentResult[]
 
   const results: ExperimentResult[] = []
   for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i].split("\t")
-    if (parts.length < 6) continue
-    results.push({
-      experiment_number: parseInt(parts[0], 10),
-      commit: parts[1],
-      metric_value: parseFloat(parts[2]),
-      secondary_values: parts[3],
-      status: parts[4] as ExperimentStatus,
-      description: parts[5],
-    })
+    const row = parseTsvRow(lines[i])
+    if (row) results.push(row)
   }
   return results
 }
@@ -199,7 +190,7 @@ export function getMetricHistory(results: ExperimentResult[]): number[] {
     .map((r) => r.metric_value)
 }
 
-/** Derived statistics from results + state for the TUI dashboard. */
+/** Derived statistics from state for the TUI dashboard. */
 export interface RunStats {
   total_experiments: number
   total_keeps: number
@@ -208,17 +199,11 @@ export interface RunStats {
   keep_rate: number
   improvement_pct: number
   current_improvement_pct: number
-  metric_direction: "lower" | "higher" | null
 }
 
-/** Computes derived statistics from results + state. */
-export function getRunStats(results: ExperimentResult[], state: RunState): RunStats {
-  const experiments = results.filter((r) => r.experiment_number > 0)
-  const keeps = experiments.filter((r) => r.status === "keep")
-  const discards = experiments.filter((r) => r.status === "discard")
-  const crashes = experiments.filter((r) => r.status === "crash" || r.status === "measurement_failure")
-
-  const total = experiments.length
+/** Computes derived statistics from run state. Counts come from RunState's authoritative counters. */
+export function getRunStats(state: RunState): RunStats {
+  const total = state.total_keeps + state.total_discards + state.total_crashes
 
   const improvementPct = state.original_baseline !== 0
     ? ((state.best_metric - state.original_baseline) / Math.abs(state.original_baseline)) * 100
@@ -230,13 +215,12 @@ export function getRunStats(results: ExperimentResult[], state: RunState): RunSt
 
   return {
     total_experiments: total,
-    total_keeps: keeps.length,
-    total_discards: discards.length,
-    total_crashes: crashes.length,
-    keep_rate: total > 0 ? keeps.length / total : 0,
+    total_keeps: state.total_keeps,
+    total_discards: state.total_discards,
+    total_crashes: state.total_crashes,
+    keep_rate: total > 0 ? state.total_keeps / total : 0,
     improvement_pct: improvementPct,
     current_improvement_pct: currentImprovementPct,
-    metric_direction: null,
   }
 }
 
@@ -247,7 +231,6 @@ export interface RunInfo {
   run_id: string
   run_dir: string
   state: RunState | null
-  started_at: string | null
 }
 
 /** Lists all runs for a program, sorted newest first. */
@@ -261,22 +244,18 @@ export async function listRuns(programDir: string): Promise<RunInfo[]> {
     return []
   }
 
-  const runs: RunInfo[] = []
-  for (const runId of entries) {
-    const runDir = join(runsDir, runId)
-    let state: RunState | null = null
-    try {
-      state = await readState(runDir)
-    } catch {
-      // state.json missing or corrupt
-    }
-    runs.push({
-      run_id: runId,
-      run_dir: runDir,
-      state,
-      started_at: state?.started_at ?? null,
-    })
-  }
+  const runs = await Promise.all(
+    entries.map(async (runId): Promise<RunInfo> => {
+      const runDir = join(runsDir, runId)
+      let state: RunState | null = null
+      try {
+        state = await readState(runDir)
+      } catch {
+        // state.json missing or corrupt
+      }
+      return { run_id: runId, run_dir: runDir, state }
+    }),
+  )
 
   runs.sort((a, b) => b.run_id.localeCompare(a.run_id))
   return runs
@@ -293,7 +272,7 @@ export async function getLatestRun(programDir: string): Promise<RunInfo | null> 
 export async function startRun(
   projectRoot: string,
   programSlug: string,
-): Promise<{ runId: string; runDir: string; state: RunState }> {
+): Promise<{ runId: string; runDir: string; state: RunState; originalBranch: string }> {
   const programDir = getProgramDir(projectRoot, programSlug)
   const measureShPath = join(programDir, "measure.sh")
 
@@ -364,5 +343,5 @@ export async function startRun(
 
   await writeState(runDir, state)
 
-  return { runId, runDir, state }
+  return { runId, runDir, state, originalBranch: originalBranchName }
 }

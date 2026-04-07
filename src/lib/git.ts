@@ -8,11 +8,6 @@ export async function getFullSha(cwd: string): Promise<string> {
   return stdout.trim()
 }
 
-export async function getShortSha(cwd: string): Promise<string> {
-  const fullSha = await getFullSha(cwd)
-  return fullSha.slice(0, 7)
-}
-
 export async function getRecentLog(cwd: string, count?: number): Promise<string> {
   const { stdout } = await execFileAsync(
     "git",
@@ -137,13 +132,13 @@ export async function getDiscardedDiffs(
   shas: string[],
   maxLength = 2000,
 ): Promise<string> {
+  const diffs = await Promise.all(shas.map((sha) => getCommitDiff(cwd, sha)))
   const parts: string[] = []
   let totalLength = 0
 
-  for (const sha of shas) {
+  for (let i = 0; i < shas.length; i++) {
     if (totalLength >= maxLength) break
-    const diff = await getCommitDiff(cwd, sha) // eslint-disable-line no-await-in-loop -- sequential by design
-    const entry = `[${sha.slice(0, 7)}]\n${diff}\n`
+    const entry = `[${shas[i].slice(0, 7)}]\n${diffs[i]}\n`
     parts.push(entry)
     totalLength += entry.length
   }
