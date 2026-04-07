@@ -423,7 +423,7 @@ export async function runExperimentLoop(
       break
     }
 
-    // --- Handle no-commit or error (no code change — skip drift check) ---
+    // --- Handle no-commit or error (no code change) ---
     if (outcome.type === "no_commit" || outcome.type === "agent_error") {
       const crashDesc = outcome.type === "no_commit"
         ? "no commit produced"
@@ -443,6 +443,7 @@ export async function runExperimentLoop(
       await writeState(runDir, state)
       wrappedCallbacks.onStateUpdate(state)
       consecutiveDiscards++
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
       continue
     }
 
