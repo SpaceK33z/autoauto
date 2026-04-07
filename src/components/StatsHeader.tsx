@@ -49,41 +49,47 @@ export function StatsHeader(props: StatsHeaderProps) {
 
   return (
       <box paddingX={1} flexDirection="column">
-        <text>
-          <span fg="#9ece6a"><strong>✓ {props.totalKeeps}</strong></span>
-          {"  "}
-          <span fg="#ff5555">✗ {props.totalDiscards}</span>
-          {"  "}
-          <span fg="#565f89">⚡ {props.totalCrashes}</span>
-          {"    "}
-          <span fg="#565f89">$</span>
-          <span fg="#888888">{props.totalCostUsd.toFixed(2)}</span>
-          {"    "}
-          <span fg="#565f89">#{props.experimentNumber}</span>
-        </text>
-        <text>
-          <span fg="#565f89">baseline </span>
-          <span fg="#7aa2f7">{props.currentBaseline}</span>
-          {"   "}
-          <span fg="#565f89">best </span>
-          <span fg="#9ece6a">{props.bestMetric}</span>
-          {improvementStr ? (
-            <>
-              {"  "}
-              <span fg="#e0af68">{improvementStr}</span>
-            </>
-          ) : null}
-          {sparkline ? (
-            <>
-              {"   "}
-              <span fg="#7aa2f7">{sparkline}</span>
-            </>
-          ) : null}
-        </text>
-        <text>
-          <span fg="#565f89">› </span>
-          <span fg="#888888">{props.currentPhaseLabel}</span>
-        </text>
+        <box>
+          <text>
+            <span fg="#9ece6a"><strong>✓ {props.totalKeeps}</strong></span>
+            {"  "}
+            <span fg="#ff5555">✗ {props.totalDiscards}</span>
+            {"  "}
+            <span fg="#565f89">⚡ {props.totalCrashes}</span>
+            {"    "}
+            <span fg="#565f89">$</span>
+            <span fg="#888888">{props.totalCostUsd.toFixed(2)}</span>
+            {"    "}
+            <span fg="#565f89">#{props.experimentNumber}</span>
+          </text>
+        </box>
+        <box>
+          <text>
+            <span fg="#565f89">baseline </span>
+            <span fg="#7aa2f7">{props.currentBaseline}</span>
+            {"   "}
+            <span fg="#565f89">{"best "}</span>
+            <span fg="#9ece6a">{props.bestMetric}</span>
+            {improvementStr ? (
+              <>
+                {"  "}
+                <span fg="#e0af68">{improvementStr}</span>
+              </>
+            ) : null}
+            {sparkline ? (
+              <>
+                {"   "}
+                <span fg="#7aa2f7">{sparkline}</span>
+              </>
+            ) : null}
+          </text>
+        </box>
+        <box>
+          <text>
+            <span fg="#565f89">{"› "}</span>
+            <span fg="#888888">{props.currentPhaseLabel}</span>
+          </text>
+        </box>
       </box>
   )
 }
