@@ -1,3 +1,5 @@
+import { basename } from "node:path"
+
 /** Format a tool call into a brief human-readable status string */
 export function formatToolEvent(
   toolName: string,
@@ -7,7 +9,7 @@ export function formatToolEvent(
     case "Read": {
       const filePath = input.file_path
       if (typeof filePath === "string") {
-        const fileName = filePath.split("/").pop() ?? filePath
+        const fileName = basename(filePath)
         return `Reading ${fileName}`
       }
       return "Reading file..."
@@ -34,6 +36,22 @@ export function formatToolEvent(
         return `Running: ${truncated}`
       }
       return "Running command..."
+    }
+    case "Write": {
+      const filePath = input.file_path
+      if (typeof filePath === "string") {
+        const fileName = basename(filePath)
+        return `Writing ${fileName}`
+      }
+      return "Writing file..."
+    }
+    case "Edit": {
+      const filePath = input.file_path
+      if (typeof filePath === "string") {
+        const fileName = basename(filePath)
+        return `Editing ${fileName}`
+      }
+      return "Editing file..."
     }
     default:
       return `Using ${toolName}...`

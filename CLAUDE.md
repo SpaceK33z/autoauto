@@ -59,7 +59,7 @@ src/
     HomeScreen.tsx       # Program list
     SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
   lib/
-    programs.ts          # Filesystem ops, program CRUD
+    programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     system-prompts.ts    # Agent system prompts (setup, ideation)
     tool-events.ts       # Tool event display formatting
@@ -67,11 +67,12 @@ src/
 
 ## Agent Conventions
 
-- Setup Agent uses built-in SDK tools (Read, Bash, Glob, Grep), not custom MCP tools
+- Setup Agent uses built-in SDK tools (Read, Write, Edit, Bash, Glob, Grep)
 - Agent tools are auto-approved via `permissionMode: "bypassPermissions"` — AutoAuto is the host app
 - `cwd` is always set to the target project root (resolved via `getProjectRoot()`)
 - System prompts live in `src/lib/system-prompts.ts`
 - Tool status is displayed in the chat UI as brief one-line indicators
+- Setup Agent writes program artifacts to `.autoauto/programs/<slug>/` only after user confirmation
 
 ## Testing the TUI Interactively
 

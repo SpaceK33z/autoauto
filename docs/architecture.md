@@ -27,11 +27,15 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and Claude Agent SDK 
 
 ## Data Layer
 
-`src/lib/programs.ts` — filesystem operations against `.autoauto/` in the git repo root:
+`src/lib/programs.ts` — filesystem operations and types for `.autoauto/` in the git repo root:
 
 - `getProjectRoot()` — resolves through git worktrees to find the main repo root (cached)
 - `listPrograms()` — reads program directories from `.autoauto/programs/`
 - `ensureAutoAutoDir()` — creates `.autoauto/` and adds it to `.gitignore`
+- `getProgramsDir()` — returns absolute path to `.autoauto/programs/`
+- `getProgramDir()` — returns absolute path to a specific program's directory
+- `ProgramConfig` — TypeScript interface for `config.json` schema
+- `QualityGate` — TypeScript interface for quality gate entries
 
 ## File Structure
 
@@ -45,7 +49,7 @@ src/
     HomeScreen.tsx       # Program list
     SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
   lib/
-    programs.ts          # Filesystem ops, program CRUD
+    programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     system-prompts.ts    # Agent system prompts (setup, ideation)
 ```
@@ -58,17 +62,23 @@ loop, tool execution, and context management.
 
 ### Setup Agent (`src/lib/system-prompts.ts`)
 
-- **Purpose:** Inspect repo, suggest targets, define scope and constraints
-- **Tools:** Read, Bash, Glob, Grep (inspection only — no Write/Edit)
+- **Purpose:** Inspect repo, suggest targets, define scope, generate program artifacts
+- **Tools:** Read, Write, Edit, Bash, Glob, Grep
 - **Permission mode:** `bypassPermissions` (AutoAuto manages UI, not the SDK)
-- **Working directory:** Target project root
+- **Working directory:** Target project root (resolved via `getProjectRoot()`)
 - **System prompt:** Encodes autoresearch expertise — guides user through repo inspection,
-  target identification, scope definition, measurement approach
-- **maxTurns:** 20 (conversation turns)
-
-The setup agent does NOT write files. It gathers information through conversation and
-tool use, preparing everything needed for program generation (1c).
+  target identification, scope definition, measurement approach, artifact generation
+- **maxTurns:** 30 (conversation turns, including review iterations)
+- **Artifacts generated:**
+  - `program.md` — Goal, scope, rules, steps for the experiment agent
+  - `measure.sh` — Measurement script tailored to the repo (must output JSON to stdout)
+  - `config.json` — Metric field, direction, noise threshold, repeats, quality gates
+- **Review flow:** Agent presents artifacts as code blocks for review before writing to disk
 
 ## Current State
 
-Phase 1 (Setup) is in progress. The TUI shell, screen navigation, program listing, and multi-turn Claude Agent SDK chat are wired up. The chat foundation supports full conversation history with auto-scrolling and streaming. The setup agent has a system prompt for guided repo inspection, scope definition, and ideation mode, with Read/Bash/Glob/Grep tools auto-allowed for repo analysis. Program artifact generation (program.md, measure.sh, config.json) is not yet implemented.
+Phase 1 (Setup) is in progress. The TUI shell, screen navigation, program listing, and
+multi-turn Claude Agent SDK chat are wired up. The setup agent can inspect the target repo,
+suggest optimization targets, guide the user through scope and measurement design, generate
+program artifacts (program.md, measure.sh, config.json), and save them after user review.
+Measurement validation (running the generated script to check variance) is not yet implemented.
