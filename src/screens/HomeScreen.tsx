@@ -60,6 +60,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) 
   return (
     <box flexGrow={1} border borderStyle="rounded" title="Programs">
       <select
+        flexGrow={1}
         focused
         options={programs.map((p) => ({ name: p.name, description: "", value: p.name }))}
         onSelect={(_index, option) => {

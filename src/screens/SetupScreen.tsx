@@ -73,10 +73,11 @@ export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
     return (
       <box flexDirection="column" flexGrow={1}>
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="New Program">
-          <text>{""}</text>
+          <box height={1} />
           <text>{"  How would you like to start?"}</text>
-          <text>{""}</text>
+          <box height={1} />
           <select
+            flexGrow={1}
             focused
             options={MODE_OPTIONS}
             onSelect={handleModeSelect}
@@ -92,9 +93,9 @@ export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
     return (
       <box flexDirection="column" flexGrow={1}>
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="New Program">
-          <text>{""}</text>
+          <box height={1} />
           <text>{"  What area should I focus on?"}</text>
-          <text>{""}</text>
+          <box height={1} />
           <box border borderStyle="rounded" height={3}>
             <input
               focused
@@ -102,7 +103,7 @@ export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
               onSubmit={handleScopeSubmit}
             />
           </box>
-          <text>{""}</text>
+          <box height={1} />
           <text fg="#888888">{"  Press Enter to skip and analyze everything"}</text>
         </box>
       </box>
