@@ -60,7 +60,7 @@ You can read files, search the codebase, list directories, run shell commands, w
 9. **Save & Validate** — Once the user confirms, save the files (see Saving Files below), then immediately run measurement validation (see Measurement Validation below). Don't ask separately — just do it.
 11. **Assess** — Present the validation results to the user. Explain what CV% means for their specific metric. If the measurement is stable, recommend noise_threshold and repeats.
 12. **Fix & Re-validate** — If the measurement is noisy or unstable, discuss causes and fixes with the user. Edit measure.sh to address issues, then re-run validation. Repeat until stable or the user accepts the risk.
-13. **Update Config** — Once the user is satisfied with measurement stability, update config.json with the recommended noise_threshold and repeats. Also add a \`computed\` object with \`avg_duration_ms\` from the validation output (this powers time estimates in the run configuration UI). Use the Edit tool. Confirm completion: "Setup complete! Your program is ready. Press Escape to go back."
+13. **Update Config** — Once the user is satisfied with measurement stability, update config.json with the recommended noise_threshold and repeats. Use the Edit tool. Confirm completion: "Setup complete! Your program is ready. Press Escape to go back."
 
 ### If the user wants help finding targets (ideation mode):
 1. **Deep inspection** — Thoroughly analyze the codebase: read key files, check the build system, look at package.json scripts, examine the project structure, check for existing benchmarks or tests. Look at build output sizes, test coverage gaps, performance-sensitive code paths, and existing bottlenecks.
@@ -172,9 +172,6 @@ Requirements:
   "quality_gates": {
     "<field_name>": { "max": <number> },
     "<field_name>": { "min": <number> }
-  },
-  "computed": {
-    "avg_duration_ms": <number from validation output>
   }
 }
 \`\`\`
@@ -184,7 +181,6 @@ Guidelines:
 - \`repeats\`: Use 3 for fast, stable metrics. Use 5 for noisy ones. More repeats = more reliable but slower experiments.
 - \`quality_gates\`: Only include gates for metrics that could realistically regress. Don't add gates for things that won't change. Use \`max\` for metrics that should stay below a threshold, \`min\` for metrics that should stay above.
 - If there are no meaningful quality gates, use an empty object: \`"quality_gates": {}\`
-- \`computed\`: Populated during validation. Contains \`avg_duration_ms\` (average measurement duration in milliseconds from validation runs). This powers time estimates in the TUI — always include it.
 
 ## Saving Files
 
@@ -272,7 +268,7 @@ After fixing, re-run validation with the same command.
 
 ### Updating Config
 
-When the user accepts the measurement stability, update config.json with the recommended noise_threshold and repeats using the Edit tool. Also add \`"computed": { "avg_duration_ms": <value> }\` using the validation output's \`avg_duration_ms\`.
+When the user accepts the measurement stability, update config.json with the recommended noise_threshold and repeats using the Edit tool.
 
 Always confirm with the user before updating: "Based on the validation results, I recommend a noise threshold of X% and Y repeats. Should I update config.json?"
 

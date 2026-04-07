@@ -64,6 +64,8 @@ export interface ExperimentResult {
   secondary_values: string
   status: ExperimentStatus
   description: string
+  /** Total wall time for the measurement series (all repeats), in ms */
+  measurement_duration_ms: number
 }
 
 // --- Run ID ---
@@ -98,7 +100,7 @@ export async function initRunDir(programDir: string, runId: string): Promise<str
 
   await writeFile(
     join(runDir, "results.tsv"),
-    "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\n",
+    "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\n",
   )
 
   return runDir
@@ -122,7 +124,7 @@ export async function readState(runDir: string): Promise<RunState> {
 
 export async function appendResult(runDir: string, result: ExperimentResult): Promise<void> {
   const secondaryStr = result.secondary_values || ""
-  const line = `${result.experiment_number}\t${result.commit}\t${result.metric_value}\t${secondaryStr}\t${result.status}\t${result.description}\n`
+  const line = `${result.experiment_number}\t${result.commit}\t${result.metric_value}\t${secondaryStr}\t${result.status}\t${result.description}\t${result.measurement_duration_ms}\n`
   await appendFile(join(runDir, "results.tsv"), line)
 }
 
@@ -139,6 +141,7 @@ function parseTsvRow(line: string): ExperimentResult | null {
     secondary_values: parts[3],
     status: parts[4] as ExperimentStatus,
     description: parts[5],
+    measurement_duration_ms: parts[6] ? parseInt(parts[6], 10) : 0,
   }
 }
 
@@ -199,6 +202,15 @@ export function getMetricHistory(results: ExperimentResult[]): number[] {
   return results
     .filter((r) => r.status === "keep")
     .map((r) => r.metric_value)
+}
+
+/** Computes average measurement duration from results that have duration data. */
+export function getAvgMeasurementDuration(results: ExperimentResult[]): number | null {
+  const durations = results
+    .filter((r) => r.measurement_duration_ms > 0)
+    .map((r) => r.measurement_duration_ms)
+  if (durations.length === 0) return null
+  return Math.round(durations.reduce((sum, d) => sum + d, 0) / durations.length)
 }
 
 /** Derived statistics from state for the TUI dashboard. */
@@ -344,6 +356,7 @@ export async function startRun(
     secondary_values: JSON.stringify(baseline.median_quality_gates),
     status: "keep",
     description: "baseline",
+    measurement_duration_ms: baseline.duration_ms,
   })
 
   const now = new Date().toISOString()

@@ -22,7 +22,6 @@ export interface ProgramConfig {
   repeats: number
   quality_gates: Record<string, QualityGate>
   max_experiments?: number
-  computed?: { avg_duration_ms: number }
 }
 
 export type Screen = "home" | "setup" | "settings" | "program-detail" | "pre-run" | "execution"
@@ -64,18 +63,6 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
       config.max_experiments < 1)
   ) {
     throw new Error("config.json: max_experiments must be an integer >= 1")
-  }
-  if (config.computed !== undefined) {
-    if (typeof config.computed !== "object" || config.computed === null || Array.isArray(config.computed)) {
-      throw new Error("config.json: computed must be an object")
-    }
-    const computed = config.computed as Record<string, unknown>
-    if (computed.avg_duration_ms !== undefined) {
-      assertFiniteNumber(computed.avg_duration_ms, "computed.avg_duration_ms")
-      if ((computed.avg_duration_ms as number) <= 0) {
-        throw new Error("config.json: computed.avg_duration_ms must be positive")
-      }
-    }
   }
   if (typeof config.quality_gates !== "object" || config.quality_gates === null || Array.isArray(config.quality_gates)) {
     throw new Error("config.json: quality_gates must be an object")

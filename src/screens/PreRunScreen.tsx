@@ -6,6 +6,7 @@ import {
   getProgramDir,
   loadProgramConfig,
 } from "../lib/programs.ts"
+import { getLatestRun, readAllResults, getAvgMeasurementDuration } from "../lib/run.ts"
 import {
   type ModelSlot,
   type EffortLevel,
@@ -39,13 +40,20 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const [model, setModel] = useState(defaultModelConfig.model)
   const [effort, setEffort] = useState<EffortLevel>(defaultModelConfig.effort)
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
+  const [avgDurationMs, setAvgDurationMs] = useState<number | null>(null)
 
   useEffect(() => {
-    loadProgramConfig(getProgramDir(cwd, programSlug)).then((config) => {
+    const programDir = getProgramDir(cwd, programSlug)
+    loadProgramConfig(programDir).then((config) => {
       setProgramConfig(config)
       if (config.max_experiments) {
         setMaxExpText(String(config.max_experiments))
       }
+    })
+    getLatestRun(programDir).then(async (run) => {
+      if (!run) return
+      const results = await readAllResults(run.run_dir)
+      setAvgDurationMs(getAvgMeasurementDuration(results))
     })
   }, [cwd, programSlug])
 
@@ -103,7 +111,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   })
 
   // Time estimate
-  const avgMs = programConfig?.computed?.avg_duration_ms
+  const avgMs = avgDurationMs
   const repeats = programConfig?.repeats ?? 3
   const maxExp = parseInt(maxExpText, 10)
   const hasMaxExp = !isNaN(maxExp) && maxExp > 0

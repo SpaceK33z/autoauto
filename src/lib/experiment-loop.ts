@@ -199,6 +199,7 @@ async function runMeasurementAndDecide(
       secondary_values: "",
       status: "measurement_failure",
       description: `measurement failed (${failureReason}): ${description}`,
+      measurement_duration_ms: series.duration_ms,
     }
     await appendResult(runDir, result)
     callbacks.onExperimentEnd(result)
@@ -229,6 +230,7 @@ async function runMeasurementAndDecide(
       secondary_values: JSON.stringify(series.median_quality_gates),
       status: "discard",
       description: `quality gate failed: ${description}`,
+      measurement_duration_ms: series.duration_ms,
     }
     await appendResult(runDir, result)
     callbacks.onExperimentEnd(result)
@@ -267,6 +269,7 @@ async function runMeasurementAndDecide(
       secondary_values: JSON.stringify(series.median_quality_gates),
       status: "keep",
       description,
+      measurement_duration_ms: series.duration_ms,
     }
     await appendResult(runDir, result)
     callbacks.onExperimentEnd(result)
@@ -313,6 +316,7 @@ async function runMeasurementAndDecide(
     secondary_values: JSON.stringify(series.median_quality_gates),
     status: "discard",
     description: statusDesc,
+    measurement_duration_ms: series.duration_ms,
   }
   await appendResult(runDir, result)
   callbacks.onExperimentEnd(result)
@@ -463,6 +467,7 @@ export async function runExperimentLoop(
         secondary_values: "",
         status: "crash",
         description: "aborted by user",
+        measurement_duration_ms: 0,
       }
       await appendResult(runDir, abortResult)
       wrappedCallbacks.onExperimentEnd(abortResult)
@@ -500,6 +505,7 @@ export async function runExperimentLoop(
         secondary_values: "",
         status: isLockViolation ? "discard" : "crash",
         description: crashDesc,
+        measurement_duration_ms: 0,
       }
       await appendResult(runDir, crashResult)
       wrappedCallbacks.onExperimentEnd(crashResult)
@@ -557,6 +563,7 @@ export async function runExperimentLoop(
         secondary_values: "",
         status: "discard",
         description: `lock violation: modified ${lockViolationFiles.join(", ")} — ${outcome.description}`,
+        measurement_duration_ms: 0,
       }
       await appendResult(runDir, lockResult)
       wrappedCallbacks.onExperimentEnd(lockResult)
