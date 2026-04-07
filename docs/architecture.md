@@ -182,6 +182,16 @@ Manages per-iteration experiment agent sessions:
 | Setup Agent | `getSetupSystemPrompt()` | Interactive multi-turn | Long-lived | `system-prompts.ts` |
 | Experiment Agent | `getExperimentSystemPrompt()` | Context packet (one-shot) | Per-iteration | `experiment.ts` |
 
+## Execution Dashboard (`src/screens/ExecutionScreen.tsx`)
+
+Three-panel dashboard for live experiment monitoring:
+
+- **StatsHeader** — Fixed-height panel: experiment count, keeps/discards/crashes, baseline vs best metric with improvement %, cumulative cost, and a Unicode sparkline of keep-only metric values
+- **ResultsTable** — Scrollable table of experiment outcomes, color-coded by status (green=keep, red=discard/crash, yellow=measurement_failure), auto-scrolls to latest
+- **AgentPanel** — Fixed-height scrollable panel showing streaming agent text output and current tool use status, resets between experiments
+
+State management: ExecutionScreen owns all dashboard state (results array, metric history, streaming text, cost accumulator). Components receive props — no component-local data fetching. LoopCallbacks drive all updates.
+
 ## Results & Events (`src/lib/run.ts`, `src/lib/events.ts`)
 
 Results tracking has two layers:
@@ -213,7 +223,10 @@ core orchestrator loop: context packet building, experiment agent spawning with 
 lock violation detection, measurement + keep/discard decisions, and the main loop that ties
 everything together. Phase 2d (Results Tracking) adds the read-side utilities for results and
 run state, the events.ndjson persistent event log, run listing/discovery, and per-experiment
-cost tracking from the SDK. The TUI shell, screen navigation, program listing, multi-turn
-Claude Agent SDK chat, setup agent (repo inspection, scope definition, artifact generation,
-measurement validation), and model configuration are all implemented. Authentication is
-checked on startup with a helpful error screen if not configured.
+cost tracking from the SDK. Phase 2f (TUI Dashboard) adds the full execution dashboard: stats
+header with sparkline, color-coded results table, and live agent output panel. The dashboard
+is composed of three rendering components (StatsHeader, ResultsTable, AgentPanel) orchestrated
+by ExecutionScreen. The TUI shell, screen navigation, program listing, multi-turn Claude Agent
+SDK chat, setup agent (repo inspection, scope definition, artifact generation, measurement
+validation), and model configuration are all implemented. Authentication is checked on startup
+with a helpful error screen if not configured.

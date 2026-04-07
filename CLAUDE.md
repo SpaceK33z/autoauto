@@ -55,6 +55,10 @@ src/
   App.tsx                # Main layout, keyboard handling, auth check
   components/
     Chat.tsx             # Multi-turn chat with Claude Agent SDK streaming
+    RunCompletePrompt.tsx # Post-run prompt (cleanup or abandon)
+    StatsHeader.tsx      # Run stats + metric sparkline
+    ResultsTable.tsx     # Color-coded experiment results table
+    AgentPanel.tsx       # Live agent streaming output panel
   screens/
     HomeScreen.tsx       # Program list
     SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
@@ -114,6 +118,11 @@ src/
 - Events logging: `events.ndjson` is an append-only event log in each run directory; structural events only (no streaming text)
 - `createEventLogger()` wraps `LoopCallbacks` to emit events alongside in-memory callbacks
 - Cost tracking: `ExperimentCost` on `ExperimentOutcome` captures SDK cost/usage data per experiment
+- Dashboard components are pure rendering — all state lives in ExecutionScreen
+- `onExperimentCost` callback on `LoopCallbacks` provides per-experiment cost data to the TUI
+- Agent streaming text resets on each `onExperimentStart` — never accumulates across experiments
+- Sparkline uses keep-only metric values via `getMetricHistory()` pattern
+- Results table color-codes by status: green=keep, red=discard/crash, yellow=measurement_failure
 
 ## Testing the TUI Interactively
 

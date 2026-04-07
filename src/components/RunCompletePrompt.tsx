@@ -1,10 +1,12 @@
 import { useState } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { RunState } from "../lib/run.ts"
+import { getRunStats } from "../lib/run.ts"
+import type { TerminationReason } from "../lib/experiment-loop.ts"
 
 interface RunCompletePromptProps {
   state: RunState
-  terminationReason: "aborted" | "max_experiments" | "stopped" | null
+  terminationReason: TerminationReason | null
   error: string | null
   onCleanup: () => void
   onAbandon: () => void
@@ -18,12 +20,7 @@ export function RunCompletePrompt({
   onAbandon,
 }: RunCompletePromptProps) {
   const [selected, setSelected] = useState(0)
-
-  const totalExperiments = state.total_keeps + state.total_discards + state.total_crashes
-  const keepRate = totalExperiments > 0 ? state.total_keeps / totalExperiments : 0
-  const improvementPct = state.original_baseline !== 0
-    ? ((state.best_metric - state.original_baseline) / Math.abs(state.original_baseline)) * 100
-    : 0
+  const stats = getRunStats(state)
 
   useKeyboard((key) => {
     if (key.name === "up" || key.name === "k") {
@@ -45,8 +42,8 @@ export function RunCompletePrompt({
     : terminationReason === "max_experiments" ? `Reached max experiments (${state.experiment_number})`
     : "Run complete"
 
-  const improvementStr = improvementPct !== 0
-    ? ` (${improvementPct > 0 ? "+" : ""}${improvementPct.toFixed(1)}%)`
+  const improvementStr = stats.improvement_pct !== 0
+    ? ` (${stats.improvement_pct > 0 ? "+" : ""}${stats.improvement_pct.toFixed(1)}%)`
     : ""
 
   return (
@@ -56,11 +53,11 @@ export function RunCompletePrompt({
         <text>{""}</text>
         <text>Program: {state.program_slug}</text>
         <text>Branch: {state.branch_name}</text>
-        <text>Experiments: {totalExperiments} ({state.total_keeps} kept, {state.total_discards} discarded, {state.total_crashes} crashed)</text>
+        <text>Experiments: {stats.total_experiments} ({stats.total_keeps} kept, {stats.total_discards} discarded, {stats.total_crashes} crashed)</text>
         <text>Original baseline: {state.original_baseline}</text>
         <text>Best metric: {state.best_metric}{improvementStr}</text>
-        {state.total_keeps > 0 && (
-          <text>Keep rate: {(keepRate * 100).toFixed(0)}%</text>
+        {stats.total_keeps > 0 && (
+          <text>Keep rate: {(stats.keep_rate * 100).toFixed(0)}%</text>
         )}
         {error && <text fg="#ff5555">Error: {error}</text>}
 

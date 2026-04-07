@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef } from "react"
 import { useKeyboard } from "@opentui/react"
-import type { Screen } from "../lib/programs.ts"
+import type { Screen, ProgramConfig } from "../lib/programs.ts"
 import { getProgramDir, loadProgramConfig } from "../lib/programs.ts"
 import type { ModelSlot } from "../lib/config.ts"
-import type { RunState } from "../lib/run.ts"
+import type { RunState, ExperimentResult } from "../lib/run.ts"
 import { startRun } from "../lib/run.ts"
 import { checkoutBranch } from "../lib/git.ts"
-import { runExperimentLoop, type LoopCallbacks } from "../lib/experiment-loop.ts"
+import { runExperimentLoop, type LoopCallbacks, type TerminationReason } from "../lib/experiment-loop.ts"
 import { RunCompletePrompt } from "../components/RunCompletePrompt.tsx"
+import { StatsHeader } from "../components/StatsHeader.tsx"
+import { ResultsTable } from "../components/ResultsTable.tsx"
+import { AgentPanel } from "../components/AgentPanel.tsx"
 
 type ExecutionPhase = "starting" | "running" | "complete" | "error"
 
@@ -24,12 +27,21 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, navigate }: Exe
   const [currentPhaseLabel, setCurrentPhaseLabel] = useState("Initializing...")
   const [experimentNumber, setExperimentNumber] = useState(0)
   const [lastError, setLastError] = useState<string | null>(null)
-  const [terminationReason, setTerminationReason] = useState<"aborted" | "max_experiments" | "stopped" | null>(null)
+  const [terminationReason, setTerminationReason] = useState<TerminationReason | null>(null)
   const [originalBranch, setOriginalBranch] = useState<string | null>(null)
-  const abortControllerRef = useRef(new AbortController())
+  const abortControllerRef = useRef<AbortController>(null!)
+
+  // Phase 2f: Dashboard state
+  const [results, setResults] = useState<ExperimentResult[]>([])
+  const [metricHistory, setMetricHistory] = useState<number[]>([])
+  const [agentStreamText, setAgentStreamText] = useState("")
+  const [toolStatus, setToolStatus] = useState<string | null>(null)
+  const [totalCostUsd, setTotalCostUsd] = useState(0)
+  const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
 
   useEffect(() => {
-    const abortController = abortControllerRef.current
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
     let cancelled = false
 
     ;(async () => {
@@ -41,12 +53,14 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, navigate }: Exe
 
         setOriginalBranch(runResult.originalBranch)
         setRunState(runResult.state)
+        setMetricHistory([runResult.state.original_baseline])
         setPhase("running")
         setCurrentPhaseLabel("Running experiments...")
 
-        // 2. Load program config for maxExperiments
+        // 2. Load program config
         const programDir = getProgramDir(cwd, programSlug)
         const config = await loadProgramConfig(programDir)
+        if (!cancelled) setProgramConfig(config)
 
         // 3. Build callbacks
         const callbacks: LoopCallbacks = {
@@ -54,15 +68,31 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, navigate }: Exe
             if (!cancelled) setCurrentPhaseLabel(detail ? `${p}: ${detail}` : p)
           },
           onExperimentStart: (num) => {
-            if (!cancelled) setExperimentNumber(num)
+            if (!cancelled) {
+              setExperimentNumber(num)
+              setAgentStreamText("")
+              setToolStatus(null)
+            }
           },
-          onExperimentEnd: () => {},
+          onExperimentEnd: (result) => {
+            if (!cancelled) {
+              setResults(prev => [...prev, result])
+              if (result.status === "keep") {
+                setMetricHistory(prev => [...prev, result.metric_value])
+              }
+            }
+          },
           onStateUpdate: (s) => {
             if (!cancelled) setRunState(s)
           },
-          onAgentStream: () => {},
+          onAgentStream: (text) => {
+            if (!cancelled) setAgentStreamText(prev => prev + text)
+          },
           onAgentToolUse: (status) => {
-            if (!cancelled) setCurrentPhaseLabel(status)
+            if (!cancelled) setToolStatus(status)
+          },
+          onExperimentCost: (cost) => {
+            if (!cancelled) setTotalCostUsd(prev => prev + cost.total_cost_usd)
           },
           onError: (msg) => {
             if (!cancelled) setLastError(msg)
@@ -104,6 +134,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, navigate }: Exe
     }
   }, [cwd, programSlug, modelConfig])
 
+  const handleExit = () => {
+    if (originalBranch) {
+      checkoutBranch(cwd, originalBranch).catch(() => {})
+    }
+    navigate("home")
+  }
+
   useKeyboard((key) => {
     if (phase === "complete" || phase === "error") {
       if (key.name === "escape") {
@@ -121,22 +158,39 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, navigate }: Exe
   return (
     <box flexDirection="column" flexGrow={1}>
       {(phase === "starting" || phase === "running") && (
-        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`Running: ${programSlug}`}>
-          <box flexDirection="column" padding={1}>
-            <text>
-              <strong>Experiment #{experimentNumber}</strong>
-            </text>
-            <text fg="#888888">{currentPhaseLabel}</text>
-            {runState && (
-              <box flexDirection="column">
-                <text>{""}</text>
-                <text>Baseline: {runState.original_baseline}</text>
-                <text>Current: {runState.current_baseline}</text>
-                <text>Keeps: {runState.total_keeps} | Discards: {runState.total_discards} | Crashes: {runState.total_crashes}</text>
-              </box>
-            )}
-            {lastError && <text fg="#ff5555">{lastError}</text>}
-          </box>
+        <box flexDirection="column" flexGrow={1}>
+          <StatsHeader
+            experimentNumber={experimentNumber}
+            totalKeeps={runState?.total_keeps ?? 0}
+            totalDiscards={runState?.total_discards ?? 0}
+            totalCrashes={runState?.total_crashes ?? 0}
+            currentBaseline={runState?.current_baseline ?? 0}
+            originalBaseline={runState?.original_baseline ?? 0}
+            bestMetric={runState?.best_metric ?? 0}
+            bestExperiment={runState?.best_experiment ?? 0}
+            direction={programConfig?.direction ?? "lower"}
+            metricField={programConfig?.metric_field ?? "metric"}
+            totalCostUsd={totalCostUsd}
+            metricHistory={metricHistory}
+            currentPhaseLabel={currentPhaseLabel}
+          />
+
+          <ResultsTable
+            results={results}
+            metricField={programConfig?.metric_field ?? "metric"}
+          />
+
+          <AgentPanel
+            streamingText={agentStreamText}
+            toolStatus={toolStatus}
+            isRunning={phase === "running"}
+          />
+
+          {lastError && (
+            <box padding={1}>
+              <text fg="#ff5555">{lastError}</text>
+            </box>
+          )}
         </box>
       )}
 
@@ -145,19 +199,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, navigate }: Exe
           state={runState}
           terminationReason={terminationReason}
           error={phase === "error" ? lastError : null}
-          onCleanup={() => {
-            // Phase 3 will implement cleanup. For now, navigate home.
-            if (originalBranch) {
-              checkoutBranch(cwd, originalBranch).catch(() => {})
-            }
-            navigate("home")
-          }}
-          onAbandon={() => {
-            if (originalBranch) {
-              checkoutBranch(cwd, originalBranch).catch(() => {})
-            }
-            navigate("home")
-          }}
+          onCleanup={handleExit}
+          onAbandon={handleExit}
         />
       )}
 

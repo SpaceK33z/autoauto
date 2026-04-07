@@ -132,13 +132,13 @@ export async function getDiscardedDiffs(
   shas: string[],
   maxLength = 2000,
 ): Promise<string> {
-  const diffs = await Promise.all(shas.map((sha) => getCommitDiff(cwd, sha)))
   const parts: string[] = []
   let totalLength = 0
 
-  for (let i = 0; i < shas.length; i++) {
+  for (const sha of shas) {
     if (totalLength >= maxLength) break
-    const entry = `[${shas[i].slice(0, 7)}]\n${diffs[i]}\n`
+    const diff = await getCommitDiff(cwd, sha) // eslint-disable-line no-await-in-loop -- lazy fetch, stops at maxLength
+    const entry = `[${sha.slice(0, 7)}]\n${diff}\n`
     parts.push(entry)
     totalLength += entry.length
   }

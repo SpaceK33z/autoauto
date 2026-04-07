@@ -25,6 +25,7 @@ import {
   buildExperimentPrompt,
   runExperimentAgent,
   checkLockViolation,
+  type ExperimentCost,
 } from "./experiment.ts"
 import { getExperimentSystemPrompt } from "./system-prompts.ts"
 import { createEventLogger } from "./events.ts"
@@ -33,6 +34,8 @@ import { createEventLogger } from "./events.ts"
 const REBASELINE_AFTER_DISCARDS = 5
 
 // --- Types ---
+
+export type TerminationReason = "aborted" | "max_experiments" | "stopped"
 
 /** Callback for the TUI to receive live updates */
 export interface LoopCallbacks {
@@ -43,8 +46,9 @@ export interface LoopCallbacks {
   onAgentStream: (text: string) => void
   onAgentToolUse: (status: string) => void
   onError: (error: string) => void
+  onExperimentCost?: (cost: ExperimentCost) => void
   onRebaseline?: (oldBaseline: number, newBaseline: number, reason: string) => void
-  onLoopComplete?: (state: RunState, reason: "aborted" | "max_experiments" | "stopped") => void
+  onLoopComplete?: (state: RunState, reason: TerminationReason) => void
 }
 
 /** Options to control the experiment loop */
@@ -383,6 +387,7 @@ export async function runExperimentLoop(
     // Log cost data if available
     if (outcome.cost) {
       void eventLogger.logExperimentCost(outcome.cost)
+      callbacks.onExperimentCost?.(outcome.cost)
     }
 
     // --- Abort detection + cleanup ---
