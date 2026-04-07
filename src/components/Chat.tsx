@@ -38,6 +38,10 @@ interface ChatProps {
   effort?: EffortLevel
   /** Auto-submit this message on mount as the first user message */
   initialMessage?: string
+  /** Hint shown in the empty chat area before any messages */
+  emptyStateHint?: string
+  /** Placeholder text for the input field */
+  inputPlaceholder?: string
 }
 
 export function Chat({
@@ -49,6 +53,8 @@ export function Chat({
   model,
   effort,
   initialMessage,
+  emptyStateHint,
+  inputPlaceholder,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streamingText, setStreamingText] = useState("")
@@ -61,6 +67,7 @@ export function Chat({
   // Capture config in refs — the agent session is long-lived and should not
   // restart when parent re-renders. These are stable for the component lifetime.
   const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns, model, effort, initialMessage })
+  const defaultPlaceholder = inputPlaceholder ?? "Ask something..."
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -200,7 +207,7 @@ export function Chat({
       >
         {messages.length === 0 && !streamingText ? (
           <text fg="#888888">
-            Type a message below and press Enter to start a conversation.
+            {emptyStateHint ?? "Type a message below and press Enter to start a conversation."}
           </text>
         ) : (
           <box flexDirection="column">
@@ -249,7 +256,7 @@ export function Chat({
         <input
           key={inputKey}
           placeholder={
-            isStreaming ? "Waiting for response..." : "Ask something..."
+            isStreaming ? "Waiting for response..." : defaultPlaceholder
           }
           focused={!isStreaming}
           onSubmit={handleInputSubmit}

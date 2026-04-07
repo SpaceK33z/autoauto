@@ -21,7 +21,7 @@ const MODE_OPTIONS = [
   },
   {
     name: "I know what I want to optimize",
-    description: "Jump straight into the conversation",
+    description: "Describe your target and start setting up",
     value: "direct",
   },
 ]
@@ -120,6 +120,8 @@ export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
       model={modelConfig.model}
       effort={modelConfig.effort}
       initialMessage={initialMessage}
+      emptyStateHint={!initialMessage ? 'Describe what you want to optimize — e.g. "reduce bundle size", "improve API latency", "increase test coverage".' : undefined}
+      inputPlaceholder={!initialMessage ? 'e.g. "I want to reduce the homepage load time"' : undefined}
     />
   )
 }
