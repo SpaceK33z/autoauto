@@ -1,7 +1,7 @@
 import { memo } from "react"
 import type { RunInfo, RunState } from "../lib/run.ts"
 import type { ProgramConfig } from "../lib/programs.ts"
-import { padRight, truncate } from "../lib/format.ts"
+import { allocateColumnWidths, formatCell } from "../lib/format.ts"
 
 export interface RunsTableProps {
   runs: RunInfo[]
@@ -104,15 +104,25 @@ const COL_TIME = 9
 const COL_GAINS_MIN = 16
 const CHROME = 4 // border + padding
 
+interface RunColumnWidths {
+  status: number
+  program: number
+  exp: number
+  model: number
+  tokens: number
+  time: number
+  gains: number
+}
+
 const RunRow = memo(function RunRow({
   run,
   config,
-  gainsWidth,
+  widths,
   selected,
 }: {
   run: RunInfo
   config: ProgramConfig | undefined
-  gainsWidth: number
+  widths: RunColumnWidths
   selected: boolean
 }) {
   const state = run.state
@@ -126,13 +136,13 @@ const RunRow = memo(function RunRow({
   return (
     <box paddingX={1} backgroundColor={selected ? "#333333" : undefined}>
       <text selectable>
-        <span fg={dotColor}>{"● "}</span>
-        <span fg="#c0caf5">{padRight(truncate(slug, COL_PROGRAM - 1), COL_PROGRAM)}</span>
-        <span fg="#a9b1d6">{padRight(String(totalExp), COL_EXP)}</span>
-        <span fg="#a9b1d6">{padRight(formatModelEffort(state), COL_MODEL)}</span>
-        <span fg="#a9b1d6">{padRight(formatTokens(state.total_tokens), COL_TOKENS)}</span>
-        <span fg="#a9b1d6">{padRight(formatDuration(state.started_at, state.updated_at, state.phase), COL_TIME)}</span>
-        <span fg={gains.color}>{padRight(truncate(gains.text, gainsWidth), gainsWidth)}</span>
+        <span fg={dotColor}>{formatCell("● ", widths.status)}</span>
+        <span fg="#c0caf5">{formatCell(slug, widths.program)}</span>
+        <span fg="#a9b1d6">{formatCell(String(totalExp), widths.exp)}</span>
+        <span fg="#a9b1d6">{formatCell(formatModelEffort(state), widths.model)}</span>
+        <span fg="#a9b1d6">{formatCell(formatTokens(state.total_tokens), widths.tokens)}</span>
+        <span fg="#a9b1d6">{formatCell(formatDuration(state.started_at, state.updated_at, state.phase), widths.time)}</span>
+        <span fg={gains.color}>{formatCell(gains.text, widths.gains)}</span>
       </text>
     </box>
   )
@@ -141,7 +151,24 @@ const RunRow = memo(function RunRow({
 export function RunsTable({ runs, programConfigs, width, focused = false, selectedIndex = 0 }: RunsTableProps) {
   const innerWidth = Math.max(width - CHROME, 0)
   const fixedWidth = COL_STATUS + COL_PROGRAM + COL_EXP + COL_MODEL + COL_TOKENS + COL_TIME
-  const gainsWidth = Math.max(innerWidth - fixedWidth, COL_GAINS_MIN)
+  const [statusWidth, programWidth, expWidth, modelWidth, tokensWidth, timeWidth, gainsWidth] = allocateColumnWidths(innerWidth, [
+    { ideal: COL_STATUS, min: 0 },
+    { ideal: COL_PROGRAM, min: 8 },
+    { ideal: COL_EXP, min: 0 },
+    { ideal: COL_MODEL, min: 0 },
+    { ideal: COL_TOKENS, min: 0 },
+    { ideal: COL_TIME, min: 0 },
+    { ideal: Math.max(innerWidth - fixedWidth, COL_GAINS_MIN), min: 0 },
+  ])
+  const widths = {
+    status: statusWidth,
+    program: programWidth,
+    exp: expWidth,
+    model: modelWidth,
+    tokens: tokensWidth,
+    time: timeWidth,
+    gains: gainsWidth,
+  }
 
   const validRuns = runs.filter((r) => r.state != null)
 
@@ -150,13 +177,13 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
       {/* Header */}
       <box paddingX={1}>
         <text fg="#565f89">
-          {"  "}
-          {padRight("program", COL_PROGRAM)}
-          {padRight("exp", COL_EXP)}
-          {padRight("model", COL_MODEL)}
-          {padRight("tokens", COL_TOKENS)}
-          {padRight("time", COL_TIME)}
-          {padRight("gains", gainsWidth)}
+          {formatCell("", widths.status)}
+          {formatCell("program", widths.program)}
+          {formatCell("exp", widths.exp)}
+          {formatCell("model", widths.model)}
+          {formatCell("tokens", widths.tokens)}
+          {formatCell("time", widths.time)}
+          {formatCell("gains", widths.gains)}
         </text>
       </box>
 
@@ -171,7 +198,7 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
               key={`${run.state!.program_slug}-${run.run_id}`}
               run={run}
               config={programConfigs[run.state!.program_slug]}
-              gainsWidth={gainsWidth}
+              widths={widths}
               selected={focused && index === selectedIndex}
             />
           ))

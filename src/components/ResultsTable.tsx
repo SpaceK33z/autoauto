@@ -1,7 +1,7 @@
 import { memo, useState, useEffect } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { ExperimentResult, ExperimentStatus } from "../lib/run.ts"
-import { padRight, truncate } from "../lib/format.ts"
+import { allocateColumnWidths, formatCell } from "../lib/format.ts"
 
 interface ResultsTableProps {
   results: ExperimentResult[]
@@ -23,17 +23,25 @@ export function statusColor(status: ExperimentStatus): string {
 }
 
 
-const ResultRow = memo(function ResultRow({ result: r, descWidth, highlighted, selected }: { result: ExperimentResult; descWidth: number; highlighted?: boolean; selected?: boolean }) {
+interface ResultColumnWidths {
+  number: number
+  commit: number
+  metric: number
+  status: number
+  description: number
+}
+
+const ResultRow = memo(function ResultRow({ result: r, widths, highlighted, selected }: { result: ExperimentResult; widths: ResultColumnWidths; highlighted?: boolean; selected?: boolean }) {
   const bg = selected ? "#3d59a1" : highlighted ? "#292e42" : undefined
   const fg = statusColor(r.status)
   return (
     <box paddingX={1} backgroundColor={bg}>
       <text fg={fg} selectable>
-        {padRight(String(r.experiment_number), 4)}
-        {padRight(r.commit, 9)}
-        {padRight(r.metric_value != null ? String(r.metric_value) : "—", 12)}
-        {padRight(r.status, 12)}
-        {truncate(r.description, descWidth)}
+        {formatCell(String(r.experiment_number), widths.number)}
+        {formatCell(r.commit, widths.commit)}
+        {formatCell(r.metric_value != null ? String(r.metric_value) : "—", widths.metric)}
+        {formatCell(r.status, widths.status)}
+        {formatCell(r.description, widths.description)}
       </text>
     </box>
   )
@@ -46,7 +54,21 @@ const CHROME_WIDTH = 4
 export function ResultsTable({ results, metricField, width, experimentNumber, focused, selectedResult, onSelect }: ResultsTableProps) {
   // Skip the baseline row (#0) — it's in the stats header
   const experiments = results.filter(r => r.experiment_number > 0)
-  const descWidth = Math.max(width - CHROME_WIDTH - FIXED_COLS_WIDTH, 10)
+  const innerWidth = Math.max(width - CHROME_WIDTH, 0)
+  const [numberWidth, commitWidth, metricWidth, statusWidth, descWidth] = allocateColumnWidths(innerWidth, [
+    { ideal: 4, min: 2 },
+    { ideal: 9, min: 0 },
+    { ideal: 12, min: 0 },
+    { ideal: 12, min: 0 },
+    { ideal: Math.max(innerWidth - FIXED_COLS_WIDTH, 0), min: 0 },
+  ])
+  const widths = {
+    number: numberWidth,
+    commit: commitWidth,
+    metric: metricWidth,
+    status: statusWidth,
+    description: descWidth,
+  }
   const [highlightIndex, setHighlightIndex] = useState(0)
 
   // Reset highlight to latest row when table gains focus
@@ -75,7 +97,7 @@ export function ResultsTable({ results, metricField, width, experimentNumber, fo
     <box flexDirection="column" flexGrow={1}>
       <box paddingX={1}>
         <text fg="#a9b1d6">
-          {padRight("#", 4)}{padRight("commit", 9)}{padRight(metricField, 12)}{padRight("status", 12)}{padRight("description", descWidth)}
+          {formatCell("#", widths.number)}{formatCell("commit", widths.commit)}{formatCell(metricField, widths.metric)}{formatCell("status", widths.status)}{formatCell("description", widths.description)}
         </text>
       </box>
       <scrollbox flexGrow={1} stickyScroll={!focused} stickyStart="bottom">
@@ -92,7 +114,7 @@ export function ResultsTable({ results, metricField, width, experimentNumber, fo
             <ResultRow
               key={r.experiment_number}
               result={r}
-              descWidth={descWidth}
+              widths={widths}
               highlighted={focused && i === safeHighlight}
               selected={selectedResult?.experiment_number === r.experiment_number}
             />
