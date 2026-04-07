@@ -28,8 +28,8 @@ High-level tasks to complete the orchestrator loop described in [IDEA.md](./IDEA
 
 ## 2d. Results Tracking
 
-- [ ] Append each experiment to `results.tsv` (experiment#, commit, metric_value, secondary_values, status, description)
-- [ ] Write/update `state.json` (current experiment #, status, baseline)
+- [x] Append each experiment to `results.tsv` (experiment#, commit, metric_value, secondary_values, status, description)
+- [x] Write/update `state.json` (current experiment #, status, baseline)
 
 ## 2e. Run Termination
 
