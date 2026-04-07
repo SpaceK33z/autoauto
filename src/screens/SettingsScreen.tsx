@@ -94,7 +94,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Support Model "}</strong></text>
-        <text fg="#888888">{"(setup & cleanup)"}</text>
+        <text fg="#888888">{"(setup & finalize)"}</text>
       </box>
       <CycleField
         label="Model"

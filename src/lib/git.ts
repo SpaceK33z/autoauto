@@ -104,6 +104,32 @@ export async function squashCommits(
   return getFullSha(cwd)
 }
 
+/** Creates a group branch from baseline, applying only the specified files from headSha.
+ *  Used by finalize to split kept experiments into independent, mergeable branches.
+ *  Returns the new commit SHA. */
+export async function createGroupBranch(
+  cwd: string,
+  branchName: string,
+  baselineSha: string,
+  headSha: string,
+  files: string[],
+  commitMessage: string,
+): Promise<string> {
+  // Delete stale branch from a previous crashed attempt
+  if (await branchExists(cwd, branchName)) {
+    await $`git branch -D ${branchName}`.cwd(cwd).quiet()
+  }
+
+  await $`git checkout -b ${branchName} ${baselineSha}`.cwd(cwd).quiet()
+
+  // Stage only this group's files from the final experiment state
+  await $`git checkout ${headSha} -- ${files}`.cwd(cwd).quiet()
+
+  await $`git commit -m ${commitMessage}`.cwd(cwd).quiet()
+
+  return getFullSha(cwd)
+}
+
 /** Returns formatted diff summaries for discarded commits, capped at maxLength chars. */
 export async function getDiscardedDiffs(
   cwd: string,

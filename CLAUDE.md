@@ -56,7 +56,7 @@ src/
   daemon.ts              # Background daemon entry point (detached process)
   components/
     Chat.tsx             # Multi-turn chat with Claude Agent SDK streaming
-    RunCompletePrompt.tsx # Post-run prompt (cleanup or abandon)
+    RunCompletePrompt.tsx # Post-run prompt (finalize or abandon)
     StatsHeader.tsx      # Run stats + metric sparkline
     ResultsTable.tsx     # Navigable experiment results table (Tab to focus, j/k/arrows to browse, Enter to inspect)
     AgentPanel.tsx       # Live agent streaming output OR experiment detail view
@@ -82,6 +82,7 @@ src/
     daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (per-experiment stream log writes)
     daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
     daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
+    finalize.ts            # Post-run finalize: agent review, group branches, squash fallback
 ```
 
 ## Bun-Native API Conventions
@@ -139,7 +140,7 @@ writer.end()    // close when done
 - The validation script runs measure.sh multiple times and computes variance statistics (CV%)
 - Config recommendations (noise_threshold, repeats) are based on observed CV%
 - Model configuration (model alias + effort level) stored in `.autoauto/config.json`
-- Two model slots: `executionModel` (for experiment agents) and `supportModel` (for setup/cleanup)
+- Two model slots: `executionModel` (for experiment agents) and `supportModel` (for setup/finalize)
 - Defaults: Sonnet + high effort for both slots
 - Model/effort passed to `query()` via `model` and `effort` options
 - Auth checked on startup via SDK `accountInfo()` — supports API key, OAuth, and cloud providers
@@ -173,7 +174,7 @@ writer.end()    // close when done
 - Daemon runs in AutoAuto-owned git worktree — `git reset --hard` only allowed inside worktree, never main checkout
 - Per-program locking at `.autoauto/programs/<slug>/run.lock` — multiple programs can run concurrently
 - RunState includes `total_cost_usd`, `termination_reason`, `original_branch`, `worktree_path`, `error`, `error_phase` for daemon reconnection
-- Cleanup runs in-process in the TUI (not in daemon) — reads `worktree_path` from state.json
+- Finalize runs in-process in the TUI (not in daemon) — reads `worktree_path` from state.json; groups changes into independent branches or squashes as fallback
 
 ## Testing the TUI Interactively
 

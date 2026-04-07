@@ -9,7 +9,7 @@ interface RunCompletePromptProps {
   direction: "lower" | "higher"
   terminationReason: TerminationReason | null
   error: string | null
-  onCleanup: () => void
+  onFinalize: () => void
   onAbandon: () => void
 }
 
@@ -18,7 +18,7 @@ export function RunCompletePrompt({
   direction,
   terminationReason,
   error,
-  onCleanup,
+  onFinalize,
   onAbandon,
 }: RunCompletePromptProps) {
   const [selected, setSelected] = useState(0)
@@ -30,10 +30,10 @@ export function RunCompletePrompt({
     } else if (key.name === "down" || key.name === "j") {
       setSelected(1)
     } else if (key.name === "return") {
-      if (selected === 0) onCleanup()
+      if (selected === 0) onFinalize()
       else onAbandon()
-    } else if (key.name === "c") {
-      onCleanup()
+    } else if (key.name === "f") {
+      onFinalize()
     } else if (key.name === "a") {
       onAbandon()
     }
@@ -68,7 +68,7 @@ export function RunCompletePrompt({
         <box height={1} />
         <text fg={selected === 0 ? "#ffffff" : "#888888"}>
           {selected === 0 ? " > " : "   "}
-          Run cleanup (review & package changes)
+          Finalize (review & package changes)
         </text>
         <text fg={selected === 1 ? "#ffffff" : "#888888"}>
           {selected === 1 ? " > " : "   "}

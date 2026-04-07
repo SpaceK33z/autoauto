@@ -24,7 +24,7 @@ function phaseColor(state: RunState | null): string {
     case "crashed":
       return "#ff5555" // red
     case "stopping":
-    case "cleaning_up":
+    case "finalizing":
       return "#e0af68" // yellow
     default:
       return "#565f89" // dim
