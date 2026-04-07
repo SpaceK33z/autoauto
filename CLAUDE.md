@@ -71,6 +71,7 @@ src/
     system-prompts.ts    # Agent system prompts (setup, ideation)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
+    events.ts              # Event logging (events.ndjson) for run audit trail
     experiment.ts          # Experiment agent spawning, context packets, lock detection
     experiment-loop.ts     # Main experiment loop orchestrator
 ```
@@ -108,6 +109,11 @@ src/
 - AbortSignal (`options.signal`) provides cooperative cancellation for stop/abort
 - Re-baseline after keeps: `runMeasurementAndDecide()` runs a fresh measurement series after each keep; falls back to candidate measurement if re-baseline fails
 - Re-baseline after consecutive discards: `maybeRebaseline()` runs drift detection every `REBASELINE_AFTER_DISCARDS` (5) non-keep outcomes; updates baseline if drift exceeds noise threshold
+- Results reading: `readAllResults()` returns typed `ExperimentResult[]` from results.tsv; `getMetricHistory()` extracts keep-only metric values for charts
+- Run listing: `listRuns()` enumerates runs for a program with their states; `getLatestRun()` returns the most recent
+- Events logging: `events.ndjson` is an append-only event log in each run directory; structural events only (no streaming text)
+- `createEventLogger()` wraps `LoopCallbacks` to emit events alongside in-memory callbacks
+- Cost tracking: `ExperimentCost` on `ExperimentOutcome` captures SDK cost/usage data per experiment
 
 ## Testing the TUI Interactively
 

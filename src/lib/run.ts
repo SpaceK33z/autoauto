@@ -1,4 +1,4 @@
-import { readFile, writeFile, appendFile, rename, mkdir, chmod } from "node:fs/promises"
+import { readFile, writeFile, appendFile, rename, mkdir, chmod, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import { getProgramDir, loadProgramConfig } from "./programs.ts"
 import { runMeasurementSeries } from "./measure.ts"
@@ -90,6 +90,9 @@ export async function initRunDir(programDir: string, runId: string): Promise<str
     "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\n",
   )
 
+  // Initialize events.ndjson as empty file
+  await writeFile(join(runDir, "events.ndjson"), "")
+
   return runDir
 }
 
@@ -115,14 +118,10 @@ export async function appendResult(runDir: string, result: ExperimentResult): Pr
   await appendFile(join(runDir, "results.tsv"), line)
 }
 
-// --- Results Reading ---
+// --- Results Parsing (synchronous — operate on pre-read content) ---
 
-/** Reads results.tsv header + last N data rows as a string. */
-export async function readRecentResults(
-  runDir: string,
-  count = 15,
-): Promise<string> {
-  const raw = await readFile(join(runDir, "results.tsv"), "utf-8")
+/** Formats header + last N data rows from raw results.tsv content. */
+export function formatRecentResults(raw: string, count = 15): string {
   const lines = raw.split("\n").filter(Boolean)
   if (lines.length <= 1) return lines.join("\n")
 
@@ -132,11 +131,8 @@ export async function readRecentResults(
   return [header, ...recent].join("\n")
 }
 
-/** Parses the last row of results.tsv into a typed object. */
-export async function parseLastResult(
-  runDir: string,
-): Promise<ExperimentResult | null> {
-  const raw = await readFile(join(runDir, "results.tsv"), "utf-8")
+/** Parses the last row of raw results.tsv content into a typed object. */
+export function parseLastResult(raw: string): ExperimentResult | null {
   const lines = raw.trim().split("\n")
   if (lines.length <= 1) return null // only header
 
@@ -154,12 +150,8 @@ export async function parseLastResult(
   }
 }
 
-/** Returns SHAs of recent discarded/crashed experiments for the context packet. */
-export async function getDiscardedCommitShas(
-  runDir: string,
-  count = 5,
-): Promise<string[]> {
-  const raw = await readFile(join(runDir, "results.tsv"), "utf-8")
+/** Extracts SHAs of recent discarded/crashed experiments from raw results.tsv content. */
+export function parseDiscardedShas(raw: string, count = 5): string[] {
   const lines = raw.trim().split("\n")
   const shas: string[] = []
 
@@ -174,6 +166,126 @@ export async function getDiscardedCommitShas(
   }
 
   return shas
+}
+
+// --- Results Reading ---
+
+/** Parses the entire results.tsv into a typed array. */
+export async function readAllResults(runDir: string): Promise<ExperimentResult[]> {
+  const raw = await readFile(join(runDir, "results.tsv"), "utf-8")
+  const lines = raw.trim().split("\n")
+  if (lines.length <= 1) return [] // only header
+
+  const results: ExperimentResult[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split("\t")
+    if (parts.length < 6) continue
+    results.push({
+      experiment_number: parseInt(parts[0], 10),
+      commit: parts[1],
+      metric_value: parseFloat(parts[2]),
+      secondary_values: parts[3],
+      status: parts[4] as ExperimentStatus,
+      description: parts[5],
+    })
+  }
+  return results
+}
+
+/** Extracts metric values from keep results for sparkline/chart rendering. */
+export function getMetricHistory(results: ExperimentResult[]): number[] {
+  return results
+    .filter((r) => r.status === "keep")
+    .map((r) => r.metric_value)
+}
+
+/** Derived statistics from results + state for the TUI dashboard. */
+export interface RunStats {
+  total_experiments: number
+  total_keeps: number
+  total_discards: number
+  total_crashes: number
+  keep_rate: number
+  improvement_pct: number
+  current_improvement_pct: number
+  metric_direction: "lower" | "higher" | null
+}
+
+/** Computes derived statistics from results + state. */
+export function getRunStats(results: ExperimentResult[], state: RunState): RunStats {
+  const experiments = results.filter((r) => r.experiment_number > 0)
+  const keeps = experiments.filter((r) => r.status === "keep")
+  const discards = experiments.filter((r) => r.status === "discard")
+  const crashes = experiments.filter((r) => r.status === "crash" || r.status === "measurement_failure")
+
+  const total = experiments.length
+
+  const improvementPct = state.original_baseline !== 0
+    ? ((state.best_metric - state.original_baseline) / Math.abs(state.original_baseline)) * 100
+    : 0
+
+  const currentImprovementPct = state.original_baseline !== 0
+    ? ((state.current_baseline - state.original_baseline) / Math.abs(state.original_baseline)) * 100
+    : 0
+
+  return {
+    total_experiments: total,
+    total_keeps: keeps.length,
+    total_discards: discards.length,
+    total_crashes: crashes.length,
+    keep_rate: total > 0 ? keeps.length / total : 0,
+    improvement_pct: improvementPct,
+    current_improvement_pct: currentImprovementPct,
+    metric_direction: null,
+  }
+}
+
+// --- Run Listing ---
+
+/** Metadata for a run, used in list views. */
+export interface RunInfo {
+  run_id: string
+  run_dir: string
+  state: RunState | null
+  started_at: string | null
+}
+
+/** Lists all runs for a program, sorted newest first. */
+export async function listRuns(programDir: string): Promise<RunInfo[]> {
+  const runsDir = join(programDir, "runs")
+  let entries: string[]
+  try {
+    const dirents = await readdir(runsDir, { withFileTypes: true })
+    entries = dirents.filter((e) => e.isDirectory()).map((e) => e.name)
+  } catch {
+    return []
+  }
+
+  const runs: RunInfo[] = []
+  for (const runId of entries) {
+    const runDir = join(runsDir, runId)
+    let state: RunState | null = null
+    try {
+      state = await readState(runDir)
+    } catch {
+      // state.json missing or corrupt
+    }
+    runs.push({
+      run_id: runId,
+      run_dir: runDir,
+      state,
+      started_at: state?.started_at ?? null,
+    })
+  }
+
+  runs.sort((a, b) => b.run_id.localeCompare(a.run_id))
+  return runs
+}
+
+/** Returns the most recent run for a program. */
+export async function getLatestRun(programDir: string): Promise<RunInfo | null> {
+  const runs = await listRuns(programDir)
+  return runs.length > 0 ? runs[0] : null
 }
 
 // --- High-Level Orchestration ---

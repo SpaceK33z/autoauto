@@ -26,6 +26,7 @@ import {
   checkLockViolation,
 } from "./experiment.ts"
 import { getExperimentSystemPrompt } from "./system-prompts.ts"
+import { createEventLogger } from "./events.ts"
 
 /** Re-measure baseline after this many consecutive discards to check for environment drift. */
 const REBASELINE_AFTER_DISCARDS = 5
@@ -288,35 +289,70 @@ export async function runExperimentLoop(
   let state = await readState(runDir)
   let consecutiveDiscards = 0
 
+  // Event logger: persists structural events to events.ndjson alongside in-memory callbacks
+  const eventLogger = createEventLogger(runDir, () => state.experiment_number)
+  void eventLogger.logRunStart(state)
+
+  // Wrap callbacks to emit events alongside TUI updates
+  const wrappedCallbacks: LoopCallbacks = {
+    ...callbacks,
+    onPhaseChange: (phase, detail) => {
+      callbacks.onPhaseChange(phase, detail)
+      void eventLogger.logPhaseChange(phase, detail)
+    },
+    onExperimentStart: (num) => {
+      callbacks.onExperimentStart(num)
+      void eventLogger.logExperimentStart(num)
+    },
+    onExperimentEnd: (result) => {
+      callbacks.onExperimentEnd(result)
+      void eventLogger.logExperimentEnd(result)
+    },
+    onError: (msg) => {
+      callbacks.onError(msg)
+      void eventLogger.logError(msg)
+    },
+    onRebaseline: (oldB, newB, reason) => {
+      callbacks.onRebaseline?.(oldB, newB, reason)
+      void eventLogger.logRebaseline(oldB, newB, reason)
+    },
+    onAgentToolUse: (status) => {
+      callbacks.onAgentToolUse(status)
+      void eventLogger.logAgentTool(status)
+    },
+    onStateUpdate: callbacks.onStateUpdate,
+    onAgentStream: callbacks.onAgentStream,
+  }
+
   while (true) {
     // --- Check stop conditions ---
     if (options.signal?.aborted) {
       state = { ...state, phase: "stopping", updated_at: now() }
       await writeState(runDir, state)
-      callbacks.onPhaseChange("stopping", "manually stopped")
+      wrappedCallbacks.onPhaseChange("stopping", "manually stopped")
       break
     }
 
     // Warn on consecutive discards — agent may be stuck
     if (consecutiveDiscards >= 10) {
-      callbacks.onError(`Warning: ${consecutiveDiscards} consecutive discards. Agent may be stuck — consider stopping and reviewing results.`)
+      wrappedCallbacks.onError(`Warning: ${consecutiveDiscards} consecutive discards. Agent may be stuck — consider stopping and reviewing results.`)
     }
 
     if (options.maxExperiments && state.experiment_number >= options.maxExperiments) {
       state = { ...state, phase: "complete", updated_at: now() }
       await writeState(runDir, state)
-      callbacks.onPhaseChange("complete", `reached max experiments (${options.maxExperiments})`)
+      wrappedCallbacks.onPhaseChange("complete", `reached max experiments (${options.maxExperiments})`)
       break
     }
 
     // --- Start new experiment ---
     const experimentNumber = state.experiment_number + 1
-    callbacks.onExperimentStart(experimentNumber)
+    wrappedCallbacks.onExperimentStart(experimentNumber)
 
     state = { ...state, phase: "agent_running", experiment_number: experimentNumber, updated_at: now() }
     await writeState(runDir, state)
-    callbacks.onPhaseChange("agent_running")
-    callbacks.onStateUpdate(state)
+    wrappedCallbacks.onPhaseChange("agent_running")
+    wrappedCallbacks.onStateUpdate(state)
 
     // --- Build context packet ---
     const packet = await buildContextPacket(
@@ -334,49 +370,36 @@ export async function runExperimentLoop(
       userPrompt,
       modelConfig,
       startSha,
-      (text) => callbacks.onAgentStream(text),
-      (status) => callbacks.onAgentToolUse(status),
+      (text) => wrappedCallbacks.onAgentStream(text),
+      (status) => wrappedCallbacks.onAgentToolUse(status),
       options.signal,
     )
 
-    // --- Handle no-commit or error ---
-    if (outcome.type === "no_commit") {
-      const noCommitResult: ExperimentResult = {
-        experiment_number: experimentNumber,
-        commit: startSha.slice(0, 7),
-        metric_value: 0,
-        secondary_values: "",
-        status: "crash",
-        description: "no commit produced",
-      }
-      await appendResult(runDir, noCommitResult)
-      callbacks.onExperimentEnd(noCommitResult)
-
-      state = { ...state, total_crashes: state.total_crashes + 1, phase: "idle", updated_at: now() }
-      await writeState(runDir, state)
-      callbacks.onStateUpdate(state)
-      consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, callbacks)
-      continue
+    // Log cost data if available
+    if (outcome.cost) {
+      void eventLogger.logExperimentCost(experimentNumber, outcome.cost)
     }
 
-    if (outcome.type === "agent_error") {
-      const errorResult: ExperimentResult = {
+    // --- Handle no-commit or error (no code change — skip drift check) ---
+    if (outcome.type === "no_commit" || outcome.type === "agent_error") {
+      const crashDesc = outcome.type === "no_commit"
+        ? "no commit produced"
+        : `agent error: ${outcome.error}`
+      const crashResult: ExperimentResult = {
         experiment_number: experimentNumber,
         commit: startSha.slice(0, 7),
         metric_value: 0,
         secondary_values: "",
         status: "crash",
-        description: `agent error: ${outcome.error}`,
+        description: crashDesc,
       }
-      await appendResult(runDir, errorResult)
-      callbacks.onExperimentEnd(errorResult)
+      await appendResult(runDir, crashResult)
+      wrappedCallbacks.onExperimentEnd(crashResult)
 
       state = { ...state, total_crashes: state.total_crashes + 1, phase: "idle", updated_at: now() }
       await writeState(runDir, state)
-      callbacks.onStateUpdate(state)
+      wrappedCallbacks.onStateUpdate(state)
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, callbacks)
       continue
     }
 
@@ -388,7 +411,7 @@ export async function runExperimentLoop(
     // --- Check lock violation ---
     const lockCheck = checkLockViolation(outcome.files_changed)
     if (lockCheck.violated) {
-      callbacks.onPhaseChange("reverting", `lock violation: ${lockCheck.files.join(", ")}`)
+      wrappedCallbacks.onPhaseChange("reverting", `lock violation: ${lockCheck.files.join(", ")}`)
 
       state = { ...state, phase: "reverting", updated_at: now() }
       await writeState(runDir, state)
@@ -404,27 +427,27 @@ export async function runExperimentLoop(
         description: `lock violation: modified ${lockCheck.files.join(", ")} — ${outcome.description}`,
       }
       await appendResult(runDir, lockResult)
-      callbacks.onExperimentEnd(lockResult)
+      wrappedCallbacks.onExperimentEnd(lockResult)
 
       state = { ...state, total_discards: state.total_discards + 1, candidate_sha: null, phase: "idle", updated_at: now() }
       await writeState(runDir, state)
-      callbacks.onStateUpdate(state)
+      wrappedCallbacks.onStateUpdate(state)
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, callbacks)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks)
       continue
     }
 
     // --- Check commit count (warn if multiple) ---
     const commitCount = await countCommitsBetween(projectRoot, startSha, candidateSha)
     if (commitCount > 1) {
-      callbacks.onError(`Warning: agent made ${commitCount} commits (expected 1). Proceeding with measurement.`)
+      wrappedCallbacks.onError(`Warning: agent made ${commitCount} commits (expected 1). Proceeding with measurement.`)
     }
 
     // --- Hand off to measurement ---
     const measurementResult = await runMeasurementAndDecide(
       projectRoot, runDir, measureShPath,
       config, state, startSha, candidateSha, outcome.description,
-      callbacks,
+      wrappedCallbacks,
     )
 
     state = measurementResult.state
@@ -432,10 +455,10 @@ export async function runExperimentLoop(
       consecutiveDiscards = 0
     } else {
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, callbacks)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks)
     }
 
-    callbacks.onStateUpdate(state)
+    wrappedCallbacks.onStateUpdate(state)
   }
 
   // --- Finalize ---
@@ -444,10 +467,11 @@ export async function runExperimentLoop(
   const finalState: RunState = {
     ...state,
     phase: state.phase === "stopping" ? "complete" as const : state.phase,
-    updated_at: new Date().toISOString(),
+    updated_at: now(),
   }
   await writeState(runDir, finalState)
-  callbacks.onStateUpdate(finalState)
+  await eventLogger.logRunComplete(finalState)
+  wrappedCallbacks.onStateUpdate(finalState)
 
   return finalState
 }

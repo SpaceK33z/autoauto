@@ -63,6 +63,7 @@ src/
     system-prompts.ts    # Agent system prompts (setup, ideation)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
+    events.ts              # Event logging (events.ndjson) for run audit trail
     experiment.ts          # Experiment agent spawning, context packets, lock detection
     experiment-loop.ts     # Main experiment loop orchestrator
 ```
@@ -181,6 +182,28 @@ Manages per-iteration experiment agent sessions:
 | Setup Agent | `getSetupSystemPrompt()` | Interactive multi-turn | Long-lived | `system-prompts.ts` |
 | Experiment Agent | `getExperimentSystemPrompt()` | Context packet (one-shot) | Per-iteration | `experiment.ts` |
 
+## Results & Events (`src/lib/run.ts`, `src/lib/events.ts`)
+
+Results tracking has two layers:
+
+- **Write side** (Phases 2a–2c): `appendResult()` and `writeState()` called at every decision point
+- **Read side** (Phase 2d): `readAllResults()`, `getMetricHistory()`, `getRunStats()` for TUI consumption
+
+Run discovery:
+- `listRuns()` — enumerates all runs for a program, reads their states
+- `getLatestRun()` — returns the most recent run
+
+Event logging:
+- `events.ndjson` — append-only structural event log per run
+- Events emitted via `createEventLogger()` wrapper around `LoopCallbacks`
+- Structural events only (phase changes, experiment outcomes, errors) — no streaming text
+- Used for debugging and forward-compatible with Phase 4 daemon IPC
+
+Cost tracking:
+- `ExperimentCost` captured from SDK `SDKResultMessage` at end of each agent session
+- Logged to events.ndjson as `experiment_cost` events
+- Not in results.tsv (avoids format migration)
+
 ## Current State
 
 Phase 1 (Setup) is complete. Phase 2a (Branch & Baseline) adds the run lifecycle utilities:
@@ -188,7 +211,9 @@ experiment branch creation, baseline measurement, state persistence, evaluator l
 the `startRun()` orchestrator that ties it all together. Phase 2b (Experiment Loop) adds the
 core orchestrator loop: context packet building, experiment agent spawning with streaming,
 lock violation detection, measurement + keep/discard decisions, and the main loop that ties
-everything together. The TUI shell, screen navigation, program listing, multi-turn Claude
-Agent SDK chat, setup agent (repo inspection, scope definition, artifact generation,
+everything together. Phase 2d (Results Tracking) adds the read-side utilities for results and
+run state, the events.ndjson persistent event log, run listing/discovery, and per-experiment
+cost tracking from the SDK. The TUI shell, screen navigation, program listing, multi-turn
+Claude Agent SDK chat, setup agent (repo inspection, scope definition, artifact generation,
 measurement validation), and model configuration are all implemented. Authentication is
 checked on startup with a helpful error screen if not configured.

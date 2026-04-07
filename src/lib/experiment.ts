@@ -1,13 +1,13 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { query } from "@anthropic-ai/claude-agent-sdk"
+import { query, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk"
 import type { RunState } from "./run.ts"
-import type { ProgramConfig } from "./programs.ts"
 import type { ModelSlot } from "./config.ts"
-import { readRecentResults, parseLastResult, getDiscardedCommitShas } from "./run.ts"
+import { formatRecentResults, parseLastResult, parseDiscardedShas } from "./run.ts"
 import {
   getFullSha,
   getRecentLog,
+  getLatestCommitMessage,
   getFilesChangedBetween,
   getDiscardedDiffs,
 } from "./git.ts"
@@ -34,11 +34,21 @@ export interface ContextPacket {
   discarded_diffs: string
 }
 
+/** Cost and usage data from the SDK result message */
+export interface ExperimentCost {
+  total_cost_usd: number
+  duration_ms: number
+  duration_api_ms: number
+  num_turns: number
+  input_tokens: number
+  output_tokens: number
+}
+
 /** Result of running one experiment agent session */
 export type ExperimentOutcome =
-  | { type: "committed"; sha: string; description: string; files_changed: string[] }
-  | { type: "no_commit" }
-  | { type: "agent_error"; error: string }
+  | { type: "committed"; sha: string; description: string; files_changed: string[]; cost?: ExperimentCost }
+  | { type: "no_commit"; cost?: ExperimentCost }
+  | { type: "agent_error"; error: string; cost?: ExperimentCost }
 
 /** Result of checking whether locked files were modified */
 export interface LockViolation {
@@ -54,14 +64,18 @@ export async function buildContextPacket(
   programDir: string,
   runDir: string,
   state: RunState,
-  config: ProgramConfig,
+  config: { metric_field: string; direction: "lower" | "higher" },
 ): Promise<ContextPacket> {
-  const programMd = await readFile(join(programDir, "program.md"), "utf-8")
-  const recentResults = await readRecentResults(runDir, 15)
-  const recentGitLog = await getRecentLog(projectRoot, 15)
+  const [programMd, resultsRaw, recentGitLog] = await Promise.all([
+    readFile(join(programDir, "program.md"), "utf-8"),
+    readFile(join(runDir, "results.tsv"), "utf-8"),
+    getRecentLog(projectRoot, 15),
+  ])
+
+  const recentResults = formatRecentResults(resultsRaw, 15)
 
   // Build last_outcome from last results.tsv row
-  const lastResult = await parseLastResult(runDir)
+  const lastResult = parseLastResult(resultsRaw)
   let lastOutcome = "none yet"
   if (lastResult) {
     switch (lastResult.status) {
@@ -81,7 +95,7 @@ export async function buildContextPacket(
   }
 
   // Build discarded diffs from recent discarded commits
-  const discardedShas = await getDiscardedCommitShas(runDir, 5)
+  const discardedShas = parseDiscardedShas(resultsRaw, 5)
   let discardedDiffs = ""
   if (discardedShas.length > 0) {
     try {
@@ -143,7 +157,7 @@ Implement ONE change, validate, and commit. Then stop.`
 // --- Lock Violation Detection ---
 
 /** Checks if any changed files are in the locked .autoauto/ directory. */
-export function checkLockViolation(filesChanged: string[], _programSlug: string): LockViolation {
+export function checkLockViolation(filesChanged: string[]): LockViolation {
   const violated = filesChanged.filter((f) => f.startsWith(".autoauto/"))
   return {
     violated: violated.length > 0,
@@ -169,14 +183,12 @@ export async function runExperimentAgent(
   projectRoot: string,
   systemPrompt: string,
   userPrompt: string,
-  _config: ProgramConfig,
   modelConfig: ModelSlot,
+  startSha: string,
   onStreamText?: (text: string) => void,
   onToolStatus?: (status: string) => void,
   signal?: AbortSignal,
 ): Promise<ExperimentOutcome> {
-  const startSha = await getFullSha(projectRoot)
-
   const inputStream = createPushStream<SDKUserMessage>()
   const abortController = new AbortController()
 
@@ -195,6 +207,8 @@ export async function runExperimentAgent(
     parent_tool_use_id: null,
   })
   inputStream.end()
+
+  let cost: ExperimentCost | undefined
 
   try {
     const q = query({
@@ -231,20 +245,25 @@ export async function runExperimentAgent(
           onStreamText?.((event.delta as { text: string }).text)
         }
 
-        if (
-          event.type === "content_block_start" &&
-          "content_block" in event &&
-          (event.content_block as any).type === "tool_use"
-        ) {
-          const block = event.content_block as any
-          onToolStatus?.(formatToolEvent(block.name ?? "", block.input ?? {}))
+        if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
+          const input = (event.content_block.input ?? {}) as Record<string, unknown>
+          onToolStatus?.(formatToolEvent(event.content_block.name, input))
         }
       } else if (message.type === "result") {
-        const resultMsg = message as any
+        const resultMsg = message as SDKResultMessage
+        cost = {
+          total_cost_usd: resultMsg.total_cost_usd ?? 0,
+          duration_ms: resultMsg.duration_ms ?? 0,
+          duration_api_ms: resultMsg.duration_api_ms ?? 0,
+          num_turns: resultMsg.num_turns ?? 0,
+          input_tokens: resultMsg.usage?.input_tokens ?? 0,
+          output_tokens: resultMsg.usage?.output_tokens ?? 0,
+        }
         if (resultMsg.subtype !== "success") {
           return {
             type: "agent_error",
-            error: resultMsg.errors?.join(", ") ?? resultMsg.subtype ?? "unknown",
+            error: resultMsg.errors.join(", ") || resultMsg.subtype,
+            cost,
           }
         }
         break
@@ -252,11 +271,12 @@ export async function runExperimentAgent(
     }
   } catch (err: unknown) {
     if (signal?.aborted) {
-      return { type: "agent_error", error: "aborted" }
+      return { type: "agent_error", error: "aborted", cost }
     }
     return {
       type: "agent_error",
       error: err instanceof Error ? err.message : String(err),
+      cost,
     }
   }
 
@@ -264,11 +284,9 @@ export async function runExperimentAgent(
   const endSha = await getFullSha(projectRoot)
 
   if (endSha === startSha) {
-    return { type: "no_commit" }
+    return { type: "no_commit", cost }
   }
 
-  // Get commit description and files changed
-  const { getLatestCommitMessage } = await import("./git.ts")
   const description = await getLatestCommitMessage(projectRoot)
   const filesChanged = await getFilesChangedBetween(projectRoot, startSha, endSha)
 
@@ -277,5 +295,6 @@ export async function runExperimentAgent(
     sha: endSha,
     description,
     files_changed: filesChanged,
+    cost,
   }
 }
