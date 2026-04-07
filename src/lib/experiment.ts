@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { query, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk"
+import { query } from "@anthropic-ai/claude-agent-sdk"
 import type { RunState } from "./run.ts"
 import type { ModelSlot } from "./config.ts"
 import { formatRecentResults, parseLastResult, parseDiscardedShas } from "./run.ts"
@@ -12,7 +12,7 @@ import {
   getDiscardedDiffs,
 } from "./git.ts"
 import { createPushStream } from "./push-stream.ts"
-import { formatToolEvent } from "./tool-events.ts"
+import { type SDKUserMessage, getTextDelta, getToolStatus, extractCost } from "./sdk-helpers.ts"
 
 // --- Types ---
 
@@ -107,7 +107,7 @@ export async function buildContextPacket(
   }
 
   return {
-    iteration: state.experiment_number + 1,
+    iteration: state.experiment_number,
     baseline_metric: state.current_baseline,
     original_baseline: state.original_baseline,
     best_metric: state.best_metric,
@@ -163,14 +163,6 @@ export function checkLockViolation(filesChanged: string[]): LockViolation {
     violated: violated.length > 0,
     files: violated,
   }
-}
-
-// --- SDK User Message Type ---
-
-interface SDKUserMessage {
-  type: "user"
-  message: { role: "user"; content: string }
-  parent_tool_use_id: string | null
 }
 
 // --- Experiment Agent ---
@@ -235,34 +227,17 @@ export async function runExperimentAgent(
       }
 
       if (message.type === "stream_event") {
-        const event = message.event
-        if (
-          event.type === "content_block_delta" &&
-          "delta" in event &&
-          event.delta.type === "text_delta" &&
-          "text" in event.delta
-        ) {
-          onStreamText?.((event.delta as { text: string }).text)
-        }
+        const text = getTextDelta(message)
+        if (text) onStreamText?.(text)
 
-        if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
-          const input = (event.content_block.input ?? {}) as Record<string, unknown>
-          onToolStatus?.(formatToolEvent(event.content_block.name, input))
-        }
+        const tool = getToolStatus(message)
+        if (tool) onToolStatus?.(tool)
       } else if (message.type === "result") {
-        const resultMsg = message as SDKResultMessage
-        cost = {
-          total_cost_usd: resultMsg.total_cost_usd ?? 0,
-          duration_ms: resultMsg.duration_ms ?? 0,
-          duration_api_ms: resultMsg.duration_api_ms ?? 0,
-          num_turns: resultMsg.num_turns ?? 0,
-          input_tokens: resultMsg.usage?.input_tokens ?? 0,
-          output_tokens: resultMsg.usage?.output_tokens ?? 0,
-        }
-        if (resultMsg.subtype !== "success") {
+        cost = extractCost(message)
+        if (message.subtype !== "success") {
           return {
             type: "agent_error",
-            error: resultMsg.errors.join(", ") || resultMsg.subtype,
+            error: message.errors.join(", ") || message.subtype,
             cost,
           }
         }

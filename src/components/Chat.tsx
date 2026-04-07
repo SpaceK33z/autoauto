@@ -36,6 +36,8 @@ interface ChatProps {
   model?: string
   /** Reasoning effort level */
   effort?: EffortLevel
+  /** Auto-submit this message on mount as the first user message */
+  initialMessage?: string
 }
 
 export function Chat({
@@ -46,6 +48,7 @@ export function Chat({
   maxTurns,
   model,
   effort,
+  initialMessage,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streamingText, setStreamingText] = useState("")
@@ -57,13 +60,28 @@ export function Chat({
 
   // Capture config in refs — the agent session is long-lived and should not
   // restart when parent re-renders. These are stable for the component lifetime.
-  const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns, model, effort })
+  const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns, model, effort, initialMessage })
 
   useEffect(() => {
     const abortController = new AbortController()
     const inputStream = createPushStream<SDKUserMessage>()
     inputStreamRef.current = inputStream
     const config = configRef.current
+
+    // Auto-submit initial message if provided
+    if (config.initialMessage) {
+      const text = config.initialMessage.trim()
+      if (text) {
+        setMessages([{ id: crypto.randomUUID(), role: "user", content: text }])
+        inputStream.push({
+          type: "user" as const,
+          message: { role: "user" as const, content: text },
+          parent_tool_use_id: null,
+        })
+        setIsStreaming(true)
+        setInputKey((k) => k + 1)
+      }
+    }
 
     ;(async () => {
       try {
