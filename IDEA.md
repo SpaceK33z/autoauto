@@ -42,7 +42,7 @@ Three-level hierarchy: **Project** > **Program** > **Run**.
 
 - **Project** — the target codebase (e.g. "my Next.js app")
 - **Program** — a reusable optimization target with a metric, measurement script, agent instructions, and scope constraints (e.g. "homepage LCP", "API /users latency")
-- **Run** — one execution session of a program on a dedicated branch, producing a results.tsv and experiment history
+- **Run** — one execution session of a program in an AutoAuto-owned worktree on a dedicated branch, producing a results.tsv and experiment history
 
 ### File Structure
 
@@ -51,6 +51,8 @@ All state lives inside the target repo, gitignored (`.autoauto/` is added to `.g
 ```
 .autoauto/
   config.json                    # project-level config (default models, etc.)
+  worktrees/
+    20260407-143022/             # AutoAuto-owned git worktree for an active/completed run
   programs/
     homepage-lcp/
       program.md                 # agent instructions + scope constraints (structured)
@@ -58,9 +60,12 @@ All state lives inside the target repo, gitignored (`.autoauto/` is added to `.g
       config.json                # metric field, direction, noise threshold, repeats, quality gates
       runs/
         20260407-143022/
-          daemon.pid             # PID of running daemon (if active)
-          state.json             # current run state (experiment #, status, etc.)
-          results.tsv
+          daemon.json            # daemon identity, PID, start time, heartbeat, worktree path
+          state.json             # atomic checkpoint: experiment #, phase, baseline, SHAs
+          control.json           # TUI stop/abort requests
+          results.tsv            # durable experiment outcomes
+          events.ndjson          # append-only live event stream for the TUI
+          daemon.log             # daemon stderr/stdout
           summary.md
     api-latency/
       program.md
@@ -230,7 +235,9 @@ The orchestrator loop. AutoAuto controls the loop, the agent is stateless betwee
 Review and package the results:
 
 - Run a **Cleanup Agent** (support model) over the accumulated diff from baseline to branch tip
-- Squash all kept experiment commits into clean commit(s) ready for PR
+- Preserve the raw experiment branch as the audit trail (`results.tsv` + git history remain intact)
+- Create a separate PR branch from the run baseline and apply the selected net diff there
+- Squash/package the PR branch into clean commit(s) ready for review
 - Generate a markdown summary report per run with:
   - Total experiments, keeps, discards
   - Metric improvement timeline
@@ -248,13 +255,16 @@ Review and package the results:
 
 Decouple the orchestrator from the TUI so runs survive terminal close/quit.
 
-**Architecture:** Client-server split. The orchestrator runs as a detached Bun daemon process. The TUI is a client that reads state and displays it.
+**Architecture:** Client-server split. The orchestrator runs as a detached Bun daemon process inside an AutoAuto-owned git worktree. The TUI is a client that reads state and displays it.
 
-- **Daemon lifecycle:** "Start Run" spawns a detached child process. Daemon writes its PID to `daemon.pid` in the run directory. TUI uses `kill(pid, 0)` to check liveness, `SIGTERM` to request graceful stop.
-- **IPC:** Filesystem-based. Daemon writes `state.json` (current experiment, status, baseline) and appends to `results.tsv`. TUI watches/polls the files. No socket protocol needed.
-- **Graceful stop:** Daemon catches `SIGTERM`, finishes or reverts the current experiment, writes final state, exits.
-- **Crash recovery:** On daemon startup, check if the branch has uncommitted changes or a commit newer than the last `results.tsv` entry. If so, the previous daemon died mid-experiment. `git revert` that commit (or `git reset --hard` to last known-good if uncommitted). Log it as a "crashed" row in results.tsv. Safe because experiments are single commits on a dedicated branch — blast radius is always one commit.
-- **Multi-daemon ready:** Architecture supports multiple concurrent daemons (one per run/program) via separate PID files and run directories. MVP enforces single run via lock file, but the plumbing is there.
+- **Run isolation:** "Start Run" creates a dedicated git worktree and branch for the run. The daemon never runs experiments in the user's active checkout. Destructive cleanup (`git reset --hard` for uncommitted experiment changes, worktree removal after abandon) is only allowed inside this owned worktree.
+- **Daemon lifecycle:** "Start Run" spawns a detached child process with stdio redirected to `daemon.log`, then calls `unref()` so the TUI can exit independently. Daemon writes `daemon.json` with `run_id`, `daemon_id`, `pid`, `started_at`, `heartbeat_at`, and `worktree_path`. TUI uses `kill(pid, 0)` only as a hint; it also checks `daemon_id` and heartbeat age to avoid PID-reuse/stale-pid mistakes.
+- **IPC:** Filesystem-based. Daemon atomically rewrites `state.json` via temp-file + rename, appends durable experiment outcomes to `results.tsv`, and appends live display events/agent output to `events.ndjson`. TUI watches/polls these files and tolerates a partial trailing NDJSON/TSV line. No socket protocol needed for MVP.
+- **Checkpoint state:** `state.json` is the recovery source of truth, not git-history inference. It records `phase` (`idle`, `agent_running`, `measuring`, `reverting`, `kept`, `stopping`, `complete`, `crashed`), `experiment_id`, `last_known_good_sha`, `candidate_sha`, `baseline`, stop mode, and last committed result row.
+- **Stop semantics:** TUI writes `control.json` and sends `SIGTERM`. Default stop is `stop-after-current` (finish current experiment, then exit). Explicit abort is `abort-current` (terminate child process group, revert/reset to `last_known_good_sha`, log a `crash` row with description `aborted`). If the daemon ignores TERM, TUI may escalate to SIGKILL after a timeout and recovery handles it on restart.
+- **Child process cleanup:** Daemon tracks spawned experiment agents, measurements, and their process groups. On abort/crash, it kills the whole child process group before reverting/resetting the worktree so no orphan process keeps editing files.
+- **Crash recovery:** On daemon startup/resume, read `state.json`. If phase indicates an in-flight experiment, kill any leftover child process group, restore the owned worktree to `last_known_good_sha` (`git revert` committed candidate or `git reset --hard` for uncommitted changes), append a `crash` row to `results.tsv` if not already recorded, write final recovery state, then continue or exit depending on stop mode. Safe because recovery only touches the AutoAuto-owned worktree and the checkpoint names the exact known-good SHA.
+- **Locking:** MVP enforces one active run per project with an atomic lock (`mkdir`/`O_EXCL` style), storing `run_id` and `daemon_id`. Stale locks require dead PID + expired heartbeat before takeover. Multi-daemon support later means one lock/worktree per run; separate run directories alone are not sufficient.
 
 ## Future Ideas
 

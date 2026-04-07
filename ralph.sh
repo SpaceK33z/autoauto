@@ -82,7 +82,7 @@ The plan should include:
 Write the plan to: $plan_file
 Do NOT implement anything. Only write the plan."
 
-            claude --verbose --dangerously-skip-permissions -p "$prompt"
+            claude --verbose --output-format stream-json --dangerously-skip-permissions -p "$prompt" 2>&1
 
             # Step 1b: Review the plan and integrate feedback
             echo ""
@@ -116,7 +116,7 @@ If all findings are Green, print the summary but leave the plan file unchanged.
 
 You MUST update $plan_file directly — do not just print recommendations."
 
-            claude --verbose --dangerously-skip-permissions --continue -p "$review_prompt"
+            claude --verbose --output-format stream-json --dangerously-skip-permissions --continue -p "$review_prompt" 2>&1
 
             echo ""
         else
@@ -147,13 +147,13 @@ After implementing:
 
 CRITICAL — DO NOT SKIP: After committing, open $PLAN_FILE and mark every task you completed in section ${section} as done by changing \`- [ ]\` to \`- [x]\`. Then commit this change separately with: \`chore: mark phase ${section} tasks done\`. The automation loop depends on these checkboxes to skip completed sections — if you forget, the section will be re-run unnecessarily."
 
-        claude --verbose --dangerously-skip-permissions -p "$prompt"
+        claude --verbose --output-format stream-json --dangerously-skip-permissions -p "$prompt" 2>&1
 
         # Step 3: Simplify pass
         echo ""
         echo ">>> Simplify pass on section $section..."
 
-        claude --verbose --dangerously-skip-permissions -p "/simplify look at the previous commit"
+        claude --verbose --output-format stream-json --dangerously-skip-permissions -p "/simplify look at the previous commit" 2>&1
 
         echo ""
         echo "Section $section done."
@@ -185,7 +185,7 @@ Your job: do a thorough review of the work done.
 6. Implement any fixes needed.
 7. If you made changes, commit with: \`fix: review fixes for $(basename "$PLAN_FILE" .md)\`"
 
-    claude --verbose --dangerously-skip-permissions -p "$prompt"
+    claude --verbose --output-format stream-json --dangerously-skip-permissions -p "$prompt" 2>&1
 
     echo ""
     echo "Plan $PLAN_FILE complete."
