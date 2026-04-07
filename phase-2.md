@@ -39,9 +39,9 @@ High-level tasks to complete the orchestrator loop described in [IDEA.md](./IDEA
 
 ## 2f. Execution Dashboard (TUI)
 
-- [ ] Current experiment # / total keeps / discards
-- [ ] Current baseline metric value
-- [ ] Best metric achieved + improvement % from original baseline
-- [ ] Live results table
-- [ ] Streaming agent thinking text in a styled panel (view-only)
-- [ ] Sparkline or bar chart of metric over time
+- [x] Current experiment # / total keeps / discards
+- [x] Current baseline metric value
+- [x] Best metric achieved + improvement % from original baseline
+- [x] Live results table
+- [x] Streaming agent thinking text in a styled panel (view-only)
+- [x] Sparkline or bar chart of metric over time
