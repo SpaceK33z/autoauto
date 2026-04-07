@@ -96,8 +96,9 @@ export async function getProjectRoot(cwd: string): Promise<string> {
     cachedRoot = superproject
     return superproject
   }
-  cachedRoot = (await $`git rev-parse --show-toplevel`.cwd(cwd).text()).trim()
-  return cachedRoot
+  const toplevel = (await $`git rev-parse --show-toplevel`.cwd(cwd).text()).trim()
+  cachedRoot = toplevel
+  return toplevel
 }
 
 export async function listPrograms(cwd: string): Promise<Program[]> {

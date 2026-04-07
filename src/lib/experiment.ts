@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { RunState } from "./run.ts"
 import type { ModelSlot } from "./config.ts"
@@ -66,8 +65,8 @@ export async function buildContextPacket(
   options: { ideasBacklogEnabled?: boolean } = {},
 ): Promise<ContextPacket> {
   const [programMd, resultsRaw, recentGitLog] = await Promise.all([
-    readFile(join(programDir, "program.md"), "utf-8"),
-    readFile(join(runDir, "results.tsv"), "utf-8"),
+    Bun.file(join(programDir, "program.md")).text(),
+    Bun.file(join(runDir, "results.tsv")).text(),
     getRecentLog(cwd, 15),
   ])
   const ideasBacklog = options.ideasBacklogEnabled === false

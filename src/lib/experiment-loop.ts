@@ -1,4 +1,4 @@
-import { chmod, readFile, stat, writeFile } from "node:fs/promises"
+import { chmod } from "node:fs/promises"
 import { join, relative } from "node:path"
 import type { RunState, ExperimentResult, TerminationReason } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
@@ -79,10 +79,12 @@ async function readMeasurementSnapshot(
   const paths = [join(programDir, "measure.sh"), join(programDir, "config.json"), join(programDir, "build.sh")]
   const results = await Promise.all(paths.map(async (path) => {
     try {
-      const content = await readFile(path, "utf-8")
+      const file = Bun.file(path)
+      if (!await file.exists()) return null // build.sh may not exist
+      const content = await file.text()
       return { path, label: relative(programDir, path), content }
     } catch {
-      return null // build.sh may not exist
+      return null
     }
   }))
   return results.filter((r): r is MeasurementFileSnapshot => r !== null)
@@ -91,8 +93,12 @@ async function readMeasurementSnapshot(
 async function getMeasurementViolations(snapshot: MeasurementFileSnapshot[]): Promise<string[]> {
   const checks = await Promise.all(snapshot.map(async (file) => {
     try {
-      const [current, info] = await Promise.all([readFile(file.path, "utf-8"), stat(file.path)])
-      if (current !== file.content || (info.mode & 0o222) !== 0) {
+      const bunFile = Bun.file(file.path)
+      const current = await bunFile.text()
+      // Check content changed or write permission restored (0o222 = write bits)
+      // Bun.file doesn't expose mode, so use stat for permission check
+      const { mode } = await Bun.file(file.path).stat()
+      if (current !== file.content || (mode & 0o222) !== 0) {
         return file.label
       }
     } catch {
@@ -107,7 +113,7 @@ async function getMeasurementViolations(snapshot: MeasurementFileSnapshot[]): Pr
 async function restoreMeasurementSnapshot(snapshot: MeasurementFileSnapshot[]): Promise<void> {
   await Promise.all(snapshot.map(async (file) => {
     await chmod(file.path, 0o644).catch(() => {})
-    await writeFile(file.path, file.content)
+    await Bun.write(file.path, file.content)
     await chmod(file.path, 0o444)
   }))
 }

@@ -1,4 +1,3 @@
-import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { ModelSlot } from "./config.ts"
 import type { ProgramConfig } from "./programs.ts"
@@ -286,7 +285,7 @@ export async function runCleanup(
   const commitMessage = extractCommitMessage(summary)
 
   const report = generateSummaryReport(state, results, config, summary, cost)
-  await writeFile(join(runDir, "summary.md"), report)
+  await Bun.write(join(runDir, "summary.md"), report)
 
   let squashedSha: string | null = null
   if (state.total_keeps > 0) {

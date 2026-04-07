@@ -84,6 +84,47 @@ src/
     daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
 ```
 
+## Bun-Native API Conventions
+
+Prefer Bun built-in APIs over Node.js equivalents. Do NOT use `node:child_process`, `node:util`, or `node:fs/promises` for things Bun handles natively.
+
+**Shell commands (`Bun.$`)** — use for all subprocess calls (git, ps, etc.):
+```ts
+import { $ } from "bun"
+const sha = (await $`git rev-parse HEAD`.cwd(cwd).text()).trim()
+await $`git reset --hard ${sha}`.cwd(cwd).quiet()                   // no output needed
+const ok = (await $`git show-ref ...`.cwd(cwd).nothrow().quiet()).exitCode === 0  // may fail
+```
+
+**File reads (`Bun.file()`)** — use instead of `readFile`:
+```ts
+const text = await Bun.file(path).text()     // string
+const data = await Bun.file(path).json()     // parsed JSON
+const exists = await Bun.file(path).exists()  // instead of access()
+const size = Bun.file(path).size              // sync, no stat() needed
+const slice = await Bun.file(path).slice(start, end).text()  // byte-range read
+```
+
+**File writes (`Bun.write()`)** — use instead of `writeFile`:
+```ts
+await Bun.write(path, content)  // simple write
+// For atomic writes, still use Bun.write + rename:
+await Bun.write(tmpPath, content)
+await rename(tmpPath, finalPath)  // from node:fs/promises
+```
+
+**Streaming appends (`FileSink`)** — use for high-frequency log appending:
+```ts
+const writer = Bun.file(path).writer()
+writer.write(chunk)
+writer.flush()  // explicit flush for visibility
+writer.end()    // close when done
+```
+
+**Exception: `node:child_process` spawn** — still required when `detached: true` is needed (daemon spawning, process-group killing via `process.kill(-pid)`). Do NOT replace these with `Bun.spawn`.
+
+**Exception: `node:fs/promises`** — still needed for: `mkdir`, `chmod`, `readdir`, `rename`, `unlink`, `appendFile`, `open` with O_EXCL flags.
+
 ## Agent Conventions
 
 - Setup Agent uses built-in SDK tools (Read, Write, Edit, Bash, Glob, Grep)

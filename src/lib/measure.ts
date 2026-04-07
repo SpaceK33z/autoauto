@@ -1,5 +1,4 @@
 import { spawn, type ChildProcess } from "node:child_process"
-import { access } from "node:fs/promises"
 import type { ProgramConfig } from "./programs.ts"
 
 // --- Helpers ---
@@ -161,9 +160,7 @@ export async function runBuild(
   cwd: string,
   signal?: AbortSignal,
 ): Promise<BuildResult> {
-  try {
-    await access(buildShPath)
-  } catch {
+  if (!await Bun.file(buildShPath).exists()) {
     return { success: true, duration_ms: 0 }
   }
 

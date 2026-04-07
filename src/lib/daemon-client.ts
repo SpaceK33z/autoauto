@@ -1,5 +1,5 @@
 import { watch, statSync, readFileSync, type FSWatcher } from "node:fs"
-import { readFile, stat, writeFile, open } from "node:fs/promises"
+import { open } from "node:fs/promises"
 import { join, dirname } from "node:path"
 import { streamLogName } from "./daemon-callbacks.ts"
 import { fileURLToPath } from "node:url"
@@ -120,7 +120,7 @@ export async function spawnDaemon(
       worktree_path: worktreePath,
       daemon_id: daemonId,
     }
-    await writeFile(join(runDir, "daemon.json"), JSON.stringify(initialDaemon, null, 2) + "\n")
+    await Bun.write(join(runDir, "daemon.json"), JSON.stringify(initialDaemon, null, 2) + "\n")
     await updateLockPid(programDir, runId, daemonId, pid)
 
     proc.unref()
@@ -209,7 +209,7 @@ export async function reconstructState(runDir: string, programDir: string): Prom
 async function readStreamTail(runDir: string, experimentNumber: number): Promise<string> {
   try {
     const filename = streamLogName(experimentNumber)
-    const content = await readFile(join(runDir, filename), "utf-8")
+    const content = await Bun.file(join(runDir, filename)).text()
     // Same truncation as ExecutionScreen: keep last ~6KB
     return content.length > 8000 ? content.slice(-6000) : content
   } catch {
@@ -286,9 +286,9 @@ export function watchRunDir(
 
   async function readResultsDelta() {
     try {
-      const info = await stat(join(runDir, "results.tsv"))
-      if (info.size <= resultsByteOffset) return // no new data
-      resultsByteOffset = info.size
+      const size = Bun.file(join(runDir, "results.tsv")).size
+      if (size <= resultsByteOffset) return // no new data
+      resultsByteOffset = size
 
       const results = await readAllResults(runDir)
       callbacks.onResultsChange(results, getMetricHistory(results))
@@ -306,16 +306,14 @@ export function watchRunDir(
         callbacks.onStreamReset?.()
       }
 
-      const info = await stat(join(runDir, file))
-      if (info.size <= streamByteOffset) return
+      const bunFile = Bun.file(join(runDir, file))
+      const size = bunFile.size
+      if (size <= streamByteOffset) return
 
-      const buf = Buffer.alloc(info.size - streamByteOffset)
-      const fd = await open(join(runDir, file), "r")
-      await fd.read(buf, 0, buf.length, streamByteOffset)
-      await fd.close()
-      streamByteOffset = info.size
+      const delta = await bunFile.slice(streamByteOffset, size).text()
+      streamByteOffset = size
 
-      callbacks.onStreamChange(buf.toString("utf-8"))
+      callbacks.onStreamChange(delta)
     } catch {
       // Ignore transient errors
     }

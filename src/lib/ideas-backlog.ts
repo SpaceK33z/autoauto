@@ -1,4 +1,4 @@
-import { appendFile, readFile } from "node:fs/promises"
+import { appendFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { ExperimentResult } from "./run.ts"
 
@@ -73,10 +73,8 @@ function formatEntry(result: ExperimentResult, notes?: ExperimentNotes): string 
 
 async function ensureHeader(runDir: string): Promise<void> {
   const path = join(runDir, BACKLOG_FILE)
-  try {
-    await readFile(path, "utf-8")
-  } catch {
-    await appendFile(
+  if (await Bun.file(path).exists()) return
+  await appendFile(
       path,
       [
         "# Ideas Backlog",
@@ -85,7 +83,6 @@ async function ensureHeader(runDir: string): Promise<void> {
         "",
       ].join("\n"),
     )
-  }
 }
 
 export async function appendIdeasBacklog(
@@ -100,7 +97,7 @@ export async function appendIdeasBacklog(
 
 export async function readIdeasBacklogSummary(runDir: string, maxChars = 4000): Promise<string> {
   try {
-    const raw = await readFile(join(runDir, BACKLOG_FILE), "utf-8")
+    const raw = await Bun.file(join(runDir, BACKLOG_FILE)).text()
     if (raw.length <= maxChars) return raw.trim()
 
     const tail = raw.slice(-maxChars)

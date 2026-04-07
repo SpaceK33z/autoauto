@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises"
+import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { getProjectRoot, AUTOAUTO_DIR } from "./programs.ts"
 
@@ -62,8 +62,7 @@ export async function loadProjectConfig(cwd: string): Promise<ProjectConfig> {
   const root = await getProjectRoot(cwd)
   const configPath = join(root, AUTOAUTO_DIR, CONFIG_FILE)
   try {
-    const raw = await readFile(configPath, "utf-8")
-    const parsed = JSON.parse(raw) as Partial<ProjectConfig>
+    const parsed = await Bun.file(configPath).json() as Partial<ProjectConfig>
     const { executionModel, supportModel, ...rest } = parsed
     return {
       ...DEFAULT_CONFIG,
@@ -84,5 +83,5 @@ export async function saveProjectConfig(
   const dir = join(root, AUTOAUTO_DIR)
   await mkdir(dir, { recursive: true })
   const configPath = join(dir, CONFIG_FILE)
-  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n")
+  await Bun.write(configPath, JSON.stringify(config, null, 2) + "\n")
 }

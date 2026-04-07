@@ -1,15 +1,12 @@
-import { readFile, writeFile, rename, unlink, open } from "node:fs/promises"
+import { rename, unlink, open } from "node:fs/promises"
 import { join } from "node:path"
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
+import { $ } from "bun"
 import type { RunState } from "./run.ts"
 import { writeState, readState, appendResult, readAllResults } from "./run.ts"
 import { resetHard } from "./git.ts"
 import type { ModelSlot } from "./config.ts"
 
 // --- Types ---
-
-const execFileAsync = promisify(execFile)
 
 export interface DaemonJson {
   run_id: string
@@ -62,7 +59,7 @@ export async function writeDaemonJson(
     heartbeat_at: now,
   }
   const tmpPath = join(runDir, "daemon.json.tmp")
-  await writeFile(tmpPath, JSON.stringify(json, null, 2) + "\n")
+  await Bun.write(tmpPath, JSON.stringify(json, null, 2) + "\n")
   await rename(tmpPath, join(runDir, "daemon.json"))
   return daemonId
 }
@@ -78,8 +75,7 @@ export async function waitForDaemonStub(runDir: string, daemonId: string, timeou
 
 export async function readDaemonJson(runDir: string): Promise<DaemonJson | null> {
   try {
-    const raw = await readFile(join(runDir, "daemon.json"), "utf-8")
-    return JSON.parse(raw) as DaemonJson
+    return await Bun.file(join(runDir, "daemon.json")).json() as DaemonJson
   } catch {
     return null
   }
@@ -94,7 +90,7 @@ export async function updateHeartbeat(runDir: string, daemonId: string): Promise
 
   const updated: DaemonJson = { ...existing, heartbeat_at: new Date().toISOString() }
   const tmpPath = join(runDir, "daemon.json.tmp")
-  await writeFile(tmpPath, JSON.stringify(updated, null, 2) + "\n")
+  await Bun.write(tmpPath, JSON.stringify(updated, null, 2) + "\n")
   await rename(tmpPath, join(runDir, "daemon.json"))
 }
 
@@ -111,15 +107,14 @@ export function startHeartbeat(runDir: string, daemonId: string, intervalMs = 10
 
 export async function readRunConfig(runDir: string): Promise<RunConfig | null> {
   try {
-    const raw = await readFile(join(runDir, "run-config.json"), "utf-8")
-    return JSON.parse(raw) as RunConfig
+    return await Bun.file(join(runDir, "run-config.json")).json() as RunConfig
   } catch {
     return null
   }
 }
 
 export async function writeRunConfig(runDir: string, config: RunConfig): Promise<void> {
-  await writeFile(join(runDir, "run-config.json"), JSON.stringify(config, null, 2) + "\n")
+  await Bun.write(join(runDir, "run-config.json"), JSON.stringify(config, null, 2) + "\n")
 }
 
 export function runConfigToModelSlot(config: RunConfig): ModelSlot {
@@ -185,7 +180,7 @@ export async function updateLockPid(programDir: string, runId: string, daemonId:
   if (!lock || lock.run_id !== runId || lock.daemon_id !== daemonId) return
   const updated: RunLock = { ...lock, pid }
   const tmpPath = `${lockPath}.tmp`
-  await writeFile(tmpPath, JSON.stringify(updated, null, 2) + "\n")
+  await Bun.write(tmpPath, JSON.stringify(updated, null, 2) + "\n")
   await rename(tmpPath, lockPath)
 }
 
@@ -199,8 +194,7 @@ export async function releaseLock(programDir: string): Promise<void> {
 
 export async function readLock(programDir: string): Promise<RunLock | null> {
   try {
-    const raw = await readFile(join(programDir, LOCK_FILE), "utf-8")
-    return JSON.parse(raw) as RunLock
+    return await Bun.file(join(programDir, LOCK_FILE)).json() as RunLock
   } catch {
     return null
   }
@@ -238,15 +232,14 @@ async function isLockStale(programDir: string): Promise<boolean> {
 
 export async function readControl(runDir: string): Promise<ControlAction | null> {
   try {
-    const raw = await readFile(join(runDir, "control.json"), "utf-8")
-    return JSON.parse(raw) as ControlAction
+    return await Bun.file(join(runDir, "control.json")).json() as ControlAction
   } catch {
     return null
   }
 }
 
 export async function writeControl(runDir: string, action: ControlAction): Promise<void> {
-  await writeFile(join(runDir, "control.json"), JSON.stringify(action, null, 2) + "\n")
+  await Bun.write(join(runDir, "control.json"), JSON.stringify(action, null, 2) + "\n")
 }
 
 // --- Crash Recovery ---
@@ -337,7 +330,7 @@ export async function recoverFromCrash(
 // --- Child Process Cleanup ---
 
 export async function killChildProcessTree(parentPid: number, signal: NodeJS.Signals = "SIGTERM"): Promise<void> {
-  const { stdout } = await execFileAsync("ps", ["-axo", "pid=,ppid="])
+  const stdout = await $`ps -axo pid=,ppid=`.nothrow().text()
   const childrenByParent = new Map<number, number[]>()
 
   for (const line of stdout.split("\n")) {
