@@ -88,6 +88,15 @@ export function App() {
     )
   }
 
+  const footerText =
+    screen === "home"
+      ? " n: new program | s: settings | Tab: switch panel | Enter: run | Escape: quit"
+      : screen === "execution"
+        ? " Escape: detach (daemon continues) | q: stop | Ctrl+C: abort"
+        : screen === "settings"
+          ? " ↑↓: navigate | ←→: change | Escape: back"
+          : " Escape: back"
+
   return (
     <box flexDirection="column" width={width} height={height}>
       {screen !== "execution" && screen !== "pre-run" && (
@@ -104,79 +113,75 @@ export function App() {
         </box>
       )}
 
-      {screen === "home" && (
-        <HomeScreen
-          cwd={cwd}
-          navigate={setScreen}
-          onSelectProgram={(slug) => {
-            setSelectedProgram(slug)
-            setAttachRunId(null)
-            setAttachReadOnly(false)
-            setScreen("pre-run")
-          }}
-          onSelectRun={(run) => {
-            if (!run.state) return
-            setSelectedProgram(run.state.program_slug)
-            setPreRunOverrides(null)
-            setAttachRunId(run.run_id)
-            setAttachReadOnly(!isRunActive(run))
-            setScreen("execution")
-          }}
-        />
-      )}
-      {screen === "setup" && (
-        <SetupScreen
-          cwd={projectRoot}
-          navigate={setScreen}
-          modelConfig={projectConfig.supportModel}
-        />
-      )}
-      {screen === "settings" && (
-        <SettingsScreen
-          cwd={cwd}
-          navigate={setScreen}
-          config={projectConfig}
-          onConfigChange={setProjectConfig}
-        />
-      )}
-      {screen === "pre-run" && selectedProgram && (
-        <PreRunScreen
-          cwd={projectRoot}
-          programSlug={selectedProgram}
-          defaultModelConfig={projectConfig.executionModel}
-          navigate={setScreen}
-          onStart={(overrides) => {
-            setPreRunOverrides(overrides)
-            setAttachRunId(null)
-            setAttachReadOnly(false)
-            setScreen("execution")
-          }}
-        />
-      )}
-      {screen === "execution" && selectedProgram && (preRunOverrides || attachRunId) && (
-        <ExecutionScreen
-          cwd={projectRoot}
-          programSlug={selectedProgram}
-          modelConfig={preRunOverrides?.modelConfig ?? projectConfig.executionModel}
-          supportModelConfig={projectConfig.supportModel}
-          ideasBacklogEnabled={projectConfig.ideasBacklogEnabled}
-          navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setScreen(s) }}
-          maxExperiments={preRunOverrides?.maxExperiments}
-          attachRunId={attachRunId ?? undefined}
-          readOnly={attachReadOnly}
-        />
-      )}
+      <box flexDirection="column" flexGrow={1} flexShrink={1}>
+        {screen === "home" && (
+          <HomeScreen
+            cwd={cwd}
+            navigate={setScreen}
+            onSelectProgram={(slug) => {
+              setSelectedProgram(slug)
+              setAttachRunId(null)
+              setAttachReadOnly(false)
+              setScreen("pre-run")
+            }}
+            onSelectRun={(run) => {
+              if (!run.state) return
+              setSelectedProgram(run.state.program_slug)
+              setPreRunOverrides(null)
+              setAttachRunId(run.run_id)
+              setAttachReadOnly(!isRunActive(run))
+              setScreen("execution")
+            }}
+          />
+        )}
+        {screen === "setup" && (
+          <SetupScreen
+            cwd={projectRoot}
+            navigate={setScreen}
+            modelConfig={projectConfig.supportModel}
+          />
+        )}
+        {screen === "settings" && (
+          <SettingsScreen
+            cwd={cwd}
+            navigate={setScreen}
+            config={projectConfig}
+            onConfigChange={setProjectConfig}
+          />
+        )}
+        {screen === "pre-run" && selectedProgram && (
+          <PreRunScreen
+            cwd={projectRoot}
+            programSlug={selectedProgram}
+            defaultModelConfig={projectConfig.executionModel}
+            navigate={setScreen}
+            onStart={(overrides) => {
+              setPreRunOverrides(overrides)
+              setAttachRunId(null)
+              setAttachReadOnly(false)
+              setScreen("execution")
+            }}
+          />
+        )}
+        {screen === "execution" && selectedProgram && (preRunOverrides || attachRunId) && (
+          <ExecutionScreen
+            cwd={projectRoot}
+            programSlug={selectedProgram}
+            modelConfig={preRunOverrides?.modelConfig ?? projectConfig.executionModel}
+            supportModelConfig={projectConfig.supportModel}
+            ideasBacklogEnabled={projectConfig.ideasBacklogEnabled}
+            navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setScreen(s) }}
+            maxExperiments={preRunOverrides?.maxExperiments}
+            attachRunId={attachRunId ?? undefined}
+            readOnly={attachReadOnly}
+          />
+        )}
+      </box>
 
       {screen !== "pre-run" && (
-        <text fg="#888888">
-          {screen === "home"
-            ? " n: new program | s: settings | Tab: switch panel | Enter: run | Escape: quit"
-            : screen === "execution"
-              ? " q: abort run | Escape: back (after completion)"
-              : screen === "settings"
-                ? " ↑↓: navigate | ←→: change | Escape: back"
-                : " Escape: back"}
-        </text>
+        <box height={1} flexShrink={0} paddingX={1}>
+          <text fg="#888888">{footerText}</text>
+        </box>
       )}
     </box>
   )
