@@ -10,9 +10,9 @@ High-level tasks to complete the interactive setup flow described in [IDEA.md](.
 
 ## 1b. Setup Agent
 
-- [ ] Setup Agent system prompt (inspect repo, ask what to optimize, define scope, generate artifacts)
-- [ ] Agent tools: read files, list directories, run shell commands (to inspect the target repo)
-- [ ] Ideation mode: agent analyzes codebase and suggests optimization targets
+- [x] Setup Agent system prompt (inspect repo, ask what to optimize, define scope, generate artifacts)
+- [x] Agent tools: read files, list directories, run shell commands (to inspect the target repo)
+- [x] Ideation mode: agent analyzes codebase and suggests optimization targets
 
 ## 1c. Program Generation
 
