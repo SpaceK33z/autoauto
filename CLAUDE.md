@@ -162,6 +162,7 @@ writer.end()    // close when done
 - Two-root path model: `cwd` (worktree for git/agent ops) vs `programDir` (mainRoot for config/state) — `runExperimentLoop` takes explicit params, not a single `projectRoot`
 - Re-baseline after keeps: `runMeasurementAndDecide()` runs a fresh measurement series after each keep; falls back to candidate measurement if re-baseline fails
 - Re-baseline after consecutive discards: `maybeRebaseline()` runs drift detection every `REBASELINE_AFTER_DISCARDS` (5) non-keep outcomes; updates baseline if drift exceeds noise threshold
+- Stagnation detection: auto-stops after `max_consecutive_discards` (default 10) consecutive non-improving experiments; warns at ~2/3 of the limit; counter resets on any keep; termination reason = `"stagnation"`
 - Results reading: `readAllResults()` returns typed `ExperimentResult[]` from results.tsv; `getMetricHistory()` extracts keep-only metric values for charts
 - Run listing: `listRuns()` enumerates runs for a program with their states; `getLatestRun()` returns the most recent
 - Cost tracking: `ExperimentCost` on `ExperimentOutcome` captures SDK cost/usage data per experiment

@@ -16,6 +16,16 @@ export interface AgentCost {
   output_tokens: number
 }
 
+export type AgentProviderID = "claude" | "opencode" | "codex"
+
+export interface AgentModelOption {
+  provider: AgentProviderID
+  model: string
+  label: string
+  description?: string
+  isDefault?: boolean
+}
+
 /** Configuration for creating an agent session. */
 export interface AgentSessionConfig {
   systemPrompt?: string
@@ -47,11 +57,17 @@ export type AuthResult =
 
 /** Interface that all agent SDK providers must implement. */
 export interface AgentProvider {
-  readonly name: string
+  readonly name: AgentProviderID | string
   /** Create an interactive multi-turn session. */
   createSession(config: AgentSessionConfig): AgentSession
   /** Convenience: create a one-shot session with a single prompt. */
   runOnce(prompt: string, config: AgentSessionConfig): AgentSession
   /** Verify authentication with the provider. */
   checkAuth(): Promise<AuthResult>
+  /** List models available through this provider. */
+  listModels?(cwd?: string, forceRefresh?: boolean): Promise<AgentModelOption[]>
+  /** Return the provider's configured default model, if available. */
+  getDefaultModel?(cwd?: string): Promise<string | null>
+  /** Release provider-owned resources. */
+  close?(): void | Promise<void>
 }

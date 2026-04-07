@@ -34,6 +34,9 @@ import { getExperimentSystemPrompt } from "./system-prompts.ts"
 /** Re-measure baseline after this many consecutive discards to check for environment drift. */
 const REBASELINE_AFTER_DISCARDS = 5
 
+/** Default: stop after this many consecutive non-improving experiments. */
+const DEFAULT_MAX_CONSECUTIVE_DISCARDS = 10
+
 // --- Types ---
 
 // TerminationReason is now defined in run.ts and re-exported here for backwards compat
@@ -379,7 +382,7 @@ export async function runExperimentLoop(
   let state = await readState(runDir)
   let consecutiveDiscards = 0
   const ideasBacklogEnabled = options.ideasBacklogEnabled ?? true
-
+  const maxConsecutiveDiscards = config.max_consecutive_discards ?? DEFAULT_MAX_CONSECUTIVE_DISCARDS
 
   // Re-read from run-config.json each iteration to support mid-run TUI changes
   let effectiveMaxExperiments = options.maxExperiments
@@ -404,9 +407,18 @@ export async function runExperimentLoop(
       break
     }
 
-    // Warn on consecutive discards — agent may be stuck
-    if (consecutiveDiscards >= 10) {
-      callbacks.onError(`Warning: ${consecutiveDiscards} consecutive discards. Agent may be stuck — consider stopping and reviewing results.`)
+    // Stagnation detection — stop after too many consecutive non-improving experiments
+    if (consecutiveDiscards >= maxConsecutiveDiscards) {
+      state = { ...state, phase: "stopping", updated_at: now() }
+      await writeState(runDir, state)
+      callbacks.onPhaseChange("stopping", `stagnation — ${consecutiveDiscards} consecutive discards with no improvement`)
+      break
+    }
+
+    // Warn once at ~2/3 of the stagnation limit
+    const warningThreshold = Math.floor(maxConsecutiveDiscards * 2 / 3)
+    if (warningThreshold > 0 && consecutiveDiscards === warningThreshold) {
+      callbacks.onError(`Warning: ${consecutiveDiscards}/${maxConsecutiveDiscards} consecutive discards. Agent may be stuck — consider stopping and reviewing results.`)
     }
 
     if (effectiveMaxExperiments && state.experiment_number >= effectiveMaxExperiments) {
@@ -625,9 +637,11 @@ export async function runExperimentLoop(
   // Determine termination reason
   const reason: TerminationReason = options.signal?.aborted
     ? "aborted"
-    : state.experiment_number >= (effectiveMaxExperiments ?? Infinity)
-      ? "max_experiments"
-      : "stopped"
+    : consecutiveDiscards >= maxConsecutiveDiscards
+      ? "stagnation"
+      : state.experiment_number >= (effectiveMaxExperiments ?? Infinity)
+        ? "max_experiments"
+        : "stopped"
 
   const finalState: RunState = {
     ...state,

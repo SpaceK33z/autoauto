@@ -170,6 +170,7 @@ The core orchestrator loop that drives the autoresearch pattern:
 - Calls `runMeasurementAndDecide()` for each iteration (includes measurement + keep/discard)
 - Re-baselines after every keep (fresh measurement on kept code, falls back to candidate measurement on failure)
 - Drift detection: re-measures baseline every 5 consecutive discards to detect environment changes
+- Stagnation detection: auto-stops after `max_consecutive_discards` (default 10) consecutive non-improving experiments; warns at ~2/3 of the limit; counter resets on any keep
 - Persists `termination_reason` and `total_cost_usd` on RunState at loop completion
 - Unlocks evaluator on completion
 
@@ -337,7 +338,8 @@ Strict contract:
   "quality_gates": {
     "cls": { "max": 0.1 },
     "tbt_ms": { "max": 300 }
-  }
+  },
+  "max_consecutive_discards": 10
 }
 ```
 

@@ -99,7 +99,7 @@ Hoberman's production search: Round 1 got 3 improvements in 44 iterations (93% r
 | Strategy | When to use |
 |----------|-------------|
 | Max experiment count | Budget cap — 50-100 per overnight run |
-| N consecutive failures | Quick ceiling detection — 5-10 is typical |
+| N consecutive failures | Quick ceiling detection — 5-10 is typical. AutoAuto default: 10 (`max_consecutive_discards` in config.json) |
 | Improvement below noise floor | Metric gains indistinguishable from variance |
 | Time budget | Wall-clock cap for the entire run |
 | Manual stop | Human reviews progress and decides |

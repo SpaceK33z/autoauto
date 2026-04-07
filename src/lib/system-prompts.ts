@@ -183,6 +183,7 @@ Requirements:
 Guidelines:
 - \`noise_threshold\`: Start with 0.02 (2%) for stable metrics. Use 0.05 (5%) for noisier metrics. Discuss with the user based on the measurement type.
 - \`repeats\`: Use 3 for fast, stable metrics. Use 5 for noisy ones. More repeats = more reliable but slower experiments.
+- \`max_consecutive_discards\`: Optional. Auto-stops the run after this many consecutive non-improving experiments. Default 10 if omitted. Recommend higher for cheap/noisy measurements, lower for expensive ones.
 - \`quality_gates\`: Hard constraints — if a gate fails, the experiment is discarded regardless of the primary metric. Only include gates for metrics that could realistically regress. Use \`max\` for metrics that should stay below a threshold, \`min\` for metrics that should stay above. If there are no meaningful quality gates, use an empty object: \`"quality_gates": {}\`
 - \`secondary_metrics\`: Advisory metrics — tracked and shown to the agent, but do NOT influence keep/discard decisions. Each has a \`direction\` ("lower" or "higher") so the agent and dashboard can show improvement/regression. Use for metrics the user wants to monitor but not gate on (e.g., memory usage while optimizing latency, readability while optimizing bundle size). Field names must not overlap with \`metric_field\` or \`quality_gates\`. Omit if there are no secondary metrics to track.
 
@@ -230,12 +231,16 @@ bun run ${VALIDATE_SCRIPT} ${programsDir}/<slug>/measure.sh ${programsDir}/<slug
 \`\`\`
 
 The validation script:
+- Creates a temporary git worktree (simulating the actual run environment — no node_modules, no untracked files)
 - Runs build.sh once first if ${programsDir}/<slug>/build.sh exists
 - Runs 1 warmup measurement (excluded from stats)
 - Runs 5 measurement repeats sequentially
 - Validates every output against config.json
 - Computes variance statistics and avg_duration_ms
 - Outputs a JSON object with the full results
+- Automatically cleans up the worktree afterward
+
+**IMPORTANT:** build.sh MUST install any required dependencies (e.g. \`npm ci\`, \`bun install\`). If build.sh fails with "command not found" errors, the build script needs to install dependencies first.
 
 Do NOT announce validation separately — it flows directly from saving. Just start running.
 
@@ -272,9 +277,14 @@ After fixing, re-run validation with the same command.
 
 ### Updating Config
 
-When the user accepts the measurement stability, update config.json with the recommended noise_threshold and repeats using the Edit tool.
+When the user accepts the measurement stability, update config.json with the recommended noise_threshold, repeats, and max_consecutive_discards using the Edit tool.
 
 Always confirm with the user before updating: "Based on the validation results, I recommend a noise threshold of X% and Y repeats. Should I update config.json?"
+
+\`max_consecutive_discards\`: The loop auto-stops after this many consecutive non-improving experiments (stagnation detection). Default is 10 if omitted.
+- For fast, cheap measurements: recommend 10-15 (let it explore more, low cost per attempt)
+- For slow, expensive measurements: recommend 5-8 (fail fast to save budget)
+- For highly noisy metrics (CV% 10%+): recommend higher values (12-15) since noise causes more false discards
 
 ## Key Principles
 

@@ -123,6 +123,7 @@ export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
       tools={SETUP_TOOLS}
       allowedTools={SETUP_TOOLS}
       maxTurns={SETUP_MAX_TURNS}
+      provider={modelConfig.provider}
       model={modelConfig.model}
       effort={modelConfig.effort}
       initialMessage={initialMessage}

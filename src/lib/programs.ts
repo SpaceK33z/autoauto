@@ -24,6 +24,7 @@ export interface ProgramConfig {
   quality_gates: Record<string, QualityGate>
   secondary_metrics?: Record<string, SecondaryMetric>
   max_experiments?: number
+  max_consecutive_discards?: number
 }
 
 export type Screen = "home" | "setup" | "settings" | "program-detail" | "pre-run" | "execution"
@@ -65,6 +66,14 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
       config.max_experiments < 1)
   ) {
     throw new Error("config.json: max_experiments must be an integer >= 1")
+  }
+  if (
+    config.max_consecutive_discards !== undefined &&
+    (typeof config.max_consecutive_discards !== "number" ||
+      !Number.isInteger(config.max_consecutive_discards) ||
+      config.max_consecutive_discards < 1)
+  ) {
+    throw new Error("config.json: max_consecutive_discards must be an integer >= 1")
   }
   if (typeof config.quality_gates !== "object" || config.quality_gates === null || Array.isArray(config.quality_gates)) {
     throw new Error("config.json: quality_gates must be an object")

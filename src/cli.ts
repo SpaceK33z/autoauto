@@ -27,7 +27,7 @@ import { loadProjectConfig, type ModelSlot, type EffortLevel } from "./lib/confi
 import { streamLogName } from "./lib/daemon-callbacks.ts"
 import { closeProviders, type AgentProviderID } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
-import { getCodexDefaultModel, getOpenCodeDefaultModel } from "./lib/model-options.ts"
+import { getDefaultModel } from "./lib/model-options.ts"
 
 // --- Arg Parsing ---
 
@@ -285,10 +285,10 @@ async function cmdStart(args: ParsedArgs) {
     if (provider === projectConfig.executionModel.provider) {
       model = projectConfig.executionModel.model
     } else if (provider === "opencode") {
-      model = await getOpenCodeDefaultModel(root) ?? undefined
+      model = await getDefaultModel("opencode", root) ?? undefined
       if (!model) die("No connected OpenCode models found. Run `opencode auth login` or `/connect` first.")
     } else if (provider === "codex") {
-      model = await getCodexDefaultModel(root) ?? undefined
+      model = await getDefaultModel("codex", root) ?? undefined
       if (!model) die("Could not resolve Codex default model.")
     } else {
       model = "sonnet"

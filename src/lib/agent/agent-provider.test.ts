@@ -127,7 +127,7 @@ describe("AgentProvider contract", () => {
   test("registry: getProvider throws before setProvider", () => {
     // Reset — create a fresh import context isn't easy, so just test the pattern
     const provider = new MockProvider()
-    setProvider(provider)
-    expect(getProvider()).toBe(provider)
+    setProvider("claude", provider)
+    expect(getProvider("claude")).toBe(provider)
   })
 })

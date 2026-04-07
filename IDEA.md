@@ -28,6 +28,7 @@ Review and package results: run a Cleanup Agent over the accumulated diff, squas
 - **Scope constraints** — `program.md` defines what's in scope and off-limits, preventing metric gaming and drift.
 - **One experiment per agent** — fresh context each iteration prevents narrative momentum and enables clean recovery.
 - **Re-baselining** — fresh baseline after keeps and after consecutive discards to detect environment drift.
+- **Stagnation detection** — auto-stops after `max_consecutive_discards` (default 10) consecutive non-improving experiments, with a warning at ~2/3 of the limit.
 
 See `docs/failure-patterns.md` for the full catalog of failure modes and mitigations.
 

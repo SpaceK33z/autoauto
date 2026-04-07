@@ -2,6 +2,7 @@ import { memo } from "react"
 import type { RunInfo, RunState } from "../lib/run.ts"
 import type { ProgramConfig } from "../lib/programs.ts"
 import { allocateColumnWidths, formatCell } from "../lib/format.ts"
+import { formatModelSlot, type EffortLevel } from "../lib/config.ts"
 
 export interface RunsTableProps {
   runs: RunInfo[]
@@ -88,9 +89,14 @@ function formatGains(
   return { text: `${absStr} (${relStr})`, color }
 }
 
+const VALID_EFFORTS = new Set<string>(["low", "medium", "high", "max"])
+
 function formatModelEffort(state: RunState): string {
   if (!state.model) return "—"
-  return state.effort ? `${state.model}/${state.effort}` : state.model
+  const provider = state.provider === "opencode" || state.provider === "codex" ? state.provider : "claude"
+  const effort: EffortLevel = VALID_EFFORTS.has(state.effort ?? "") ? state.effort as EffortLevel : "high"
+  const compact = formatModelSlot({ provider, model: state.model, effort }, true)
+  return provider === "opencode" || !state.effort ? compact : `${compact}/${state.effort}`
 }
 
 

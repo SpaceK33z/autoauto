@@ -3,15 +3,16 @@ import { useKeyboard } from "@opentui/react"
 import type { Screen } from "../lib/programs.ts"
 import {
   type ProjectConfig,
-  MODEL_CHOICES,
-  EFFORT_CHOICES,
-  MODEL_LABELS,
-  EFFORT_LABELS,
-  EFFORT_DESCRIPTIONS,
   cycleChoice,
+  formatEffortSlot,
+  formatModelSlot,
+  getEffortChoicesForSlot,
+  isEffortConfigurable,
+  mergeSelectedModelSlot,
   saveProjectConfig,
 } from "../lib/config.ts"
 import { CycleField } from "../components/CycleField.tsx"
+import { ModelPicker } from "../components/ModelPicker.tsx"
 
 interface SettingsScreenProps {
   cwd: string
@@ -22,6 +23,7 @@ interface SettingsScreenProps {
 
 export function SettingsScreen({ cwd, navigate, config, onConfigChange }: SettingsScreenProps) {
   const [selected, setSelected] = useState(0)
+  const [pickingSlot, setPickingSlot] = useState<"executionModel" | "supportModel" | null>(null)
 
   const updateConfig = (updater: (prev: ProjectConfig) => ProjectConfig) => {
     const next = updater(config)
@@ -30,31 +32,28 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
   }
 
   function cycleValue(direction: -1 | 1) {
+    if (selected === 0 || selected === 2) {
+      setPickingSlot(selected === 0 ? "executionModel" : "supportModel")
+      return
+    }
+
     updateConfig((prev) => {
       if (selected === 4) {
         return { ...prev, ideasBacklogEnabled: !prev.ideasBacklogEnabled }
       }
 
       const slotKey = selected < 2 ? "executionModel" : "supportModel"
-      const propKey = selected % 2 === 0 ? "model" : "effort"
       const slot = { ...prev[slotKey] }
-
-      if (propKey === "model") {
-        slot.model = cycleChoice(MODEL_CHOICES, slot.model as (typeof MODEL_CHOICES)[number], direction)
-        const validEfforts = EFFORT_CHOICES[slot.model] ?? EFFORT_CHOICES.sonnet
-        if (!validEfforts.includes(slot.effort)) {
-          slot.effort = "high"
-        }
-      } else {
-        const validEfforts = EFFORT_CHOICES[slot.model] ?? EFFORT_CHOICES.sonnet
-        slot.effort = cycleChoice(validEfforts, slot.effort, direction)
-      }
+      if (!isEffortConfigurable(slot)) return prev
+      const validEfforts = getEffortChoicesForSlot(slot)
+      slot.effort = cycleChoice(validEfforts, slot.effort, direction)
 
       return { ...prev, [slotKey]: slot }
     })
   }
 
   useKeyboard((key) => {
+    if (pickingSlot) return
     if (key.name === "escape") navigate("home")
     if (key.name === "up" || key.name === "k")
       setSelected((s) => Math.max(0, s - 1))
@@ -62,10 +61,33 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       setSelected((s) => Math.min(4, s + 1))
     if (key.name === "left" || key.name === "h") cycleValue(-1)
     if (key.name === "right" || key.name === "l") cycleValue(1)
+    if (key.name === "return" && (selected === 0 || selected === 2)) {
+      setPickingSlot(selected === 0 ? "executionModel" : "supportModel")
+    }
   })
 
   const execSlot = config.executionModel
   const supportSlot = config.supportModel
+  const execEffort = formatEffortSlot(execSlot)
+  const supportEffort = formatEffortSlot(supportSlot)
+
+  if (pickingSlot) {
+    const title = pickingSlot === "executionModel" ? "Execution Model" : "Support Model"
+    return (
+      <ModelPicker
+        cwd={cwd}
+        title={title}
+        onCancel={() => setPickingSlot(null)}
+        onSelect={(slot) => {
+          updateConfig((prev) => ({
+            ...prev,
+            [pickingSlot]: mergeSelectedModelSlot(prev[pickingSlot], slot),
+          }))
+          setPickingSlot(null)
+        }}
+      />
+    )
+  }
 
   return (
     <box
@@ -82,13 +104,13 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       </box>
       <CycleField
         label="Model"
-        value={MODEL_LABELS[execSlot.model] ?? execSlot.model}
+        value={formatModelSlot(execSlot)}
         isFocused={selected === 0}
       />
       <CycleField
         label="Effort"
-        value={EFFORT_LABELS[execSlot.effort]}
-        description={EFFORT_DESCRIPTIONS[execSlot.effort]}
+        value={execEffort.label}
+        description={execEffort.description}
         isFocused={selected === 1}
       />
       <box height={1} />
@@ -98,13 +120,13 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       </box>
       <CycleField
         label="Model"
-        value={MODEL_LABELS[supportSlot.model] ?? supportSlot.model}
+        value={formatModelSlot(supportSlot)}
         isFocused={selected === 2}
       />
       <CycleField
         label="Effort"
-        value={EFFORT_LABELS[supportSlot.effort]}
-        description={EFFORT_DESCRIPTIONS[supportSlot.effort]}
+        value={supportEffort.label}
+        description={supportEffort.description}
         isFocused={selected === 3}
       />
       <box height={1} />

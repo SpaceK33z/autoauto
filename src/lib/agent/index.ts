@@ -5,21 +5,28 @@ export type {
   AgentSession,
   AuthResult,
   AgentProvider,
+  AgentProviderID,
+  AgentModelOption,
 } from "./types.ts"
 
-import type { AgentProvider } from "./types.ts"
+import type { AgentProvider, AgentProviderID } from "./types.ts"
 
-let provider: AgentProvider | null = null
+const providers = new Map<AgentProviderID, AgentProvider>()
 
 /** Set the active agent provider. Must be called before app render. */
-export function setProvider(p: AgentProvider): void {
-  provider = p
+export function setProvider(id: AgentProviderID, p: AgentProvider): void {
+  providers.set(id, p)
 }
 
 /** Get the active agent provider. Throws if not yet configured. */
-export function getProvider(): AgentProvider {
+export function getProvider(id: AgentProviderID = "claude"): AgentProvider {
+  const provider = providers.get(id)
   if (!provider) {
-    throw new Error("No agent provider configured — call setProvider() before app render")
+    throw new Error(`No ${id} agent provider configured — call setProvider() before use`)
   }
   return provider
+}
+
+export async function closeProviders(): Promise<void> {
+  await Promise.all([...providers.values()].map((provider) => provider.close?.()))
 }

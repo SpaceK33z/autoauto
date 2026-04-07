@@ -1,10 +1,12 @@
 import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { getProjectRoot, AUTOAUTO_DIR } from "./programs.ts"
+import type { AgentProviderID } from "./agent/index.ts"
 
 export type EffortLevel = "low" | "medium" | "high" | "max"
 
 export interface ModelSlot {
+  provider: AgentProviderID
   model: string // 'sonnet' | 'opus' or full model ID
   effort: EffortLevel
 }
@@ -18,13 +20,10 @@ export interface ProjectConfig {
 const CONFIG_FILE = "config.json"
 
 export const DEFAULT_CONFIG: ProjectConfig = {
-  executionModel: { model: "sonnet", effort: "high" },
-  supportModel: { model: "sonnet", effort: "high" },
+  executionModel: { provider: "claude", model: "sonnet", effort: "high" },
+  supportModel: { provider: "claude", model: "sonnet", effort: "high" },
   ideasBacklogEnabled: true,
 }
-
-/** Model choices the user can cycle through in the settings UI */
-export const MODEL_CHOICES = ["sonnet", "opus"] as const
 
 /** Effort levels available for each model */
 export const EFFORT_CHOICES: Record<string, EffortLevel[]> = {
@@ -58,6 +57,54 @@ export const EFFORT_DESCRIPTIONS: Record<EffortLevel, string> = {
   max: "Maximum effort (Opus only)",
 }
 
+function normalizeModelSlot(slot: Partial<ModelSlot> | undefined): ModelSlot {
+  return {
+    ...DEFAULT_CONFIG.executionModel,
+    ...slot,
+  }
+}
+
+export function isEffortConfigurable(slot: ModelSlot): boolean {
+  return slot.provider === "claude" || slot.provider === "codex"
+}
+
+export function getEffortChoicesForSlot(slot: ModelSlot): readonly EffortLevel[] {
+  if (!isEffortConfigurable(slot)) return []
+  return EFFORT_CHOICES[slot.model] ?? EFFORT_CHOICES.sonnet
+}
+
+export function formatModelSlot(slot: ModelSlot, compact = false): string {
+  if (slot.provider === "opencode") {
+    const modelID = slot.model.includes("/") ? slot.model.slice(slot.model.indexOf("/") + 1) : slot.model
+    return compact ? `oc/${modelID}` : `OpenCode / ${slot.model}`
+  }
+  if (slot.provider === "codex") {
+    return compact ? `codex/${slot.model}` : `Codex / ${slot.model}`
+  }
+  const label = MODEL_LABELS[slot.model] ?? slot.model
+  return compact ? `claude/${slot.model}` : `Claude / ${label}`
+}
+
+export function formatEffortSlot(slot: ModelSlot): { label: string; description: string } {
+  if (!isEffortConfigurable(slot)) {
+    return {
+      label: "OpenCode default",
+      description: "OpenCode variant config applies",
+    }
+  }
+  return {
+    label: EFFORT_LABELS[slot.effort],
+    description: EFFORT_DESCRIPTIONS[slot.effort],
+  }
+}
+
+export function mergeSelectedModelSlot(previous: ModelSlot, selected: ModelSlot): ModelSlot {
+  const effort = isEffortConfigurable(selected) && getEffortChoicesForSlot(selected).includes(previous.effort)
+    ? previous.effort
+    : selected.effort
+  return { ...selected, effort }
+}
+
 export async function loadProjectConfig(cwd: string): Promise<ProjectConfig> {
   const root = await getProjectRoot(cwd)
   const configPath = join(root, AUTOAUTO_DIR, CONFIG_FILE)
@@ -67,8 +114,8 @@ export async function loadProjectConfig(cwd: string): Promise<ProjectConfig> {
     return {
       ...DEFAULT_CONFIG,
       ...rest,
-      executionModel: { ...DEFAULT_CONFIG.executionModel, ...executionModel },
-      supportModel: { ...DEFAULT_CONFIG.supportModel, ...supportModel },
+      executionModel: normalizeModelSlot(executionModel),
+      supportModel: normalizeModelSlot(supportModel),
     }
   } catch {
     return { ...DEFAULT_CONFIG }

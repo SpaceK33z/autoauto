@@ -42,6 +42,7 @@ export function RunCompletePrompt({
   const reasonLabel =
     terminationReason === "aborted" ? "Aborted by user"
     : terminationReason === "max_experiments" ? `Reached max experiments (${state.experiment_number})`
+    : terminationReason === "stagnation" ? "Stopped — no improvements (stagnation)"
     : "Run complete"
 
   const improvementStr = stats.improvement_pct !== 0

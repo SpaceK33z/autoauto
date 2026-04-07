@@ -1,11 +1,11 @@
-import { getProvider } from "./agent/index.ts"
+import { getProvider, type AgentProviderID } from "./agent/index.ts"
 import type { AuthResult } from "./agent/types.ts"
 
 export type { AuthResult }
 
 /**
- * Check if the user is authenticated with the active agent provider.
+ * Check if the user is authenticated with an agent provider.
  */
-export async function checkAuth(): Promise<AuthResult> {
-  return getProvider().checkAuth()
+export async function checkAuth(provider: AgentProviderID = "claude"): Promise<AuthResult> {
+  return getProvider(provider).checkAuth()
 }

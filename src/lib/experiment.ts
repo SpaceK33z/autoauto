@@ -238,14 +238,14 @@ async function runExperimentAgentRaw(
   let assistantText = ""
 
   try {
-    const session = getProvider().runOnce(userPrompt, {
+    const session = getProvider(modelConfig.provider).runOnce(userPrompt, {
       systemPrompt,
       tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
       allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
       maxTurns: 30,
       cwd,
       model: modelConfig.model,
-      effort: modelConfig.effort,
+      effort: modelConfig.provider !== "opencode" ? modelConfig.effort : undefined,
       signal,
     })
 

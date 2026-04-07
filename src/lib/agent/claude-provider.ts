@@ -16,6 +16,7 @@ import type {
   AgentEvent,
   AgentCost,
   AuthResult,
+  AgentModelOption,
 } from "./types.ts"
 
 // --- SDK message helpers (formerly in sdk-helpers.ts) ---
@@ -168,6 +169,28 @@ class ClaudeSession implements AgentSession {
 
 export class ClaudeProvider implements AgentProvider {
   readonly name = "claude"
+
+  async listModels(): Promise<AgentModelOption[]> {
+    return [
+      {
+        provider: "claude",
+        model: "sonnet",
+        label: "Claude / Sonnet",
+        description: "Claude Sonnet via Claude Agent SDK",
+        isDefault: true,
+      },
+      {
+        provider: "claude",
+        model: "opus",
+        label: "Claude / Opus",
+        description: "Claude Opus via Claude Agent SDK",
+      },
+    ]
+  }
+
+  async getDefaultModel(): Promise<string> {
+    return "sonnet"
+  }
 
   createSession(config: AgentSessionConfig): AgentSession {
     return new ClaudeSession(config)

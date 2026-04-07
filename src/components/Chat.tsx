@@ -4,7 +4,7 @@ import type { TextareaRenderable } from "@opentui/core"
 import { DEFAULT_SYSTEM_PROMPT } from "../lib/system-prompts.ts"
 import type { EffortLevel } from "../lib/config.ts"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
-import { getProvider, type AgentSession } from "../lib/agent/index.ts"
+import { getProvider, type AgentProviderID, type AgentSession } from "../lib/agent/index.ts"
 import { formatToolEvent } from "../lib/tool-events.ts"
 
 const SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -51,6 +51,7 @@ interface ChatProps {
   maxTurns?: number
   /** Model alias ('sonnet', 'opus') or full model ID */
   model?: string
+  provider?: AgentProviderID
   /** Reasoning effort level */
   effort?: EffortLevel
   /** Auto-submit this message on mount as the first user message */
@@ -68,6 +69,7 @@ export function Chat({
   allowedTools,
   maxTurns,
   model,
+  provider = "claude",
   effort,
   initialMessage,
   emptyStateHint,
@@ -81,15 +83,16 @@ export function Chat({
   const sessionRef = useRef<AgentSession | null>(null)
   const textareaRef = useRef<TextareaRenderable | null>(null)
   const [inputKey, setInputKey] = useState(0)
+  const [inputBoxHeight, setInputBoxHeight] = useState(3)
 
   // Capture config in refs — the agent session is long-lived and should not
   // restart when parent re-renders. These are stable for the component lifetime.
-  const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns, model, effort, initialMessage })
+  const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns, provider, model, effort, initialMessage })
   const defaultPlaceholder = inputPlaceholder ?? "Ask something..."
 
   useEffect(() => {
     const config = configRef.current
-    const session = getProvider().createSession({
+    const session = getProvider(config.provider).createSession({
       systemPrompt: config.systemPrompt,
       tools: config.tools ?? [],
       allowedTools: config.allowedTools,
@@ -193,11 +196,18 @@ export function Chat({
     [handleSubmit],
   )
 
-  // Wire up onSubmit imperatively — React reconciler only maps onSubmit for <input>, not <textarea>
+  // Wire up onSubmit and auto-grow imperatively — React reconciler only maps these for <input>, not <textarea>
   useEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return
     textarea.onSubmit = handleTextareaSubmit
+    textarea.onContentChange = () => {
+      // +2 for top/bottom border
+      const h = Math.min(8, Math.max(3, textarea.virtualLineCount + 2))
+      setInputBoxHeight(h)
+    }
+    // Reset height on remount (after submit clears content)
+    setInputBoxHeight(3)
   }, [inputKey, handleTextareaSubmit])
 
   // Auto-focus textarea when user starts typing while a non-interactable
@@ -274,7 +284,7 @@ export function Chat({
         )}
       </scrollbox>
 
-      <box border borderStyle="rounded" minHeight={3} maxHeight={8} title="Message (Shift+Enter for newline)">
+      <box border borderStyle="rounded" height={inputBoxHeight} maxHeight={8} title="Message (Shift+Enter for newline)">
         <textarea
           key={inputKey}
           ref={textareaRef}

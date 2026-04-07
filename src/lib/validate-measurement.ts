@@ -2,12 +2,14 @@
 /* eslint-disable no-console, no-await-in-loop */
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { $ } from "bun"
 import { validateProgramConfig, type ProgramConfig } from "./programs.ts"
 import {
   runBuild,
   runMeasurement as runMeasurementCore,
   validateMeasurementOutput,
 } from "./measure.ts"
+import { removeWorktree } from "./worktree.ts"
 
 interface RunResult {
   run: number
@@ -162,11 +164,40 @@ function recommend(cv_percent: number): { noise_threshold: number; repeats: numb
 
 // --- Main ---
 
+async function createValidationWorktree(root: string): Promise<string> {
+  const worktreePath = join(root, ".autoauto", "worktrees", `validate-${Date.now()}`)
+  await $`git worktree add --detach ${worktreePath}`.cwd(root).quiet()
+  return worktreePath
+}
+
 async function main() {
   const buildShPath = join(dirname(measureShPath), "build.sh")
+
+  process.stderr.write("Creating validation worktree...\n")
+  let worktreePath: string
+  try {
+    worktreePath = await createValidationWorktree(projectRoot)
+  } catch (err) {
+    console.log(JSON.stringify({ success: false, error: `Failed to create validation worktree: ${err}` }))
+    return
+  }
+  process.stderr.write(`Worktree: ${worktreePath}\n`)
+
+  try {
+    await runInWorktree(worktreePath, buildShPath)
+  } finally {
+    process.stderr.write("Cleaning up validation worktree...\n")
+    await removeWorktree(projectRoot, worktreePath)
+  }
+}
+
+async function runInWorktree(
+  cwd: string,
+  buildShPath: string,
+) {
   const hasBuildScript = existsSync(buildShPath)
   const buildResult = hasBuildScript
-    ? await runBuild(buildShPath, projectRoot)
+    ? await runBuild(buildShPath, cwd)
     : { success: true, duration_ms: 0 }
 
   if (hasBuildScript) {
@@ -200,14 +231,14 @@ async function main() {
 
   // 1. Warmup run — excluded from stats
   process.stderr.write("Warmup run...")
-  const warmup = await runMeasurement(measureShPath, 0, projectRoot)
+  const warmup = await runMeasurement(measureShPath, 0, cwd)
   process.stderr.write(` ${warmup.success ? "OK" : "FAIL"} (${warmup.duration_ms}ms)\n`)
 
   // 2. Run measure.sh N times sequentially
   const results: RunResult[] = []
   for (let i = 0; i < numRuns; i++) {
     process.stderr.write(`Run ${i + 1}/${numRuns}...`)
-    const result = await runMeasurement(measureShPath, i + 1, projectRoot)
+    const result = await runMeasurement(measureShPath, i + 1, cwd)
     process.stderr.write(` ${result.success ? "OK" : "FAIL"} (${result.duration_ms}ms)\n`)
     results.push(result)
   }
