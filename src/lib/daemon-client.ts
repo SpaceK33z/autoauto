@@ -38,6 +38,7 @@ export interface WatchCallbacks {
   onResultsChange: (results: ExperimentResult[], metricHistory: number[]) => void
   onStreamChange: (text: string) => void
   onStreamReset?: () => void
+  onToolStatus?: (status: string | null) => void
   onDaemonDied: () => void
 }
 
@@ -313,7 +314,20 @@ export function watchRunDir(
       const delta = await bunFile.slice(streamByteOffset, size).text()
       streamByteOffset = size
 
-      callbacks.onStreamChange(delta)
+      // Parse out [tool] markers and route to toolStatus callback
+      if (callbacks.onToolStatus) {
+        const toolMatch = delta.match(/\[tool\] (.+)/g)
+        if (toolMatch) {
+          // Use the last [tool] marker as current status
+          const last = toolMatch[toolMatch.length - 1]
+          callbacks.onToolStatus(last.replace("[tool] ", ""))
+        }
+        // Send text without [tool] lines
+        const cleanText = delta.replace(/\n?\[tool\] .+\n?/g, "")
+        if (cleanText) callbacks.onStreamChange(cleanText)
+      } else {
+        callbacks.onStreamChange(delta)
+      }
     } catch {
       // Ignore transient errors
     }

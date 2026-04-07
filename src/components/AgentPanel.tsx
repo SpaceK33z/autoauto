@@ -7,6 +7,8 @@ interface AgentPanelProps {
   toolStatus: string | null
   isRunning: boolean
   selectedResult?: ExperimentResult | null
+  phaseLabel?: string | null
+  experimentNumber?: number
 }
 
 function parseJson(raw: string | undefined): Record<string, unknown> | null {
@@ -47,7 +49,7 @@ function ExperimentDetail({ result }: { result: ExperimentResult }) {
   )
 }
 
-export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResult }: AgentPanelProps) {
+export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResult, phaseLabel, experimentNumber }: AgentPanelProps) {
   if (selectedResult) {
     return (
       <box flexDirection="column" flexGrow={1}>
@@ -63,23 +65,82 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
 
   return (
     <box flexDirection="column" flexGrow={1}>
-      {toolStatus && isRunning && (
-        <box paddingX={1}>
-          <text fg="#a9b1d6" selectable>⟳ {toolStatus}</text>
-        </box>
-      )}
       <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
-        {!streamingText && !toolStatus && isRunning && (
-          <box paddingX={1}>
-            <text fg="#a9b1d6">Waiting for agent...</text>
+        {!streamingText && isRunning && (
+          <box paddingX={1} flexDirection="column">
+            <WaitingIndicator phaseLabel={phaseLabel} experimentNumber={experimentNumber} toolStatus={toolStatus} />
           </box>
         )}
         {streamingText && (
           <box paddingX={1} flexDirection="column">
+            {toolStatus && isRunning && (
+              <text fg="#565f89" selectable>{toolStatus}</text>
+            )}
             <markdown content={streamingText} syntaxStyle={syntaxStyle} streaming={isRunning} />
           </box>
         )}
       </scrollbox>
+    </box>
+  )
+}
+
+function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseLabel?: string | null; experimentNumber?: number; toolStatus?: string | null }) {
+  const expLabel = experimentNumber ? `#${experimentNumber}` : ""
+
+  // Phase-specific status
+  if (phaseLabel) {
+    const lower = phaseLabel.toLowerCase()
+    if (lower.includes("baseline") && !lower.includes("re-baseline")) {
+      return (
+        <box flexDirection="column">
+          <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">Establishing baseline</span></text>
+          <text fg="#565f89">  Running measurement to set the starting metric</text>
+        </box>
+      )
+    }
+    if (lower.includes("measuring") || lower.includes("re-baseline")) {
+      return (
+        <box flexDirection="column">
+          <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">{phaseLabel}</span></text>
+          <text fg="#565f89">  Evaluating experiment {expLabel} via measure.sh</text>
+        </box>
+      )
+    }
+    if (lower.includes("reverting")) {
+      return (
+        <box flexDirection="column">
+          <text><span fg="#a9b1d6">{">"}</span> <span fg="#e0af68">{phaseLabel}</span></text>
+          <text fg="#565f89">  Resetting to last known good state</text>
+        </box>
+      )
+    }
+    if (lower.includes("kept")) {
+      return <text><span fg="#a9b1d6">{">"}</span> <span fg="#9ece6a">{phaseLabel}</span></text>
+    }
+    if (lower.includes("starting daemon")) {
+      return (
+        <box flexDirection="column">
+          <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">Starting daemon</span></text>
+          <text fg="#565f89">  Creating worktree and spawning background process</text>
+        </box>
+      )
+    }
+  }
+
+  // Agent running but no text yet — show tool if available, otherwise thinking
+  if (toolStatus) {
+    return (
+      <box flexDirection="column">
+        <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">Agent working</span> <span fg="#565f89">{expLabel}</span></text>
+        <text fg="#565f89">  {toolStatus}</text>
+      </box>
+    )
+  }
+
+  return (
+    <box flexDirection="column">
+      <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">Agent thinking</span> <span fg="#565f89">{expLabel}</span></text>
+      <text fg="#565f89">  Building context and waiting for first response</text>
     </box>
   )
 }

@@ -227,6 +227,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               setAgentStreamText("")
               setToolStatus(null)
             },
+            onToolStatus: (status) => {
+              if (cancelled) return
+              setToolStatus(status)
+            },
             onDaemonDied: () => {
               if (cancelled) return
               // Re-read final state
@@ -379,7 +383,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       return
     }
 
-    // Escape: deselect first, then unfocus table
+    // Escape: deselect first, then unfocus table, then detach (go back while daemon continues)
     if (key.name === "escape") {
       if (selectedResult) {
         setSelectedResult(null)
@@ -389,6 +393,9 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         setTableFocused(false)
         return
       }
+      // Detach from daemon — it keeps running in background
+      watcherRef.current?.stop()
+      navigate("home")
       return
     }
 
@@ -494,6 +501,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   toolStatus={toolStatus}
                   isRunning={phase === "running"}
                   selectedResult={selectedResult}
+                  phaseLabel={currentPhaseLabel}
+                  experimentNumber={experimentNumber}
                 />
               )}
             </>
