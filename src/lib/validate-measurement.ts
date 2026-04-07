@@ -2,7 +2,7 @@
 /* eslint-disable no-console, no-await-in-loop */
 import { readFileSync } from "node:fs"
 import { dirname } from "node:path"
-import type { ProgramConfig } from "./programs.ts"
+import { validateProgramConfig, type ProgramConfig } from "./programs.ts"
 import { runMeasurement as runMeasurementCore, validateMeasurementOutput } from "./measure.ts"
 
 interface RunResult {
@@ -60,14 +60,9 @@ const projectRoot = dirname(dirname(dirname(dirname(measureShPath))))
 
 let config: ProgramConfig
 try {
-  config = JSON.parse(readFileSync(configJsonPath, "utf-8"))
+  config = validateProgramConfig(JSON.parse(readFileSync(configJsonPath, "utf-8")))
 } catch (err) {
   console.log(JSON.stringify({ success: false, error: `Failed to read config.json: ${err}` }))
-  process.exit(0)
-}
-
-if (!config.metric_field || !config.direction) {
-  console.log(JSON.stringify({ success: false, error: "config.json missing metric_field or direction" }))
   process.exit(0)
 }
 

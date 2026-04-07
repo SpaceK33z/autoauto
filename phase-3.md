@@ -4,14 +4,14 @@ High-level tasks to complete the review and packaging flow described in [IDEA.md
 
 ## 3a. Cleanup Agent
 
-- [ ] Cleanup Agent system prompt (review accumulated diff, flag risks, produce summary)
-- [ ] Feed agent the full diff from baseline to branch tip
-- [ ] Agent tools: read files, bash (git log, git diff, git show)
+- [x] Cleanup Agent system prompt (review accumulated diff, flag risks, produce summary)
+- [x] Feed agent the full diff from baseline to branch tip
+- [x] Agent tools: read files, bash (git log, git diff, git show)
 
 ## 3b. Commit Squashing
 
-- [ ] Squash all kept experiment commits into clean commit(s)
-- [ ] Produce commits ready for PR
+- [x] Squash all kept experiment commits into clean commit(s)
+- [x] Produce commits ready for PR
 
 ## 3c. Summary Report
 
@@ -21,11 +21,6 @@ High-level tasks to complete the review and packaging flow described in [IDEA.md
   - Description of each kept change
   - Callouts for risky or user-facing changes
 - [ ] Save to run directory (`.autoauto/programs/<name>/runs/<timestamp>/summary.md`)
-
-## 3d. Manual Review Flags
-
-- [ ] Flag changes that warrant manual review (e.g. user-facing behavior changes, security-sensitive edits)
-- [ ] Surface flagged items in the TUI for user attention
 
 ## 3e. TUI Flow
 

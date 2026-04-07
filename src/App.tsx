@@ -85,17 +85,19 @@ export function App() {
 
   return (
     <box flexDirection="column" width={width} height={height}>
-      <box
-        height={3}
-        border
-        borderStyle="rounded"
-        justifyContent="center"
-        alignItems="center"
-      >
-        <text>
-          <strong>AutoAuto</strong>
-        </text>
-      </box>
+      {screen !== "execution" && (
+        <box
+          height={3}
+          border
+          borderStyle="rounded"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <text>
+            <strong>AutoAuto</strong>
+          </text>
+        </box>
+      )}
 
       {screen === "home" && (
         <HomeScreen
@@ -127,6 +129,7 @@ export function App() {
           cwd={projectRoot}
           programSlug={selectedProgram}
           modelConfig={projectConfig.executionModel}
+          supportModelConfig={projectConfig.supportModel}
           navigate={setScreen}
         />
       )}

@@ -6,12 +6,12 @@ interface StatsHeaderProps {
   currentBaseline: number
   originalBaseline: number
   bestMetric: number
-  bestExperiment: number
   direction: "lower" | "higher"
   metricField: string
   totalCostUsd: number
   metricHistory: number[]
   currentPhaseLabel: string
+  improvementPct: number
 }
 
 const BLOCKS = "▁▂▃▄▅▆▇█"
@@ -38,39 +38,52 @@ function renderSparkline(values: number[], direction: "lower" | "higher"): strin
     .join("")
 }
 
-function computeImprovementStr(bestMetric: number, originalBaseline: number): string {
-  if (originalBaseline === 0) return ""
-  const pct = ((bestMetric - originalBaseline) / Math.abs(originalBaseline)) * 100
+function formatImprovementPct(pct: number): string {
   if (pct === 0) return ""
-  return ` (${pct > 0 ? "+" : ""}${pct.toFixed(1)}%)`
+  return `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`
 }
 
 export function StatsHeader(props: StatsHeaderProps) {
-  const improvementStr = computeImprovementStr(props.bestMetric, props.originalBaseline)
+  const improvementStr = formatImprovementPct(props.improvementPct)
+  const sparkline = renderSparkline(props.metricHistory, props.direction)
 
   return (
-    <box flexDirection="column" border borderStyle="rounded" title={`Experiment #${props.experimentNumber}`}>
-      <box flexDirection="column" padding={1}>
-        <box flexDirection="row">
-          <text fg="#9ece6a"><strong>{props.totalKeeps} kept</strong></text>
-          <text>{"  "}</text>
-          <text fg="#ff5555">{props.totalDiscards} discarded</text>
-          <text>{"  "}</text>
-          <text fg="#888888">{props.totalCrashes} crashed</text>
-        </box>
+      <box paddingX={1} flexDirection="column">
         <text>
-          Baseline: {props.currentBaseline}  Best: {props.bestMetric}
-          {improvementStr}
+          <span fg="#9ece6a"><strong>✓ {props.totalKeeps}</strong></span>
+          {"  "}
+          <span fg="#ff5555">✗ {props.totalDiscards}</span>
+          {"  "}
+          <span fg="#565f89">⚡ {props.totalCrashes}</span>
+          {"    "}
+          <span fg="#565f89">$</span>
+          <span fg="#888888">{props.totalCostUsd.toFixed(2)}</span>
+          {"    "}
+          <span fg="#565f89">#{props.experimentNumber}</span>
         </text>
-        <text fg="#888888">
-          Cost: ${props.totalCostUsd.toFixed(2)}  •  {props.currentPhaseLabel}
+        <text>
+          <span fg="#565f89">baseline </span>
+          <span fg="#7aa2f7">{props.currentBaseline}</span>
+          {"   "}
+          <span fg="#565f89">best </span>
+          <span fg="#9ece6a">{props.bestMetric}</span>
+          {improvementStr ? (
+            <>
+              {"  "}
+              <span fg="#e0af68">{improvementStr}</span>
+            </>
+          ) : null}
+          {sparkline ? (
+            <>
+              {"   "}
+              <span fg="#7aa2f7">{sparkline}</span>
+            </>
+          ) : null}
+        </text>
+        <text>
+          <span fg="#565f89">› </span>
+          <span fg="#888888">{props.currentPhaseLabel}</span>
         </text>
       </box>
-      {props.metricHistory.length > 1 && (
-        <box padding={1}>
-          <text fg="#7aa2f7">{renderSparkline(props.metricHistory, props.direction)}</text>
-        </box>
-      )}
-    </box>
   )
 }

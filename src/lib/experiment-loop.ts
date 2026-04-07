@@ -1,4 +1,5 @@
-import { join } from "node:path"
+import { chmod, readFile, stat, writeFile } from "node:fs/promises"
+import { join, relative } from "node:path"
 import type { RunState, ExperimentResult } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
 import { getProgramDir } from "./programs.ts"
@@ -61,9 +62,68 @@ export interface LoopOptions {
 
 const now = () => new Date().toISOString()
 
+interface EvaluatorFileSnapshot {
+  path: string
+  label: string
+  content: string
+}
+
+async function readEvaluatorSnapshot(
+  programDir: string,
+  projectRoot: string,
+): Promise<EvaluatorFileSnapshot[]> {
+  const paths = [join(programDir, "measure.sh"), join(programDir, "config.json")]
+  return Promise.all(paths.map(async (path) => ({
+    path,
+    label: relative(projectRoot, path),
+    content: await readFile(path, "utf-8"),
+  })))
+}
+
+async function getEvaluatorViolations(snapshot: EvaluatorFileSnapshot[]): Promise<string[]> {
+  const checks = await Promise.all(snapshot.map(async (file) => {
+    try {
+      const [current, info] = await Promise.all([readFile(file.path, "utf-8"), stat(file.path)])
+      if (current !== file.content || (info.mode & 0o222) !== 0) {
+        return file.label
+      }
+    } catch {
+      return file.label
+    }
+    return null
+  }))
+
+  return checks.filter((file): file is string => file !== null)
+}
+
+async function restoreEvaluatorSnapshot(snapshot: EvaluatorFileSnapshot[]): Promise<void> {
+  await Promise.all(snapshot.map(async (file) => {
+    await chmod(file.path, 0o644).catch(() => {})
+    await writeFile(file.path, file.content)
+    await chmod(file.path, 0o444)
+  }))
+}
+
 async function revertToStart(projectRoot: string, startSha: string, candidateSha: string): Promise<void> {
   const reverted = await revertCommits(projectRoot, startSha, candidateSha)
   if (!reverted) await resetHard(projectRoot, startSha)
+
+  if (!(await isWorkingTreeClean(projectRoot))) {
+    throw new Error("Working tree still dirty after reverting failed experiment; stopping to avoid contaminating the next iteration.")
+  }
+}
+
+/** Revert any changes back to startSha and verify the working tree is clean. */
+async function revertAndVerify(projectRoot: string, startSha: string, errorContext: string): Promise<void> {
+  const currentSha = await getFullSha(projectRoot)
+  if (currentSha !== startSha) {
+    await revertToStart(projectRoot, startSha, currentSha)
+  } else if (!(await isWorkingTreeClean(projectRoot))) {
+    await resetHard(projectRoot, startSha)
+  }
+  if (!(await isWorkingTreeClean(projectRoot))) {
+    throw new Error(`Working tree still dirty after ${errorContext}; stopping to avoid contaminating the next iteration.`)
+  }
 }
 
 async function maybeRebaseline(
@@ -333,6 +393,7 @@ export async function runExperimentLoop(
     onLoopComplete: callbacks.onLoopComplete,
   }
 
+  try {
   while (true) {
     // --- Check stop conditions ---
     if (options.signal?.aborted) {
@@ -372,6 +433,7 @@ export async function runExperimentLoop(
 
     // --- Spawn experiment agent ---
     const startSha = await getFullSha(projectRoot)
+    const evaluatorSnapshot = await readEvaluatorSnapshot(programDir, projectRoot)
 
     const outcome = await runExperimentAgent(
       projectRoot,
@@ -394,12 +456,8 @@ export async function runExperimentLoop(
     if (options.signal?.aborted) {
       wrappedCallbacks.onPhaseChange("stopping", "aborted by user")
 
-      const currentSha = await getFullSha(projectRoot)
-      if (currentSha !== startSha) {
-        await revertToStart(projectRoot, startSha, currentSha)
-      } else if (!(await isWorkingTreeClean(projectRoot))) {
-        await resetHard(projectRoot, startSha)
-      }
+      await restoreEvaluatorSnapshot(evaluatorSnapshot)
+      await revertAndVerify(projectRoot, startSha, "abort cleanup")
 
       const abortResult: ExperimentResult = {
         experiment_number: experimentNumber,
@@ -425,21 +483,38 @@ export async function runExperimentLoop(
 
     // --- Handle no-commit or error (no code change) ---
     if (outcome.type === "no_commit" || outcome.type === "agent_error") {
-      const crashDesc = outcome.type === "no_commit"
-        ? "no commit produced"
-        : `agent error: ${outcome.error}`
+      const evaluatorViolations = await getEvaluatorViolations(evaluatorSnapshot)
+      if (evaluatorViolations.length > 0) {
+        await restoreEvaluatorSnapshot(evaluatorSnapshot)
+      }
+
+      await revertAndVerify(projectRoot, startSha, "failed experiment cleanup")
+
+      const isLockViolation = evaluatorViolations.length > 0
+      const crashDesc = isLockViolation
+        ? `lock violation: modified ${evaluatorViolations.join(", ")}`
+        : outcome.type === "no_commit"
+          ? "no commit produced"
+          : `agent error: ${outcome.error}`
       const crashResult: ExperimentResult = {
         experiment_number: experimentNumber,
         commit: startSha.slice(0, 7),
         metric_value: 0,
         secondary_values: "",
-        status: "crash",
+        status: isLockViolation ? "discard" : "crash",
         description: crashDesc,
       }
       await appendResult(runDir, crashResult)
       wrappedCallbacks.onExperimentEnd(crashResult)
 
-      state = { ...state, total_crashes: state.total_crashes + 1, phase: "idle", updated_at: now() }
+      state = {
+        ...state,
+        total_crashes: isLockViolation ? state.total_crashes : state.total_crashes + 1,
+        total_discards: isLockViolation ? state.total_discards + 1 : state.total_discards,
+        candidate_sha: null,
+        phase: "idle",
+        updated_at: now(),
+      }
       await writeState(runDir, state)
       wrappedCallbacks.onStateUpdate(state)
       consecutiveDiscards++
@@ -452,14 +527,30 @@ export async function runExperimentLoop(
     state = { ...state, candidate_sha: candidateSha, updated_at: now() }
     await writeState(runDir, state)
 
+    if (!(await isWorkingTreeClean(projectRoot))) {
+      await resetHard(projectRoot, candidateSha)
+      if (!(await isWorkingTreeClean(projectRoot))) {
+        const evaluatorViolations = await getEvaluatorViolations(evaluatorSnapshot)
+        if (evaluatorViolations.length > 0) {
+          await restoreEvaluatorSnapshot(evaluatorSnapshot)
+        }
+        throw new Error("Agent left uncommitted files after committing; stopping to avoid measuring a dirty worktree.")
+      }
+    }
+
     // --- Check lock violation ---
     const lockCheck = checkLockViolation(outcome.files_changed)
-    if (lockCheck.violated) {
-      wrappedCallbacks.onPhaseChange("reverting", `lock violation: ${lockCheck.files.join(", ")}`)
+    const evaluatorViolations = await getEvaluatorViolations(evaluatorSnapshot)
+    const lockViolationFiles = [...new Set([...lockCheck.files, ...evaluatorViolations])]
+    if (lockViolationFiles.length > 0) {
+      wrappedCallbacks.onPhaseChange("reverting", `lock violation: ${lockViolationFiles.join(", ")}`)
 
       state = { ...state, phase: "reverting", updated_at: now() }
       await writeState(runDir, state)
 
+      if (evaluatorViolations.length > 0) {
+        await restoreEvaluatorSnapshot(evaluatorSnapshot)
+      }
       await revertToStart(projectRoot, startSha, candidateSha)
 
       const lockResult: ExperimentResult = {
@@ -468,7 +559,7 @@ export async function runExperimentLoop(
         metric_value: 0,
         secondary_values: "",
         status: "discard",
-        description: `lock violation: modified ${lockCheck.files.join(", ")} — ${outcome.description}`,
+        description: `lock violation: modified ${lockViolationFiles.join(", ")} — ${outcome.description}`,
       }
       await appendResult(runDir, lockResult)
       wrappedCallbacks.onExperimentEnd(lockResult)
@@ -511,9 +602,11 @@ export async function runExperimentLoop(
 
     wrappedCallbacks.onStateUpdate(state)
   }
+  } finally {
+    await unlockEvaluator(programDir)
+  }
 
   // --- Finalize ---
-  await unlockEvaluator(programDir)
 
   const finalState: RunState = {
     ...state,

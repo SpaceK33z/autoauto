@@ -126,6 +126,34 @@ export async function countCommitsBetween(
   return parseInt(stdout.trim(), 10)
 }
 
+/** Returns the full unified diff between two SHAs. */
+export async function getDiffBetween(cwd: string, fromSha: string, toSha: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["diff", fromSha, toSha], { cwd })
+  return stdout
+}
+
+/** Squashes all commits between baselineSha and HEAD into a single commit.
+ *  Uses git reset --soft + commit. Rolls back on failure. Returns the new SHA. */
+export async function squashCommits(
+  cwd: string,
+  baselineSha: string,
+  commitMessage: string,
+): Promise<string> {
+  const savedHead = await getFullSha(cwd)
+
+  await execFileAsync("git", ["reset", "--soft", baselineSha], { cwd })
+
+  try {
+    await execFileAsync("git", ["commit", "-m", commitMessage], { cwd })
+  } catch (err) {
+    // Rollback: restore HEAD to where it was before the reset
+    await execFileAsync("git", ["reset", "--soft", savedHead], { cwd })
+    throw err
+  }
+
+  return getFullSha(cwd)
+}
+
 /** Returns formatted diff summaries for discarded commits, capped at maxLength chars. */
 export async function getDiscardedDiffs(
   cwd: string,

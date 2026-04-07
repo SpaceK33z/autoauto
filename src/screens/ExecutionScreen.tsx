@@ -12,6 +12,7 @@ import { RunCompletePrompt } from "../components/RunCompletePrompt.tsx"
 import { StatsHeader } from "../components/StatsHeader.tsx"
 import { ResultsTable } from "../components/ResultsTable.tsx"
 import { AgentPanel } from "../components/AgentPanel.tsx"
+import { syntaxStyle } from "../lib/syntax-theme.ts"
 
 type ExecutionPhase = "starting" | "running" | "complete" | "cleaning_up" | "cleanup_complete" | "error"
 
@@ -300,18 +301,18 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
       {phase === "cleanup_complete" && cleanupResult && (
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Cleanup Complete">
-          <box flexDirection="column" padding={1}>
+          <box flexDirection="column" paddingX={1}>
             {cleanupResult.squashedSha ? (
               <text fg="#9ece6a">Commits squashed into {cleanupResult.squashedSha.slice(0, 7)}</text>
             ) : (
               <text fg="#888888">No changes to squash (0 keeps)</text>
             )}
-            <text>{""}</text>
-            <text>Summary saved to run directory</text>
-            <text fg="#888888">Press Escape to go back</text>
+            <text fg="#565f89">Summary saved to run directory. Press Escape to go back.</text>
           </box>
-          <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
-            <text>{cleanupResult.summary}</text>
+          <scrollbox flexGrow={1}>
+            <box paddingX={1} flexDirection="column">
+              <markdown content={cleanupResult.summary} syntaxStyle={syntaxStyle} />
+            </box>
           </scrollbox>
         </box>
       )}

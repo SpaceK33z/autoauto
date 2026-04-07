@@ -171,7 +171,7 @@ export function checkQualityGates(
 
 /**
  * Runs measure.sh N times (config.repeats), computes median, validates all outputs.
- * Requires at least ceil(repeats / 2) valid measurements to succeed.
+ * Every configured repeat must succeed; partial measurement failures invalidate the series.
  */
 export async function runMeasurementSeries(
   measureShPath: string,
@@ -183,6 +183,7 @@ export async function runMeasurementSeries(
   const runs: MeasurementResult[] = []
   const validMetrics: number[] = []
   const validGateValues: Record<string, number[]> = {}
+  let invalidOutputCount = 0
 
   for (let i = 0; i < config.repeats; i++) {
     if (signal?.aborted) break
@@ -193,7 +194,10 @@ export async function runMeasurementSeries(
     if (!result.success) continue
 
     const validation = validateMeasurementOutput(result.output, config)
-    if (!validation.valid) continue
+    if (!validation.valid) {
+      invalidOutputCount++
+      continue
+    }
 
     validMetrics.push(result.output[config.metric_field] as number)
 
@@ -220,9 +224,7 @@ export async function runMeasurementSeries(
     }
   }
 
-  const minRequired = Math.ceil(config.repeats / 2)
-
-  if (validMetrics.length < minRequired) {
+  if (runs.length !== config.repeats || validMetrics.length !== config.repeats || invalidOutputCount > 0) {
     return {
       success: false,
       median_metric: 0,

@@ -30,6 +30,66 @@ export const AUTOAUTO_DIR = ".autoauto"
 
 let cachedRoot: string | undefined
 
+function assertFiniteNumber(value: unknown, path: string): asserts value is number {
+  if (typeof value !== "number" || !isFinite(value)) {
+    throw new Error(`config.json: ${path} must be a finite number`)
+  }
+}
+
+export function validateProgramConfig(raw: unknown): ProgramConfig {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("config.json: must be a JSON object")
+  }
+
+  const config = raw as Record<string, unknown>
+
+  if (!config.metric_field || typeof config.metric_field !== "string") {
+    throw new Error("config.json: metric_field must be a non-empty string")
+  }
+  if (config.direction !== "lower" && config.direction !== "higher") {
+    throw new Error('config.json: direction must be "lower" or "higher"')
+  }
+  assertFiniteNumber(config.noise_threshold, "noise_threshold")
+  if (config.noise_threshold <= 0) {
+    throw new Error("config.json: noise_threshold must be positive")
+  }
+  if (typeof config.repeats !== "number" || !Number.isInteger(config.repeats) || config.repeats < 1) {
+    throw new Error("config.json: repeats must be an integer >= 1")
+  }
+  if (
+    config.max_experiments !== undefined &&
+    (typeof config.max_experiments !== "number" ||
+      !Number.isInteger(config.max_experiments) ||
+      config.max_experiments < 1)
+  ) {
+    throw new Error("config.json: max_experiments must be an integer >= 1")
+  }
+  if (typeof config.quality_gates !== "object" || config.quality_gates === null || Array.isArray(config.quality_gates)) {
+    throw new Error("config.json: quality_gates must be an object")
+  }
+
+  for (const [field, gate] of Object.entries(config.quality_gates as Record<string, unknown>)) {
+    if (typeof gate !== "object" || gate === null || Array.isArray(gate)) {
+      throw new Error(`config.json: quality_gates.${field} must be an object`)
+    }
+
+    const gateConfig = gate as Record<string, unknown>
+    const hasMin = gateConfig.min !== undefined
+    const hasMax = gateConfig.max !== undefined
+
+    if (!hasMin && !hasMax) {
+      throw new Error(`config.json: quality_gates.${field} must define min or max`)
+    }
+    if (hasMin) assertFiniteNumber(gateConfig.min, `quality_gates.${field}.min`)
+    if (hasMax) assertFiniteNumber(gateConfig.max, `quality_gates.${field}.max`)
+    if (typeof gateConfig.min === "number" && typeof gateConfig.max === "number" && gateConfig.min > gateConfig.max) {
+      throw new Error(`config.json: quality_gates.${field}.min must be <= max`)
+    }
+  }
+
+  return config as unknown as ProgramConfig
+}
+
 /** Returns the main git repo root, resolving through worktrees. */
 export async function getProjectRoot(cwd: string): Promise<string> {
   if (cachedRoot) return cachedRoot
@@ -82,25 +142,7 @@ export function getRunDir(cwd: string, slug: string, runId: string): string {
 /** Reads and validates config.json from a program directory. */
 export async function loadProgramConfig(programDir: string): Promise<ProgramConfig> {
   const raw = await readFile(join(programDir, "config.json"), "utf-8")
-  const config = JSON.parse(raw) as Record<string, unknown>
-
-  if (!config.metric_field || typeof config.metric_field !== "string") {
-    throw new Error("config.json: metric_field must be a non-empty string")
-  }
-  if (config.direction !== "lower" && config.direction !== "higher") {
-    throw new Error('config.json: direction must be "lower" or "higher"')
-  }
-  if (typeof config.noise_threshold !== "number" || !isFinite(config.noise_threshold) || config.noise_threshold <= 0) {
-    throw new Error("config.json: noise_threshold must be a finite positive number")
-  }
-  if (typeof config.repeats !== "number" || !Number.isInteger(config.repeats) || config.repeats < 1) {
-    throw new Error("config.json: repeats must be an integer >= 1")
-  }
-  if (typeof config.quality_gates !== "object" || config.quality_gates === null || Array.isArray(config.quality_gates)) {
-    throw new Error("config.json: quality_gates must be an object")
-  }
-
-  return config as unknown as ProgramConfig
+  return validateProgramConfig(JSON.parse(raw))
 }
 
 export async function ensureAutoAutoDir(cwd: string): Promise<void> {

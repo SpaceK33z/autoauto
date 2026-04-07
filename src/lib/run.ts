@@ -1,6 +1,6 @@
 import { readFile, writeFile, appendFile, rename, mkdir, chmod, readdir } from "node:fs/promises"
 import { join } from "node:path"
-import { getProgramDir, loadProgramConfig } from "./programs.ts"
+import { getProgramDir, loadProgramConfig, type ProgramConfig } from "./programs.ts"
 import { runMeasurementSeries } from "./measure.ts"
 import {
   getFullSha,
@@ -26,6 +26,7 @@ export type RunPhase =
   | "stopping"
   | "complete"
   | "crashed"
+  | "cleaning_up"
 
 /** Persisted run state — the checkpoint file */
 export interface RunState {
@@ -41,6 +42,7 @@ export interface RunState {
   total_discards: number
   total_crashes: number
   branch_name: string
+  original_baseline_sha: string
   last_known_good_sha: string
   candidate_sha: string | null
   started_at: string
@@ -201,17 +203,20 @@ export interface RunStats {
   current_improvement_pct: number
 }
 
+function computeImprovementPct(
+  original: number,
+  current: number,
+  direction: ProgramConfig["direction"],
+): number {
+  if (original === 0) return 0
+  return direction === "lower"
+    ? ((original - current) / Math.abs(original)) * 100
+    : ((current - original) / Math.abs(original)) * 100
+}
+
 /** Computes derived statistics from run state. Counts come from RunState's authoritative counters. */
-export function getRunStats(state: RunState): RunStats {
+export function getRunStats(state: RunState, direction: ProgramConfig["direction"]): RunStats {
   const total = state.total_keeps + state.total_discards + state.total_crashes
-
-  const improvementPct = state.original_baseline !== 0
-    ? ((state.best_metric - state.original_baseline) / Math.abs(state.original_baseline)) * 100
-    : 0
-
-  const currentImprovementPct = state.original_baseline !== 0
-    ? ((state.current_baseline - state.original_baseline) / Math.abs(state.original_baseline)) * 100
-    : 0
 
   return {
     total_experiments: total,
@@ -219,8 +224,8 @@ export function getRunStats(state: RunState): RunStats {
     total_discards: state.total_discards,
     total_crashes: state.total_crashes,
     keep_rate: total > 0 ? state.total_keeps / total : 0,
-    improvement_pct: improvementPct,
-    current_improvement_pct: currentImprovementPct,
+    improvement_pct: computeImprovementPct(state.original_baseline, state.best_metric, direction),
+    current_improvement_pct: computeImprovementPct(state.original_baseline, state.current_baseline, direction),
   }
 }
 
@@ -335,6 +340,7 @@ export async function startRun(
     total_discards: 0,
     total_crashes: 0,
     branch_name: branchName,
+    original_baseline_sha: fullSha,
     last_known_good_sha: fullSha,
     candidate_sha: null,
     started_at: now,

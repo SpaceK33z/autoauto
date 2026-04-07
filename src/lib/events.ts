@@ -17,6 +17,9 @@ export type LoopEventType =
   | "run_complete"
   | "experiment_cost"
   | "loop_complete"
+  | "cleanup_start"
+  | "cleanup_end"
+  | "squash_complete"
 
 /** A single event in events.ndjson */
 export interface LoopEvent {
@@ -38,6 +41,9 @@ export interface EventLogger {
   logRunComplete: (state: RunState) => Promise<void>
   logExperimentCost: (cost: ExperimentCost) => Promise<void>
   logLoopComplete: (state: RunState, reason: string) => Promise<void>
+  logCleanupStart: () => Promise<void>
+  logCleanupEnd: (cost: ExperimentCost) => Promise<void>
+  logSquashComplete: (newSha: string, commitCount: number) => Promise<void>
 }
 
 // --- Append / Read ---
@@ -126,5 +132,9 @@ export function createEventLogger(
       best_metric: state.best_metric,
       original_baseline: state.original_baseline,
     }),
+    logCleanupStart: () => emit("cleanup_start", {}),
+    logCleanupEnd: (cost) => emit("cleanup_end", { ...cost }),
+    logSquashComplete: (newSha, commitCount) =>
+      emit("squash_complete", { new_sha: newSha, commit_count: commitCount }),
   }
 }

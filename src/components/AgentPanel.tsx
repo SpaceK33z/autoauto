@@ -8,24 +8,24 @@ interface AgentPanelProps {
 
 export function AgentPanel({ streamingText, toolStatus, isRunning }: AgentPanelProps) {
   return (
-    <box flexDirection="column" height={12} border borderStyle="rounded" title="Agent">
+    <box flexDirection="column" flexGrow={1}>
+      {toolStatus && isRunning && (
+        <box paddingX={1}>
+          <text fg="#565f89">⟳ {toolStatus}</text>
+        </box>
+      )}
       <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
         {!streamingText && !toolStatus && isRunning && (
-          <box padding={1}>
-            <text fg="#888888">Waiting for agent...</text>
+          <box paddingX={1}>
+            <text fg="#565f89">Waiting for agent...</text>
           </box>
         )}
         {streamingText && (
-          <box padding={1} flexDirection="column">
+          <box paddingX={1} flexDirection="column">
             <markdown content={streamingText} syntaxStyle={syntaxStyle} streaming={isRunning} />
           </box>
         )}
       </scrollbox>
-      {toolStatus && isRunning && (
-        <box padding={1}>
-          <text fg="#888888">⟳ {toolStatus}</text>
-        </box>
-      )}
     </box>
   )
 }

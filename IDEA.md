@@ -275,6 +275,7 @@ Decouple the orchestrator from the TUI so runs survive terminal close/quit.
 - **Re-profiling** — separate profiling step (e.g. flame graphs, trace analysis) that feeds structured data to the experiment agent
 - **Learnings persistence** — explore a `learnings.md` that accumulates qualitative insights across iterations (why things failed, not just that they did), to complement the results.tsv + git history approach
 - **Creativity ceiling / local optima** — after ~50-80 experiments agents tend to get stuck in local search (random seed changes, micro-adjustments). Explore meta-prompt optimization: a second agent reviews results and rewrites `program.md` to push exploration in new directions. Also consider diversity directives that reward novelty alongside improvement, or periodic resets from earlier checkpoints.
+- Support Codex and OpenCode SDK (and make it so you can decide to use it for just execution phase or everything)
 
 ## References
 

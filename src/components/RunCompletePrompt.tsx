@@ -6,6 +6,7 @@ import type { TerminationReason } from "../lib/experiment-loop.ts"
 
 interface RunCompletePromptProps {
   state: RunState
+  direction: "lower" | "higher"
   terminationReason: TerminationReason | null
   error: string | null
   onCleanup: () => void
@@ -14,13 +15,14 @@ interface RunCompletePromptProps {
 
 export function RunCompletePrompt({
   state,
+  direction,
   terminationReason,
   error,
   onCleanup,
   onAbandon,
 }: RunCompletePromptProps) {
   const [selected, setSelected] = useState(0)
-  const stats = getRunStats(state)
+  const stats = getRunStats(state, direction)
 
   useKeyboard((key) => {
     if (key.name === "up" || key.name === "k") {
