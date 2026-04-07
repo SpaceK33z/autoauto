@@ -86,12 +86,20 @@ export interface ExperimentResult {
   description: string
   /** Total wall time for the measurement series (all repeats), in ms */
   measurement_duration_ms: number
+  /** Diff stats JSON — e.g. {"lines_added":12,"lines_removed":5}. Absent for old runs. */
+  diff_stats?: string
 }
 
 /** Structured secondary values stored in results.tsv */
 export interface SecondaryValuesBlob {
   quality_gates: Record<string, number>
   secondary_metrics: Record<string, number>
+}
+
+/** Serializes DiffStats into compact JSON for results.tsv. */
+export function serializeDiffStats(stats: { lines_added: number; lines_removed: number } | undefined): string {
+  if (!stats) return ""
+  return JSON.stringify({ lines_added: stats.lines_added, lines_removed: stats.lines_removed })
 }
 
 /** Serializes quality gate and secondary metric medians into the structured JSON format. */
@@ -159,7 +167,7 @@ export async function initRunDir(programDir: string, runId: string): Promise<str
 
   await Bun.write(
     join(runDir, "results.tsv"),
-    "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\n",
+    "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\tdiff_stats\n",
   )
 
   return runDir
@@ -182,7 +190,8 @@ export async function readState(runDir: string): Promise<RunState> {
 
 export async function appendResult(runDir: string, result: ExperimentResult): Promise<void> {
   const secondaryStr = result.secondary_values || ""
-  const line = `${result.experiment_number}\t${result.commit}\t${result.metric_value}\t${secondaryStr}\t${result.status}\t${result.description}\t${result.measurement_duration_ms}\n`
+  const diffStatsStr = result.diff_stats || ""
+  const line = `${result.experiment_number}\t${result.commit}\t${result.metric_value}\t${secondaryStr}\t${result.status}\t${result.description}\t${result.measurement_duration_ms}\t${diffStatsStr}\n`
   await appendFile(join(runDir, "results.tsv"), line)
 }
 
@@ -200,6 +209,7 @@ function parseTsvRow(line: string): ExperimentResult | null {
     status: parts[4] as ExperimentStatus,
     description: parts[5],
     measurement_duration_ms: parts[6] ? parseInt(parts[6], 10) : 0,
+    diff_stats: parts[7] || undefined,
   }
 }
 

@@ -459,7 +459,10 @@ ${notesInstruction}
 - **Out-of-scope modifications:** Touching files outside your allowed scope gets the entire experiment discarded.
 - **Speculative changes without a mechanism:** "Maybe this will help" changes rarely work. Have a clear hypothesis.
 - **Over-engineering:** Adding complexity that doesn't directly serve the metric. Simpler is better at equal metric.
-- **Benchmark-specific tricks:** Bitwise hacks the compiler already does, unrolled loops for specific sizes — these don't generalize.`
+- **Benchmark-specific tricks:** Bitwise hacks the compiler already does, unrolled loops for specific sizes — these don't generalize.
+
+## Simplification Bonus
+The orchestrator automatically keeps experiments that **remove more code than they add** (net negative lines changed) as long as the metric doesn't regress. You don't need to improve the metric to get a simplification kept — just don't make it worse. Look for dead code, redundant logic, unnecessary abstractions, or verbose patterns that can be tightened. Simplification keeps are valuable and count as real progress.`
 }
 
 /** Returns the system prompt for the finalize agent. Read-only review + grouping of accumulated experiment changes. */

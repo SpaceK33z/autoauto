@@ -8,6 +8,8 @@ import {
   getLatestCommitMessage,
   getFilesChangedBetween,
   getDiscardedDiffs,
+  getDiffStats,
+  type DiffStats,
 } from "./git.ts"
 import { getProvider, type AgentCost } from "./agent/index.ts"
 import { formatToolEvent } from "./tool-events.ts"
@@ -44,7 +46,7 @@ export type ExperimentCost = AgentCost
 
 /** Result of running one experiment agent session */
 export type ExperimentOutcome =
-  | { type: "committed"; sha: string; description: string; files_changed: string[]; cost?: ExperimentCost; notes?: ExperimentNotes }
+  | { type: "committed"; sha: string; description: string; files_changed: string[]; diff_stats: DiffStats; cost?: ExperimentCost; notes?: ExperimentNotes }
   | { type: "no_commit"; cost?: ExperimentCost; notes?: ExperimentNotes }
   | { type: "agent_error"; error: string; cost?: ExperimentCost; notes?: ExperimentNotes }
 
@@ -289,11 +291,14 @@ async function runExperimentAgentRaw(
     return { outcome: { type: "no_commit", cost }, assistantText }
   }
 
-  const description = await getLatestCommitMessage(cwd)
-  const filesChanged = await getFilesChangedBetween(cwd, startSha, endSha)
+  const [description, filesChanged, diffStats] = await Promise.all([
+    getLatestCommitMessage(cwd),
+    getFilesChangedBetween(cwd, startSha, endSha),
+    getDiffStats(cwd, startSha, endSha),
+  ])
 
   return {
-    outcome: { type: "committed", sha: endSha, description, files_changed: filesChanged, cost },
+    outcome: { type: "committed", sha: endSha, description, files_changed: filesChanged, diff_stats: diffStats, cost },
     assistantText,
   }
 }

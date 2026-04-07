@@ -130,6 +130,25 @@ export async function createGroupBranch(
   return getFullSha(cwd)
 }
 
+/** Diff statistics: lines added and removed between two SHAs. */
+export interface DiffStats {
+  lines_added: number
+  lines_removed: number
+}
+
+/** Returns lines added/removed between two SHAs using git diff --shortstat. */
+export async function getDiffStats(cwd: string, fromSha: string, toSha: string): Promise<DiffStats> {
+  const output = (await $`git diff --shortstat ${fromSha} ${toSha}`.cwd(cwd).text()).trim()
+  if (!output) return { lines_added: 0, lines_removed: 0 }
+
+  const insertions = output.match(/(\d+) insertion/)
+  const deletions = output.match(/(\d+) deletion/)
+  return {
+    lines_added: insertions ? parseInt(insertions[1], 10) : 0,
+    lines_removed: deletions ? parseInt(deletions[1], 10) : 0,
+  }
+}
+
 /** Returns formatted diff summaries for discarded commits, capped at maxLength chars. */
 export async function getDiscardedDiffs(
   cwd: string,

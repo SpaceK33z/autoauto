@@ -9,6 +9,7 @@ import {
   appendResult,
   unlockMeasurement,
   serializeSecondaryValues,
+  serializeDiffStats,
 } from "./run.ts"
 import {
   getFullSha,
@@ -20,6 +21,7 @@ import {
   runMeasurementSeries,
   compareMetric,
 } from "./measure.ts"
+import type { DiffStats } from "./git.ts"
 import {
   buildContextPacket,
   buildExperimentPrompt,
@@ -197,10 +199,13 @@ async function runMeasurementAndDecide(
   startSha: string,
   candidateSha: string,
   description: string,
+  diffStats: DiffStats | undefined,
   callbacks: LoopCallbacks,
   recordBacklog: (result: ExperimentResult) => Promise<void>,
   signal?: AbortSignal,
 ): Promise<{ state: RunState; kept: boolean }> {
+
+  const diffStatsStr = serializeDiffStats(diffStats)
 
   // 1. Measure
   callbacks.onPhaseChange("measuring")
@@ -226,6 +231,7 @@ async function runMeasurementAndDecide(
       status: "measurement_failure",
       description: `measurement failed (${failureReason}): ${description}`,
       measurement_duration_ms: series.duration_ms,
+      diff_stats: diffStatsStr,
     }
     await appendResult(runDir, result)
     await recordBacklog(result)
@@ -258,6 +264,7 @@ async function runMeasurementAndDecide(
       status: "discard",
       description: `quality gate failed: ${description}`,
       measurement_duration_ms: series.duration_ms,
+      diff_stats: diffStatsStr,
     }
     await appendResult(runDir, result)
     await recordBacklog(result)
@@ -282,13 +289,20 @@ async function runMeasurementAndDecide(
     config.direction,
   )
 
-  if (verdict === "keep") {
-    // KEEP
-    callbacks.onPhaseChange("kept", `keep: ${state.current_baseline} → ${series.median_metric}`)
+  // 5. Check for simplification auto-keep: net-negative LOC within noise
+  const isSimplification = verdict === "noise"
+    && diffStats != null
+    && diffStats.lines_removed > diffStats.lines_added
 
-    const isBest = config.direction === "lower"
+  if (verdict === "keep" || isSimplification) {
+    // KEEP (metric improvement or simplification)
+    const keepReason = isSimplification ? "simplification" : "keep"
+    const keepDesc = isSimplification ? `simplification: ${description}` : description
+    callbacks.onPhaseChange("kept", `${keepReason}: ${state.current_baseline} → ${series.median_metric}`)
+
+    const isBest = !isSimplification && (config.direction === "lower"
       ? series.median_metric < state.best_metric
-      : series.median_metric > state.best_metric
+      : series.median_metric > state.best_metric)
 
     const result: ExperimentResult = {
       experiment_number: state.experiment_number,
@@ -296,20 +310,21 @@ async function runMeasurementAndDecide(
       metric_value: series.median_metric,
       secondary_values: serializeSecondaryValues(series.median_quality_gates, series.median_secondary_metrics),
       status: "keep",
-      description,
+      description: keepDesc,
       measurement_duration_ms: series.duration_ms,
+      diff_stats: diffStatsStr,
     }
     await appendResult(runDir, result)
     await recordBacklog(result)
     callbacks.onExperimentEnd(result)
 
     // Re-baseline: fresh measurement on the kept code
-    callbacks.onPhaseChange("measuring", "re-baselining after keep")
+    callbacks.onPhaseChange("measuring", `re-baselining after ${keepReason}`)
     const rebaseline = await runMeasurementSeries(measureShPath, cwd, config, signal, buildShPath)
     const newBaseline = rebaseline.success ? rebaseline.median_metric : series.median_metric
 
     if (rebaseline.success && newBaseline !== series.median_metric) {
-      callbacks.onRebaseline?.(series.median_metric, newBaseline, "keep")
+      callbacks.onRebaseline?.(series.median_metric, newBaseline, keepReason)
     }
 
     const finalState: RunState = {
@@ -327,7 +342,7 @@ async function runMeasurementAndDecide(
     return { state: finalState, kept: true }
   }
 
-  // DISCARD (regressed or noise)
+  // DISCARD (regressed or noise without simplification)
   const reason = verdict === "regressed" ? "regressed" : "within noise"
   callbacks.onPhaseChange("reverting", `${reason}: ${state.current_baseline} → ${series.median_metric}`)
 
@@ -346,6 +361,7 @@ async function runMeasurementAndDecide(
     status: "discard",
     description: statusDesc,
     measurement_duration_ms: series.duration_ms,
+    diff_stats: diffStatsStr,
   }
   await appendResult(runDir, result)
   await recordBacklog(result)
@@ -606,6 +622,7 @@ export async function runExperimentLoop(
     const measurementResult = await runMeasurementAndDecide(
       cwd, runDir, measureShPath, buildShPath,
       config, state, startSha, candidateSha, outcome.description,
+      outcome.diff_stats,
       callbacks,
       (result) => recordIdeasBacklog(ideasBacklogEnabled, runDir, result, outcome.notes),
       options.signal,
