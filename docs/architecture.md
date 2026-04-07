@@ -43,11 +43,13 @@ src/
     Chat.tsx             # Claude Agent SDK streaming chat
   screens/
     HomeScreen.tsx       # Program list
-    SetupScreen.tsx      # Setup flow (chat wrapper)
+    SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
   lib/
     programs.ts          # Filesystem ops, program CRUD
+    push-stream.ts       # Push-based async iterable utility
+    system-prompts.ts    # Agent system prompts (setup, ideation)
 ```
 
 ## Current State
 
-Phase 1 (Setup) is in progress. The TUI shell, screen navigation, program listing, and multi-turn Claude Agent SDK chat are wired up. The chat foundation supports full conversation history with auto-scrolling and streaming. The setup agent's guided workflow (repo inspection, measurement script generation, program.md creation) is not yet implemented.
+Phase 1 (Setup) is in progress. The TUI shell, screen navigation, program listing, and multi-turn Claude Agent SDK chat are wired up. The chat foundation supports full conversation history with auto-scrolling and streaming. The setup agent has a system prompt for guided repo inspection, scope definition, and ideation mode, with Read/Bash/Glob/Grep tools auto-allowed for repo analysis. Program artifact generation (program.md, measure.sh, config.json) is not yet implemented.

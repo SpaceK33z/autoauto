@@ -14,7 +14,26 @@ interface SDKUserMessage {
   parent_tool_use_id: string | null
 }
 
-export function Chat() {
+interface ChatProps {
+  /** Working directory for agent tools (target repo path) */
+  cwd?: string
+  /** System prompt for the agent */
+  systemPrompt?: string
+  /** Tools to make available to the agent */
+  tools?: string[]
+  /** Tools to auto-allow without permission prompts */
+  allowedTools?: string[]
+  /** Max agentic turns (tool-use round-trips) */
+  maxTurns?: number
+}
+
+export function Chat({
+  cwd,
+  systemPrompt = "You are AutoAuto, an autoresearch assistant. Be concise.",
+  tools,
+  allowedTools,
+  maxTurns,
+}: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streamingText, setStreamingText] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
@@ -22,19 +41,26 @@ export function Chat() {
   const inputStreamRef = useRef<PushStream<SDKUserMessage> | null>(null)
   const [inputKey, setInputKey] = useState(0)
 
+  // Capture config in refs — the agent session is long-lived and should not
+  // restart when parent re-renders. These are stable for the component lifetime.
+  const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns })
+
   useEffect(() => {
     const abortController = new AbortController()
     const inputStream = createPushStream<SDKUserMessage>()
     inputStreamRef.current = inputStream
+    const config = configRef.current
 
     ;(async () => {
       try {
         const q = query({
           prompt: inputStream,
           options: {
-            systemPrompt:
-              "You are AutoAuto, an autoresearch assistant. Be concise.",
-            allowedTools: [],
+            systemPrompt: config.systemPrompt,
+            ...(config.tools ? { tools: config.tools } : { tools: [] as string[] }),
+            ...(config.allowedTools ? { allowedTools: config.allowedTools } : {}),
+            ...(config.maxTurns ? { maxTurns: config.maxTurns } : {}),
+            ...(config.cwd ? { cwd: config.cwd } : {}),
             includePartialMessages: true,
             abortController,
             persistSession: false,

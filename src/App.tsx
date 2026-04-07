@@ -40,7 +40,7 @@ export function App() {
       </box>
 
       {screen === "home" && <HomeScreen cwd={cwd} navigate={setScreen} />}
-      {screen === "setup" && <SetupScreen navigate={setScreen} />}
+      {screen === "setup" && <SetupScreen cwd={cwd} navigate={setScreen} />}
 
       <text fg="#888888">
         {screen === "home"

@@ -57,10 +57,11 @@ src/
     Chat.tsx             # Multi-turn chat with Claude Agent SDK streaming
   screens/
     HomeScreen.tsx       # Program list
-    SetupScreen.tsx      # Setup flow (chat wrapper)
+    SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
   lib/
     programs.ts          # Filesystem ops, program CRUD
     push-stream.ts       # Push-based async iterable utility
+    system-prompts.ts    # Agent system prompts (setup, ideation)
 ```
 
 ## Testing the TUI Interactively
