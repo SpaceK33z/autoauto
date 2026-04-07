@@ -4,10 +4,10 @@ High-level tasks to complete the orchestrator loop described in [IDEA.md](./IDEA
 
 ## 2a. Branch & Baseline
 
-- [ ] Create a dedicated experiment branch from current HEAD
-- [ ] Run `measure.sh` to establish baseline metric
-- [ ] Store baseline in `state.json`
-- [ ] Lock `measure.sh` and `config.json` (`chmod 444`) before loop starts
+- [x] Create a dedicated experiment branch from current HEAD
+- [x] Run `measure.sh` to establish baseline metric
+- [x] Store baseline in `state.json`
+- [x] Lock `measure.sh` and `config.json` (`chmod 444`) before loop starts
 
 ## 2b. Experiment Loop
 
