@@ -159,7 +159,8 @@ The core orchestrator loop that drives the autoresearch pattern:
 - `LoopCallbacks` — callback interface for TUI integration (phase change, streaming, results)
 - `LoopOptions` — control knobs: max experiments, abort signal
 - Calls `runMeasurementAndDecide()` for each iteration (includes measurement + keep/discard)
-- Re-baselines after every keep (code changed, old baseline invalid)
+- Re-baselines after every keep (fresh measurement on kept code, falls back to candidate measurement on failure)
+- Drift detection: re-measures baseline every 5 consecutive discards to detect environment changes
 - Checks stop conditions at the top of each iteration (signal, max experiments)
 - Unlocks evaluator on completion
 

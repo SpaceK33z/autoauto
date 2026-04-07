@@ -27,6 +27,9 @@ import {
 } from "./experiment.ts"
 import { getExperimentSystemPrompt } from "./system-prompts.ts"
 
+/** Re-measure baseline after this many consecutive discards to check for environment drift. */
+const REBASELINE_AFTER_DISCARDS = 5
+
 // --- Types ---
 
 /** Callback for the TUI to receive live updates */
@@ -38,6 +41,7 @@ export interface LoopCallbacks {
   onAgentStream: (text: string) => void
   onAgentToolUse: (status: string) => void
   onError: (error: string) => void
+  onRebaseline?: (oldBaseline: number, newBaseline: number, reason: string) => void
 }
 
 /** Options to control the experiment loop */
@@ -50,11 +54,59 @@ export interface LoopOptions {
 
 const now = () => new Date().toISOString()
 
-// --- Measurement + Decision (phase 2c stub, fully functional) ---
+async function revertToStart(projectRoot: string, startSha: string, candidateSha: string): Promise<void> {
+  const reverted = await revertCommits(projectRoot, startSha, candidateSha)
+  if (!reverted) await resetHard(projectRoot, startSha)
+}
+
+async function maybeRebaseline(
+  consecutiveDiscards: number,
+  measureShPath: string,
+  projectRoot: string,
+  config: ProgramConfig,
+  state: RunState,
+  runDir: string,
+  callbacks: LoopCallbacks,
+): Promise<RunState> {
+  if (consecutiveDiscards <= 0 || consecutiveDiscards % REBASELINE_AFTER_DISCARDS !== 0) {
+    return state
+  }
+
+  callbacks.onPhaseChange("measuring", `re-baselining after ${consecutiveDiscards} consecutive discards`)
+  const driftCheck = await runMeasurementSeries(measureShPath, projectRoot, config)
+
+  if (!driftCheck.success) return state
+
+  const driftVerdict = compareMetric(
+    state.current_baseline,
+    driftCheck.median_metric,
+    config.noise_threshold,
+    config.direction,
+  )
+
+  if (driftVerdict === "noise") return state
+
+  const oldBaseline = state.current_baseline
+  const newState: RunState = {
+    ...state,
+    current_baseline: driftCheck.median_metric,
+    updated_at: now(),
+  }
+  await writeState(runDir, newState)
+  callbacks.onRebaseline?.(oldBaseline, driftCheck.median_metric, "drift")
+  callbacks.onError(
+    `Baseline drift detected: ${oldBaseline} → ${driftCheck.median_metric}. ` +
+    `Recent discards may have been compared against a stale baseline.`
+  )
+  callbacks.onStateUpdate(newState)
+
+  return newState
+}
+
+// --- Measurement + Decision ---
 
 async function runMeasurementAndDecide(
   projectRoot: string,
-  _programDir: string,
   runDir: string,
   measureShPath: string,
   config: ProgramConfig,
@@ -78,8 +130,7 @@ async function runMeasurementAndDecide(
     currentState = { ...currentState, phase: "reverting", updated_at: now() }
     await writeState(runDir, currentState)
 
-    const reverted = await revertCommits(projectRoot, startSha, candidateSha)
-    if (!reverted) await resetHard(projectRoot, startSha)
+    await revertToStart(projectRoot, startSha, candidateSha)
 
     const result: ExperimentResult = {
       experiment_number: state.experiment_number,
@@ -109,8 +160,7 @@ async function runMeasurementAndDecide(
     currentState = { ...currentState, phase: "reverting", updated_at: now() }
     await writeState(runDir, currentState)
 
-    const reverted = await revertCommits(projectRoot, startSha, candidateSha)
-    if (!reverted) await resetHard(projectRoot, startSha)
+    await revertToStart(projectRoot, startSha, candidateSha)
 
     const result: ExperimentResult = {
       experiment_number: state.experiment_number,
@@ -161,10 +211,14 @@ async function runMeasurementAndDecide(
     await appendResult(runDir, result)
     callbacks.onExperimentEnd(result)
 
-    // Re-baseline after keep (code changed — old baseline is no longer valid)
+    // Re-baseline: fresh measurement on the kept code
     callbacks.onPhaseChange("measuring", "re-baselining after keep")
     const rebaseline = await runMeasurementSeries(measureShPath, projectRoot, config)
     const newBaseline = rebaseline.success ? rebaseline.median_metric : series.median_metric
+
+    if (rebaseline.success && newBaseline !== series.median_metric) {
+      callbacks.onRebaseline?.(series.median_metric, newBaseline, "keep")
+    }
 
     const finalState: RunState = {
       ...currentState,
@@ -188,8 +242,7 @@ async function runMeasurementAndDecide(
   currentState = { ...currentState, phase: "reverting", updated_at: now() }
   await writeState(runDir, currentState)
 
-  const reverted = await revertCommits(projectRoot, startSha, candidateSha)
-  if (!reverted) await resetHard(projectRoot, startSha)
+  await revertToStart(projectRoot, startSha, candidateSha)
 
   const statusDesc = verdict === "regressed" ? description : `noise: ${description}`
 
@@ -235,11 +288,10 @@ export async function runExperimentLoop(
   let state = await readState(runDir)
   let consecutiveDiscards = 0
 
-  // eslint-disable-next-line no-await-in-loop -- experiment iterations must run sequentially
   while (true) {
     // --- Check stop conditions ---
     if (options.signal?.aborted) {
-      Object.assign(state, { phase: "stopping", updated_at: now() })
+      state = { ...state, phase: "stopping", updated_at: now() }
       await writeState(runDir, state)
       callbacks.onPhaseChange("stopping", "manually stopped")
       break
@@ -251,7 +303,7 @@ export async function runExperimentLoop(
     }
 
     if (options.maxExperiments && state.experiment_number >= options.maxExperiments) {
-      Object.assign(state, { phase: "complete", updated_at: now() })
+      state = { ...state, phase: "complete", updated_at: now() }
       await writeState(runDir, state)
       callbacks.onPhaseChange("complete", `reached max experiments (${options.maxExperiments})`)
       break
@@ -261,8 +313,7 @@ export async function runExperimentLoop(
     const experimentNumber = state.experiment_number + 1
     callbacks.onExperimentStart(experimentNumber)
 
-    // Update state: agent_running
-    Object.assign(state, { phase: "agent_running", experiment_number: experimentNumber, updated_at: now() })
+    state = { ...state, phase: "agent_running", experiment_number: experimentNumber, updated_at: now() }
     await writeState(runDir, state)
     callbacks.onPhaseChange("agent_running")
     callbacks.onStateUpdate(state)
@@ -281,8 +332,8 @@ export async function runExperimentLoop(
       projectRoot,
       systemPrompt,
       userPrompt,
-      config,
       modelConfig,
+      startSha,
       (text) => callbacks.onAgentStream(text),
       (status) => callbacks.onAgentToolUse(status),
       options.signal,
@@ -292,7 +343,7 @@ export async function runExperimentLoop(
     if (outcome.type === "no_commit") {
       const noCommitResult: ExperimentResult = {
         experiment_number: experimentNumber,
-        commit: (await getFullSha(projectRoot)).slice(0, 7),
+        commit: startSha.slice(0, 7),
         metric_value: 0,
         secondary_values: "",
         status: "crash",
@@ -301,17 +352,18 @@ export async function runExperimentLoop(
       await appendResult(runDir, noCommitResult)
       callbacks.onExperimentEnd(noCommitResult)
 
-      Object.assign(state, { total_crashes: state.total_crashes + 1, phase: "idle", updated_at: now() })
+      state = { ...state, total_crashes: state.total_crashes + 1, phase: "idle", updated_at: now() }
       await writeState(runDir, state)
       callbacks.onStateUpdate(state)
       consecutiveDiscards++
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, callbacks)
       continue
     }
 
     if (outcome.type === "agent_error") {
       const errorResult: ExperimentResult = {
         experiment_number: experimentNumber,
-        commit: (await getFullSha(projectRoot)).slice(0, 7),
+        commit: startSha.slice(0, 7),
         metric_value: 0,
         secondary_values: "",
         status: "crash",
@@ -320,30 +372,28 @@ export async function runExperimentLoop(
       await appendResult(runDir, errorResult)
       callbacks.onExperimentEnd(errorResult)
 
-      Object.assign(state, { total_crashes: state.total_crashes + 1, phase: "idle", updated_at: now() })
+      state = { ...state, total_crashes: state.total_crashes + 1, phase: "idle", updated_at: now() }
       await writeState(runDir, state)
       callbacks.onStateUpdate(state)
       consecutiveDiscards++
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, callbacks)
       continue
     }
 
-    // --- Agent committed. Record candidate SHA. ---
-    const candidateSha = await getFullSha(projectRoot)
-    Object.assign(state, { candidate_sha: candidateSha, updated_at: now() })
+    // --- Agent committed. Use SHA from outcome. ---
+    const candidateSha = outcome.sha
+    state = { ...state, candidate_sha: candidateSha, updated_at: now() }
     await writeState(runDir, state)
 
     // --- Check lock violation ---
-    const lockCheck = checkLockViolation(outcome.files_changed, programSlug)
+    const lockCheck = checkLockViolation(outcome.files_changed)
     if (lockCheck.violated) {
       callbacks.onPhaseChange("reverting", `lock violation: ${lockCheck.files.join(", ")}`)
 
-      Object.assign(state, { phase: "reverting", updated_at: now() })
+      state = { ...state, phase: "reverting", updated_at: now() }
       await writeState(runDir, state)
 
-      const reverted = await revertCommits(projectRoot, startSha, candidateSha)
-      if (!reverted) {
-        await resetHard(projectRoot, startSha)
-      }
+      await revertToStart(projectRoot, startSha, candidateSha)
 
       const lockResult: ExperimentResult = {
         experiment_number: experimentNumber,
@@ -356,10 +406,11 @@ export async function runExperimentLoop(
       await appendResult(runDir, lockResult)
       callbacks.onExperimentEnd(lockResult)
 
-      Object.assign(state, { total_discards: state.total_discards + 1, candidate_sha: null, phase: "idle", updated_at: now() })
+      state = { ...state, total_discards: state.total_discards + 1, candidate_sha: null, phase: "idle", updated_at: now() }
       await writeState(runDir, state)
       callbacks.onStateUpdate(state)
       consecutiveDiscards++
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, callbacks)
       continue
     }
 
@@ -371,7 +422,7 @@ export async function runExperimentLoop(
 
     // --- Hand off to measurement ---
     const measurementResult = await runMeasurementAndDecide(
-      projectRoot, programDir, runDir, measureShPath,
+      projectRoot, runDir, measureShPath,
       config, state, startSha, candidateSha, outcome.description,
       callbacks,
     )
@@ -381,6 +432,7 @@ export async function runExperimentLoop(
       consecutiveDiscards = 0
     } else {
       consecutiveDiscards++
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, callbacks)
     }
 
     callbacks.onStateUpdate(state)

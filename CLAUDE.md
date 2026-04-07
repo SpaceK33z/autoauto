@@ -106,6 +106,8 @@ src/
 - Lock violation detection: after agent commits, check `git diff` for any `.autoauto/` modifications → immediate discard
 - Loop callbacks (`LoopCallbacks`) are the interface between orchestrator and TUI — no events/observables needed
 - AbortSignal (`options.signal`) provides cooperative cancellation for stop/abort
+- Re-baseline after keeps: `runMeasurementAndDecide()` runs a fresh measurement series after each keep; falls back to candidate measurement if re-baseline fails
+- Re-baseline after consecutive discards: `maybeRebaseline()` runs drift detection every `REBASELINE_AFTER_DISCARDS` (5) non-keep outcomes; updates baseline if drift exceeds noise threshold
 
 ## Testing the TUI Interactively
 
