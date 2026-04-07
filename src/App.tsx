@@ -13,6 +13,7 @@ import { AuthErrorScreen } from "./screens/AuthErrorScreen.tsx"
 import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.ts"
 import { checkAuth } from "./lib/auth.ts"
 import { loadProjectConfig, DEFAULT_CONFIG, type ProjectConfig } from "./lib/config.ts"
+import { isRunActive } from "./lib/run.ts"
 
 const cwd = process.cwd()
 
@@ -26,6 +27,8 @@ export function App() {
   const [authError, setAuthError] = useState("")
   const [projectConfig, setProjectConfig] = useState<ProjectConfig>(DEFAULT_CONFIG)
   const [preRunOverrides, setPreRunOverrides] = useState<PreRunOverrides | null>(null)
+  const [attachRunId, setAttachRunId] = useState<string | null>(null)
+  const [attachReadOnly, setAttachReadOnly] = useState(false)
 
   useEffect(() => {
     getProjectRoot(cwd).then(setProjectRoot).catch(() => {})
@@ -107,7 +110,17 @@ export function App() {
           navigate={setScreen}
           onSelectProgram={(slug) => {
             setSelectedProgram(slug)
+            setAttachRunId(null)
+            setAttachReadOnly(false)
             setScreen("pre-run")
+          }}
+          onSelectRun={(run) => {
+            if (!run.state) return
+            setSelectedProgram(run.state.program_slug)
+            setPreRunOverrides(null)
+            setAttachRunId(run.run_id)
+            setAttachReadOnly(!isRunActive(run))
+            setScreen("execution")
           }}
         />
       )}
@@ -134,18 +147,22 @@ export function App() {
           navigate={setScreen}
           onStart={(overrides) => {
             setPreRunOverrides(overrides)
+            setAttachRunId(null)
+            setAttachReadOnly(false)
             setScreen("execution")
           }}
         />
       )}
-      {screen === "execution" && selectedProgram && preRunOverrides && (
+      {screen === "execution" && selectedProgram && (preRunOverrides || attachRunId) && (
         <ExecutionScreen
           cwd={projectRoot}
           programSlug={selectedProgram}
-          modelConfig={preRunOverrides.modelConfig}
+          modelConfig={preRunOverrides?.modelConfig ?? projectConfig.executionModel}
           supportModelConfig={projectConfig.supportModel}
-          navigate={(s) => { setPreRunOverrides(null); setScreen(s) }}
-          maxExperiments={preRunOverrides.maxExperiments}
+          navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setScreen(s) }}
+          maxExperiments={preRunOverrides?.maxExperiments}
+          attachRunId={attachRunId ?? undefined}
+          readOnly={attachReadOnly}
         />
       )}
 

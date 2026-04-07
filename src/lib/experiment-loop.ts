@@ -1,8 +1,7 @@
 import { chmod, readFile, stat, writeFile } from "node:fs/promises"
 import { join, relative } from "node:path"
-import type { RunState, ExperimentResult } from "./run.ts"
+import type { RunState, ExperimentResult, TerminationReason } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
-import { getProgramDir } from "./programs.ts"
 import type { ModelSlot } from "./config.ts"
 import {
   readState,
@@ -28,14 +27,14 @@ import {
   type ExperimentCost,
 } from "./experiment.ts"
 import { getExperimentSystemPrompt } from "./system-prompts.ts"
-import { createEventLogger } from "./events.ts"
 
 /** Re-measure baseline after this many consecutive discards to check for environment drift. */
 const REBASELINE_AFTER_DISCARDS = 5
 
 // --- Types ---
 
-export type TerminationReason = "aborted" | "max_experiments" | "stopped"
+// TerminationReason is now defined in run.ts and re-exported here for backwards compat
+export type { TerminationReason } from "./run.ts"
 
 /** Callback for the TUI to receive live updates */
 export interface LoopCallbacks {
@@ -54,7 +53,10 @@ export interface LoopCallbacks {
 /** Options to control the experiment loop */
 export interface LoopOptions {
   maxExperiments?: number
+  /** Hard abort — kills agent mid-execution, reverts, crash row */
   signal?: AbortSignal
+  /** Soft stop — checked at iteration boundary, finishes current experiment normally */
+  stopRequested?: () => boolean
 }
 
 // --- Helpers ---
@@ -69,13 +71,12 @@ interface MeasurementFileSnapshot {
 
 async function readMeasurementSnapshot(
   programDir: string,
-  projectRoot: string,
 ): Promise<MeasurementFileSnapshot[]> {
   const paths = [join(programDir, "measure.sh"), join(programDir, "config.json"), join(programDir, "build.sh")]
   const results = await Promise.all(paths.map(async (path) => {
     try {
       const content = await readFile(path, "utf-8")
-      return { path, label: relative(projectRoot, path), content }
+      return { path, label: relative(programDir, path), content }
     } catch {
       return null // build.sh may not exist
     }
@@ -107,9 +108,9 @@ async function restoreMeasurementSnapshot(snapshot: MeasurementFileSnapshot[]): 
   }))
 }
 
-async function resetAndVerify(projectRoot: string, startSha: string, errorContext: string): Promise<void> {
-  await resetHard(projectRoot, startSha)
-  if (!(await isWorkingTreeClean(projectRoot))) {
+async function resetAndVerify(cwd: string, startSha: string, errorContext: string): Promise<void> {
+  await resetHard(cwd, startSha)
+  if (!(await isWorkingTreeClean(cwd))) {
     throw new Error(`Working tree still dirty after ${errorContext}; stopping to avoid contaminating the next experiment.`)
   }
 }
@@ -118,7 +119,7 @@ async function maybeRebaseline(
   consecutiveDiscards: number,
   measureShPath: string,
   buildShPath: string,
-  projectRoot: string,
+  cwd: string,
   config: ProgramConfig,
   state: RunState,
   runDir: string,
@@ -130,7 +131,7 @@ async function maybeRebaseline(
   }
 
   callbacks.onPhaseChange("measuring", `re-baselining after ${consecutiveDiscards} consecutive discards`)
-  const driftCheck = await runMeasurementSeries(measureShPath, projectRoot, config, signal, buildShPath)
+  const driftCheck = await runMeasurementSeries(measureShPath, cwd, config, signal, buildShPath)
 
   if (!driftCheck.success) return state
 
@@ -163,7 +164,7 @@ async function maybeRebaseline(
 // --- Measurement + Decision ---
 
 async function runMeasurementAndDecide(
-  projectRoot: string,
+  cwd: string,
   runDir: string,
   measureShPath: string,
   buildShPath: string,
@@ -181,7 +182,7 @@ async function runMeasurementAndDecide(
   let currentState: RunState = { ...state, phase: "measuring", updated_at: now() }
   await writeState(runDir, currentState)
 
-  const series = await runMeasurementSeries(measureShPath, projectRoot, config, signal, buildShPath)
+  const series = await runMeasurementSeries(measureShPath, cwd, config, signal, buildShPath)
 
   // 2. Handle measurement failure
   if (!series.success) {
@@ -190,7 +191,7 @@ async function runMeasurementAndDecide(
     currentState = { ...currentState, phase: "reverting", updated_at: now() }
     await writeState(runDir, currentState)
 
-    await resetAndVerify(projectRoot, startSha, "measurement failure reset")
+    await resetAndVerify(cwd, startSha, "measurement failure reset")
 
     const result: ExperimentResult = {
       experiment_number: state.experiment_number,
@@ -221,7 +222,7 @@ async function runMeasurementAndDecide(
     currentState = { ...currentState, phase: "reverting", updated_at: now() }
     await writeState(runDir, currentState)
 
-    await resetAndVerify(projectRoot, startSha, "quality gate failure reset")
+    await resetAndVerify(cwd, startSha, "quality gate failure reset")
 
     const result: ExperimentResult = {
       experiment_number: state.experiment_number,
@@ -276,7 +277,7 @@ async function runMeasurementAndDecide(
 
     // Re-baseline: fresh measurement on the kept code
     callbacks.onPhaseChange("measuring", "re-baselining after keep")
-    const rebaseline = await runMeasurementSeries(measureShPath, projectRoot, config, signal, buildShPath)
+    const rebaseline = await runMeasurementSeries(measureShPath, cwd, config, signal, buildShPath)
     const newBaseline = rebaseline.success ? rebaseline.median_metric : series.median_metric
 
     if (rebaseline.success && newBaseline !== series.median_metric) {
@@ -305,7 +306,7 @@ async function runMeasurementAndDecide(
   currentState = { ...currentState, phase: "reverting", updated_at: now() }
   await writeState(runDir, currentState)
 
-  await resetAndVerify(projectRoot, startSha, "discard reset")
+  await resetAndVerify(cwd, startSha, "discard reset")
 
   const statusDesc = verdict === "regressed" ? description : `noise: ${description}`
 
@@ -339,55 +340,19 @@ async function runMeasurementAndDecide(
  * Iterates: build context → spawn agent → check locks → measure → decide → repeat.
  */
 export async function runExperimentLoop(
-  projectRoot: string,
-  programSlug: string,
+  cwd: string,
+  programDir: string,
   runDir: string,
   config: ProgramConfig,
   modelConfig: ModelSlot,
   callbacks: LoopCallbacks,
   options: LoopOptions = {},
 ): Promise<RunState> {
-  const programDir = getProgramDir(projectRoot, programSlug)
   const measureShPath = join(programDir, "measure.sh")
   const buildShPath = join(programDir, "build.sh")
   let state = await readState(runDir)
   let consecutiveDiscards = 0
 
-  // Event logger: persists structural events to events.ndjson alongside in-memory callbacks
-  const eventLogger = createEventLogger(runDir, () => state.experiment_number)
-  void eventLogger.logRunStart(state)
-
-  // Wrap callbacks to emit events alongside TUI updates
-  const wrappedCallbacks: LoopCallbacks = {
-    ...callbacks,
-    onPhaseChange: (phase, detail) => {
-      callbacks.onPhaseChange(phase, detail)
-      void eventLogger.logPhaseChange(phase, detail)
-    },
-    onExperimentStart: (num) => {
-      callbacks.onExperimentStart(num)
-      void eventLogger.logExperimentStart(num)
-    },
-    onExperimentEnd: (result) => {
-      callbacks.onExperimentEnd(result)
-      void eventLogger.logExperimentEnd(result)
-    },
-    onError: (msg) => {
-      callbacks.onError(msg)
-      void eventLogger.logError(msg)
-    },
-    onRebaseline: (oldB, newB, reason) => {
-      callbacks.onRebaseline?.(oldB, newB, reason)
-      void eventLogger.logRebaseline(oldB, newB, reason)
-    },
-    onAgentToolUse: (status) => {
-      callbacks.onAgentToolUse(status)
-      void eventLogger.logAgentTool(status)
-    },
-    onStateUpdate: callbacks.onStateUpdate,
-    onAgentStream: callbacks.onAgentStream,
-    onLoopComplete: callbacks.onLoopComplete,
-  }
 
   try {
   while (true) {
@@ -395,70 +360,77 @@ export async function runExperimentLoop(
     if (options.signal?.aborted) {
       state = { ...state, phase: "stopping", updated_at: now() }
       await writeState(runDir, state)
-      wrappedCallbacks.onPhaseChange("stopping", "manually stopped")
+      callbacks.onPhaseChange("stopping", "aborted")
+      break
+    }
+
+    if (options.stopRequested?.()) {
+      state = { ...state, phase: "stopping", updated_at: now() }
+      await writeState(runDir, state)
+      callbacks.onPhaseChange("stopping", "stop requested — finishing after current experiment")
       break
     }
 
     // Warn on consecutive discards — agent may be stuck
     if (consecutiveDiscards >= 10) {
-      wrappedCallbacks.onError(`Warning: ${consecutiveDiscards} consecutive discards. Agent may be stuck — consider stopping and reviewing results.`)
+      callbacks.onError(`Warning: ${consecutiveDiscards} consecutive discards. Agent may be stuck — consider stopping and reviewing results.`)
     }
 
     if (options.maxExperiments && state.experiment_number >= options.maxExperiments) {
       state = { ...state, phase: "complete", updated_at: now() }
       await writeState(runDir, state)
-      wrappedCallbacks.onPhaseChange("complete", `reached max experiments (${options.maxExperiments})`)
+      callbacks.onPhaseChange("complete", `reached max experiments (${options.maxExperiments})`)
       break
     }
 
     // --- Start new experiment ---
     const experimentNumber = state.experiment_number + 1
-    wrappedCallbacks.onExperimentStart(experimentNumber)
+    callbacks.onExperimentStart(experimentNumber)
 
     state = { ...state, phase: "agent_running", experiment_number: experimentNumber, updated_at: now() }
     await writeState(runDir, state)
-    wrappedCallbacks.onPhaseChange("agent_running")
-    wrappedCallbacks.onStateUpdate(state)
+    callbacks.onPhaseChange("agent_running")
+    callbacks.onStateUpdate(state)
 
     // --- Build context packet ---
     const packet = await buildContextPacket(
-      projectRoot, programDir, runDir, state, config,
+      cwd, programDir, runDir, state, config,
     )
     const systemPrompt = getExperimentSystemPrompt(packet.program_md)
     const userPrompt = buildExperimentPrompt(packet)
 
     // --- Spawn experiment agent ---
-    const startSha = await getFullSha(projectRoot)
-    const measurementSnapshot = await readMeasurementSnapshot(programDir, projectRoot)
+    const startSha = await getFullSha(cwd)
+    const measurementSnapshot = await readMeasurementSnapshot(programDir)
 
     const outcome = await runExperimentAgent(
-      projectRoot,
+      cwd,
       systemPrompt,
       userPrompt,
       modelConfig,
       startSha,
-      (text) => wrappedCallbacks.onAgentStream(text),
-      (status) => wrappedCallbacks.onAgentToolUse(status),
+      (text) => callbacks.onAgentStream(text),
+      (status) => callbacks.onAgentToolUse(status),
       options.signal,
     )
 
     // Log cost data if available + accumulate tokens on run state
     if (outcome.cost) {
-      void eventLogger.logExperimentCost(outcome.cost)
       callbacks.onExperimentCost?.(outcome.cost)
       state = {
         ...state,
         total_tokens: (state.total_tokens ?? 0) + outcome.cost.input_tokens + outcome.cost.output_tokens,
+        total_cost_usd: (state.total_cost_usd ?? 0) + outcome.cost.total_cost_usd,
       }
       await writeState(runDir, state)
     }
 
     // --- Abort detection + cleanup ---
     if (options.signal?.aborted) {
-      wrappedCallbacks.onPhaseChange("stopping", "aborted by user")
+      callbacks.onPhaseChange("stopping", "aborted by user")
 
       await restoreMeasurementSnapshot(measurementSnapshot)
-      await resetAndVerify(projectRoot, startSha, "abort cleanup")
+      await resetAndVerify(cwd, startSha, "abort cleanup")
 
       const abortResult: ExperimentResult = {
         experiment_number: experimentNumber,
@@ -470,7 +442,7 @@ export async function runExperimentLoop(
         measurement_duration_ms: 0,
       }
       await appendResult(runDir, abortResult)
-      wrappedCallbacks.onExperimentEnd(abortResult)
+      callbacks.onExperimentEnd(abortResult)
 
       state = {
         ...state,
@@ -490,7 +462,7 @@ export async function runExperimentLoop(
         await restoreMeasurementSnapshot(measurementSnapshot)
       }
 
-      await resetAndVerify(projectRoot, startSha, "failed experiment cleanup")
+      await resetAndVerify(cwd, startSha, "failed experiment cleanup")
 
       const isLockViolation = measurementViolations.length > 0
       const crashDesc = isLockViolation
@@ -508,7 +480,7 @@ export async function runExperimentLoop(
         measurement_duration_ms: 0,
       }
       await appendResult(runDir, crashResult)
-      wrappedCallbacks.onExperimentEnd(crashResult)
+      callbacks.onExperimentEnd(crashResult)
 
       state = {
         ...state,
@@ -519,9 +491,9 @@ export async function runExperimentLoop(
         updated_at: now(),
       }
       await writeState(runDir, state)
-      wrappedCallbacks.onStateUpdate(state)
+      callbacks.onStateUpdate(state)
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, cwd, config, state, runDir, callbacks, options.signal)
       continue
     }
 
@@ -530,9 +502,9 @@ export async function runExperimentLoop(
     state = { ...state, candidate_sha: candidateSha, updated_at: now() }
     await writeState(runDir, state)
 
-    if (!(await isWorkingTreeClean(projectRoot))) {
-      await resetHard(projectRoot, candidateSha)
-      if (!(await isWorkingTreeClean(projectRoot))) {
+    if (!(await isWorkingTreeClean(cwd))) {
+      await resetHard(cwd, candidateSha)
+      if (!(await isWorkingTreeClean(cwd))) {
         const measurementViolations = await getMeasurementViolations(measurementSnapshot)
         if (measurementViolations.length > 0) {
           await restoreMeasurementSnapshot(measurementSnapshot)
@@ -546,7 +518,7 @@ export async function runExperimentLoop(
     const measurementViolations = await getMeasurementViolations(measurementSnapshot)
     const lockViolationFiles = [...new Set([...lockCheck.files, ...measurementViolations])]
     if (lockViolationFiles.length > 0) {
-      wrappedCallbacks.onPhaseChange("reverting", `lock violation: ${lockViolationFiles.join(", ")}`)
+      callbacks.onPhaseChange("reverting", `lock violation: ${lockViolationFiles.join(", ")}`)
 
       state = { ...state, phase: "reverting", updated_at: now() }
       await writeState(runDir, state)
@@ -554,7 +526,7 @@ export async function runExperimentLoop(
       if (measurementViolations.length > 0) {
         await restoreMeasurementSnapshot(measurementSnapshot)
       }
-      await resetAndVerify(projectRoot, startSha, "lock violation reset")
+      await resetAndVerify(cwd, startSha, "lock violation reset")
 
       const lockResult: ExperimentResult = {
         experiment_number: experimentNumber,
@@ -566,27 +538,27 @@ export async function runExperimentLoop(
         measurement_duration_ms: 0,
       }
       await appendResult(runDir, lockResult)
-      wrappedCallbacks.onExperimentEnd(lockResult)
+      callbacks.onExperimentEnd(lockResult)
 
       state = { ...state, total_discards: state.total_discards + 1, candidate_sha: null, phase: "idle", updated_at: now() }
       await writeState(runDir, state)
-      wrappedCallbacks.onStateUpdate(state)
+      callbacks.onStateUpdate(state)
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, cwd, config, state, runDir, callbacks, options.signal)
       continue
     }
 
     // --- Check commit count (warn if multiple) ---
-    const commitCount = await countCommitsBetween(projectRoot, startSha, candidateSha)
+    const commitCount = await countCommitsBetween(cwd, startSha, candidateSha)
     if (commitCount > 1) {
-      wrappedCallbacks.onError(`Warning: agent made ${commitCount} commits (expected 1). Proceeding with measurement.`)
+      callbacks.onError(`Warning: agent made ${commitCount} commits (expected 1). Proceeding with measurement.`)
     }
 
     // --- Hand off to measurement ---
     const measurementResult = await runMeasurementAndDecide(
-      projectRoot, runDir, measureShPath, buildShPath,
+      cwd, runDir, measureShPath, buildShPath,
       config, state, startSha, candidateSha, outcome.description,
-      wrappedCallbacks, options.signal,
+      callbacks, options.signal,
     )
 
     // Check if abort fired during measurement
@@ -601,10 +573,10 @@ export async function runExperimentLoop(
       consecutiveDiscards = 0
     } else {
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, cwd, config, state, runDir, callbacks, options.signal)
     }
 
-    wrappedCallbacks.onStateUpdate(state)
+    callbacks.onStateUpdate(state)
   }
   } finally {
     await unlockMeasurement(programDir)
@@ -612,23 +584,22 @@ export async function runExperimentLoop(
 
   // --- Finalize ---
 
+  // Determine termination reason
+  const reason: TerminationReason = options.signal?.aborted
+    ? "aborted"
+    : state.experiment_number >= (options.maxExperiments ?? Infinity)
+      ? "max_experiments"
+      : "stopped"
+
   const finalState: RunState = {
     ...state,
     phase: state.phase === "stopping" ? "complete" as const : state.phase,
+    termination_reason: reason,
     updated_at: now(),
   }
   await writeState(runDir, finalState)
-  await eventLogger.logRunComplete(finalState)
-  wrappedCallbacks.onStateUpdate(finalState)
-
-  // Determine termination reason
-  const reason = options.signal?.aborted
-    ? "aborted" as const
-    : state.experiment_number >= (options.maxExperiments ?? Infinity)
-      ? "max_experiments" as const
-      : "stopped" as const
-  await eventLogger.logLoopComplete(finalState, reason)
-  wrappedCallbacks.onLoopComplete?.(finalState, reason)
+  callbacks.onStateUpdate(finalState)
+  callbacks.onLoopComplete?.(finalState, reason)
 
   return finalState
 }

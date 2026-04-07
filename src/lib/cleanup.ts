@@ -10,9 +10,7 @@ import {
   getDiffBetween,
   getRecentLog,
   squashCommits,
-  countCommitsBetween,
 } from "./git.ts"
-import { createEventLogger } from "./events.ts"
 import { getProvider } from "./agent/index.ts"
 import { formatToolEvent } from "./tool-events.ts"
 import { getCleanupSystemPrompt } from "./system-prompts.ts"
@@ -260,19 +258,19 @@ export async function runCleanup(
   modelConfig: ModelSlot,
   callbacks: CleanupCallbacks,
   signal?: AbortSignal,
+  /** Git/agent working directory — defaults to projectRoot. Set to worktreePath in daemon mode. */
+  worktreePath?: string,
 ): Promise<CleanupResult> {
-  const eventLogger = createEventLogger(runDir, () => state.experiment_number)
-  await eventLogger.logCleanupStart()
-
-  const preAgentSha = await getFullSha(projectRoot)
+  const gitCwd = worktreePath ?? projectRoot
+  const preAgentSha = await getFullSha(gitCwd)
 
   const results = await readAllResults(runDir)
 
   const systemPrompt = getCleanupSystemPrompt()
-  const userPrompt = await buildCleanupPrompt(state, results, projectRoot, config)
+  const userPrompt = await buildCleanupPrompt(state, results, gitCwd, config)
 
   const { summary, cost } = await runCleanupAgent(
-    projectRoot,
+    gitCwd,
     systemPrompt,
     userPrompt,
     modelConfig,
@@ -280,11 +278,7 @@ export async function runCleanup(
     signal,
   )
 
-  if (cost) {
-    await eventLogger.logCleanupEnd(cost)
-  }
-
-  const postAgentSha = await getFullSha(projectRoot)
+  const postAgentSha = await getFullSha(gitCwd)
   if (postAgentSha !== preAgentSha) {
     throw new Error("Cleanup agent modified the repository. Aborting cleanup.")
   }
@@ -296,13 +290,7 @@ export async function runCleanup(
 
   let squashedSha: string | null = null
   if (state.total_keeps > 0) {
-    const commitCount = await countCommitsBetween(
-      projectRoot,
-      state.original_baseline_sha,
-      "HEAD",
-    )
-    squashedSha = await squashCommits(projectRoot, state.original_baseline_sha, commitMessage)
-    await eventLogger.logSquashComplete(squashedSha, commitCount)
+    squashedSha = await squashCommits(gitCwd, state.original_baseline_sha, commitMessage)
   }
 
   return { summary: report, commitMessage, squashedSha, cost }

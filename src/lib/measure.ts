@@ -1,6 +1,18 @@
-import { spawn } from "node:child_process"
+import { spawn, type ChildProcess } from "node:child_process"
 import { access } from "node:fs/promises"
 import type { ProgramConfig } from "./programs.ts"
+
+// --- Helpers ---
+
+/** Kills a detached child's entire process group, falling back to direct kill. */
+function killProcessGroup(proc: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): void {
+  if (proc.killed || !proc.pid) return
+  try {
+    process.kill(-proc.pid, signal)
+  } catch {
+    proc.kill(signal)
+  }
+}
 
 // --- Types ---
 
@@ -35,7 +47,7 @@ function median(values: number[]): number {
  */
 export async function runMeasurement(
   measureShPath: string,
-  projectRoot: string,
+  cwd: string,
   timeoutMs?: number,
   signal?: AbortSignal,
 ): Promise<MeasurementResult> {
@@ -46,14 +58,20 @@ export async function runMeasurement(
   const start = performance.now()
   return new Promise((resolve) => {
     const proc = spawn("bash", [measureShPath], {
-      cwd: projectRoot,
+      cwd,
       env: { ...process.env },
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: timeoutMs ?? 60_000,
+      detached: true,
     })
+    const timeoutLimit = timeoutMs ?? 60_000
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      killProcessGroup(proc)
+    }, timeoutLimit)
 
     const onAbort = () => {
-      if (!proc.killed) proc.kill("SIGTERM")
+      killProcessGroup(proc)
     }
     signal?.addEventListener("abort", onAbort, { once: true })
 
@@ -71,11 +89,17 @@ export async function runMeasurement(
     })
 
     proc.on("close", (exitCode) => {
+      clearTimeout(timeout)
       signal?.removeEventListener("abort", onAbort)
       const duration_ms = Math.round(performance.now() - start)
 
       if (signal?.aborted) {
         resolve({ success: false, error: "aborted", duration_ms })
+        return
+      }
+
+      if (timedOut) {
+        resolve({ success: false, error: `Measurement timed out after ${timeoutLimit}ms`, duration_ms })
         return
       }
 
@@ -113,6 +137,7 @@ export async function runMeasurement(
     })
 
     proc.on("error", (err) => {
+      clearTimeout(timeout)
       signal?.removeEventListener("abort", onAbort)
       const duration_ms = Math.round(performance.now() - start)
       resolve({ success: false, error: err.message, duration_ms })
@@ -133,7 +158,7 @@ export interface BuildResult {
  */
 export async function runBuild(
   buildShPath: string,
-  projectRoot: string,
+  cwd: string,
   signal?: AbortSignal,
 ): Promise<BuildResult> {
   try {
@@ -145,14 +170,19 @@ export async function runBuild(
   const start = performance.now()
   return new Promise((resolve) => {
     const proc = spawn("bash", [buildShPath], {
-      cwd: projectRoot,
+      cwd,
       env: { ...process.env },
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: 120_000,
+      detached: true,
     })
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      killProcessGroup(proc)
+    }, 120_000)
 
     const onAbort = () => {
-      if (!proc.killed) proc.kill("SIGTERM")
+      killProcessGroup(proc)
     }
     signal?.addEventListener("abort", onAbort, { once: true })
 
@@ -163,11 +193,17 @@ export async function runBuild(
     })
 
     proc.on("close", (exitCode) => {
+      clearTimeout(timeout)
       signal?.removeEventListener("abort", onAbort)
       const duration_ms = Math.round(performance.now() - start)
 
       if (signal?.aborted) {
         resolve({ success: false, error: "aborted", duration_ms })
+        return
+      }
+
+      if (timedOut) {
+        resolve({ success: false, error: "Build timed out after 120000ms", duration_ms })
         return
       }
 
@@ -184,6 +220,7 @@ export async function runBuild(
     })
 
     proc.on("error", (err) => {
+      clearTimeout(timeout)
       signal?.removeEventListener("abort", onAbort)
       const duration_ms = Math.round(performance.now() - start)
       resolve({ success: false, error: err.message, duration_ms })
@@ -248,7 +285,7 @@ export function checkQualityGates(
  */
 export async function runMeasurementSeries(
   measureShPath: string,
-  projectRoot: string,
+  cwd: string,
   config: ProgramConfig,
   signal?: AbortSignal,
   buildShPath?: string,
@@ -257,7 +294,7 @@ export async function runMeasurementSeries(
 
   // Run build step once before measuring
   if (buildShPath) {
-    const buildResult = await runBuild(buildShPath, projectRoot, signal)
+    const buildResult = await runBuild(buildShPath, cwd, signal)
     if (!buildResult.success) {
       return {
         success: false,
@@ -280,7 +317,7 @@ export async function runMeasurementSeries(
   for (let i = 0; i < config.repeats; i++) {
     if (signal?.aborted) break
     // eslint-disable-next-line no-await-in-loop -- measurements must run sequentially
-    const result = await runMeasurement(measureShPath, projectRoot, undefined, signal)
+    const result = await runMeasurement(measureShPath, cwd, undefined, signal)
     runs.push(result)
 
     if (!result.success) continue

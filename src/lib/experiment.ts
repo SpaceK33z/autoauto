@@ -52,7 +52,7 @@ export interface LockViolation {
 
 /** Assembles the context packet from disk for a single experiment. */
 export async function buildContextPacket(
-  projectRoot: string,
+  cwd: string,
   programDir: string,
   runDir: string,
   state: RunState,
@@ -61,7 +61,7 @@ export async function buildContextPacket(
   const [programMd, resultsRaw, recentGitLog] = await Promise.all([
     readFile(join(programDir, "program.md"), "utf-8"),
     readFile(join(runDir, "results.tsv"), "utf-8"),
-    getRecentLog(projectRoot, 15),
+    getRecentLog(cwd, 15),
   ])
 
   const recentResults = formatRecentResults(resultsRaw, 15)
@@ -91,7 +91,7 @@ export async function buildContextPacket(
   let discardedDiffs = ""
   if (discardedShas.length > 0) {
     try {
-      discardedDiffs = await getDiscardedDiffs(projectRoot, discardedShas, 2000)
+      discardedDiffs = await getDiscardedDiffs(cwd, discardedShas, 2000)
     } catch {
       // Discarded commits may have been garbage-collected — diffs unavailable
       discardedDiffs = ""
@@ -164,7 +164,7 @@ export function checkLockViolation(filesChanged: string[]): LockViolation {
  * One-shot: push one user message, iterate to result, return outcome.
  */
 export async function runExperimentAgent(
-  projectRoot: string,
+  cwd: string,
   systemPrompt: string,
   userPrompt: string,
   modelConfig: ModelSlot,
@@ -185,7 +185,7 @@ export async function runExperimentAgent(
       tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
       allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
       maxTurns: 30,
-      cwd: projectRoot,
+      cwd,
       model: modelConfig.model,
       effort: modelConfig.effort,
       signal,
@@ -223,14 +223,14 @@ export async function runExperimentAgent(
   }
 
   // Check if the agent produced a commit
-  const endSha = await getFullSha(projectRoot)
+  const endSha = await getFullSha(cwd)
 
   if (endSha === startSha) {
     return { type: "no_commit", cost }
   }
 
-  const description = await getLatestCommitMessage(projectRoot)
-  const filesChanged = await getFilesChangedBetween(projectRoot, startSha, endSha)
+  const description = await getLatestCommitMessage(cwd)
+  const filesChanged = await getFilesChangedBetween(cwd, startSha, endSha)
 
   return {
     type: "committed",

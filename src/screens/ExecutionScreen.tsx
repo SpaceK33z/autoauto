@@ -1,13 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { Screen, ProgramConfig } from "../lib/programs.ts"
-import { getProgramDir, loadProgramConfig } from "../lib/programs.ts"
+import { getProgramDir } from "../lib/programs.ts"
 import type { ModelSlot } from "../lib/config.ts"
-import type { RunState, ExperimentResult } from "../lib/run.ts"
-import { startRun, getRunStats } from "../lib/run.ts"
-import { checkoutBranch } from "../lib/git.ts"
-import { runExperimentLoop, type LoopCallbacks, type TerminationReason } from "../lib/experiment-loop.ts"
+import type { RunState, ExperimentResult, TerminationReason } from "../lib/run.ts"
+import { getRunStats } from "../lib/run.ts"
+import { removeWorktree } from "../lib/worktree.ts"
 import { runCleanup, type CleanupResult } from "../lib/cleanup.ts"
+import {
+  spawnDaemon,
+  watchRunDir,
+  sendStop,
+  sendAbort,
+  forceKillDaemon,
+  reconstructState,
+  getDaemonStatus,
+  type DaemonWatcher,
+} from "../lib/daemon-client.ts"
 import { RunCompletePrompt } from "../components/RunCompletePrompt.tsx"
 import { StatsHeader } from "../components/StatsHeader.tsx"
 import { ResultsTable } from "../components/ResultsTable.tsx"
@@ -28,10 +37,30 @@ interface ExecutionScreenProps {
   supportModelConfig: ModelSlot
   navigate: (screen: Screen) => void
   maxExperiments?: number
+  /** If set, attach to an existing run instead of starting a new one */
+  attachRunId?: string
+  readOnly?: boolean
+}
+
+const PHASE_LABELS: Record<string, string> = {
+  baseline: "Establishing baseline...",
+  agent_running: "Agent running...",
+  measuring: "Measuring...",
+  reverting: "Reverting...",
+  kept: "Kept improvement!",
+  idle: "Running experiments...",
+  stopping: "Stopping...",
+  complete: "Complete",
+  cleaning_up: "Reviewing changes...",
+}
+
+function getPhaseLabel(phase: RunState["phase"], error?: string | null, isStopping = false): string {
+  if (isStopping) return "Stopping after current experiment..."
+  if (phase === "crashed") return `Crashed: ${error ?? "unknown"}`
+  return PHASE_LABELS[phase] ?? phase
 }
 
 function Divider({ width, label }: { width: number; label?: string }) {
-  // Account for outer border (2 chars) and label padding
   const innerWidth = Math.max(width - 2, 0)
   if (label) {
     const labelStr = `─ ${label} `
@@ -41,17 +70,15 @@ function Divider({ width, label }: { width: number; label?: string }) {
   return <text fg="#565f89">{"─".repeat(innerWidth)}</text>
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, navigate, maxExperiments }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, navigate, maxExperiments, attachRunId, readOnly = false }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
   const [runState, setRunState] = useState<RunState | null>(null)
-  const [currentPhaseLabel, setCurrentPhaseLabel] = useState("Initializing...")
+  const [currentPhaseLabel, setCurrentPhaseLabel] = useState(attachRunId ? "Connecting..." : "Starting daemon...")
   const [experimentNumber, setExperimentNumber] = useState(0)
   const [lastError, setLastError] = useState<string | null>(null)
   const [terminationReason, setTerminationReason] = useState<TerminationReason | null>(null)
-  const [originalBranch, setOriginalBranch] = useState<string | null>(null)
-  const abortControllerRef = useRef<AbortController>(null!)
 
   const [results, setResults] = useState<ExperimentResult[]>([])
   const [metricHistory, setMetricHistory] = useState<number[]>([])
@@ -63,88 +90,156 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null)
   const [tableFocused, setTableFocused] = useState(false)
   const [selectedResult, setSelectedResult] = useState<ExperimentResult | null>(null)
+  const [showStopConfirm, setShowStopConfirm] = useState(false)
+  const [stopping, setStopping] = useState(false)
+
+  const watcherRef = useRef<DaemonWatcher | null>(null)
+  const abortControllerRef = useRef<AbortController>(new AbortController())
+  const abortSentRef = useRef(false)
+  const abortTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const stoppingRef = useRef(false)
+  stoppingRef.current = stopping // ref for use inside effect closures
 
   useEffect(() => {
-    const abortController = new AbortController()
-    abortControllerRef.current = abortController
     let cancelled = false
+    const programDir = getProgramDir(cwd, programSlug)
 
     ;(async () => {
       try {
-        // 1. Start run (branch, baseline)
-        setCurrentPhaseLabel("Establishing baseline...")
-        const runResult = await startRun(cwd, programSlug, modelConfig)
-        if (cancelled) return
+        let activeRunDir: string
 
-        setOriginalBranch(runResult.originalBranch)
-        setRunDir(runResult.runDir)
-        setRunState(runResult.state)
-        setMetricHistory([runResult.state.original_baseline])
-        setPhase("running")
-        setCurrentPhaseLabel("Running experiments...")
-
-        // 2. Load program config
-        const programDir = getProgramDir(cwd, programSlug)
-        const config = await loadProgramConfig(programDir)
-        if (!cancelled) setProgramConfig(config)
-
-        // 3. Build callbacks
-        const callbacks: LoopCallbacks = {
-          onPhaseChange: (p, detail) => {
-            if (!cancelled) setCurrentPhaseLabel(detail ? `${p}: ${detail}` : p)
-          },
-          onExperimentStart: (num) => {
-            if (!cancelled) {
-              setExperimentNumber(num)
-              setAgentStreamText("")
-              setToolStatus(null)
-            }
-          },
-          onExperimentEnd: (result) => {
-            if (!cancelled) {
-              setResults(prev => [...prev, result])
-              if (result.status === "keep") {
-                setMetricHistory(prev => [...prev, result.metric_value])
+        if (attachRunId) {
+          // Attach mode: reconstruct state from existing run
+          activeRunDir = `${programDir}/runs/${attachRunId}`
+          const status = await getDaemonStatus(activeRunDir)
+          if (!status.alive) {
+            // Daemon died — show complete state
+            try {
+              const reconstructed = await reconstructState(activeRunDir, programDir)
+              if (!cancelled) {
+                setRunDir(activeRunDir)
+                setRunState(reconstructed.state)
+                setResults(reconstructed.results)
+                setMetricHistory(reconstructed.metricHistory)
+                setProgramConfig(reconstructed.programConfig)
+                setTotalCostUsd(reconstructed.state.total_cost_usd ?? 0)
+                setExperimentNumber(reconstructed.state.experiment_number)
+                setAgentStreamText(reconstructed.streamText)
+                setTerminationReason(reconstructed.state.termination_reason ?? null)
+                if (reconstructed.state.phase === "crashed") {
+                  setLastError(reconstructed.state.error ?? "Daemon crashed")
+                  setPhase("error")
+                } else if (reconstructed.state.phase === "complete") {
+                  setPhase("complete")
+                } else {
+                  setLastError(`Daemon is not running; last phase was ${reconstructed.state.phase}`)
+                  setPhase("error")
+                }
+              }
+            } catch (err: unknown) {
+              if (!cancelled) {
+                setLastError(err instanceof Error ? err.message : String(err))
+                setPhase("error")
               }
             }
-          },
-          onStateUpdate: (s) => {
-            if (!cancelled) setRunState(s)
-          },
-          onAgentStream: (text) => {
-            if (!cancelled) setAgentStreamText(prev => truncateStreamText(prev, text))
-          },
-          onAgentToolUse: (status) => {
-            if (!cancelled) setToolStatus(status)
-          },
-          onExperimentCost: (cost) => {
-            if (!cancelled) setTotalCostUsd(prev => prev + cost.total_cost_usd)
-          },
-          onError: (msg) => {
-            if (!cancelled) setLastError(msg)
-          },
-          onLoopComplete: (_state, reason) => {
-            if (!cancelled) setTerminationReason(reason)
-          },
+            return
+          }
+
+          // Daemon alive — reconstruct and watch
+          const reconstructed = await reconstructState(activeRunDir, programDir)
+          if (!cancelled) {
+            setRunDir(activeRunDir)
+            setRunState(reconstructed.state)
+            setResults(reconstructed.results)
+            setMetricHistory(reconstructed.metricHistory)
+            setProgramConfig(reconstructed.programConfig)
+            setTotalCostUsd(reconstructed.state.total_cost_usd ?? 0)
+            setExperimentNumber(reconstructed.state.experiment_number)
+            setAgentStreamText(reconstructed.streamText)
+            setPhase("running")
+          }
+        } else {
+          // Spawn mode: create worktree, spawn daemon
+          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments)
+          if (cancelled) return
+
+          activeRunDir = result.runDir
+          setRunDir(result.runDir)
+
+          // Load program config for display
+          const { loadProgramConfig } = await import("../lib/programs.ts")
+          const config = await loadProgramConfig(programDir)
+          if (!cancelled) {
+            setProgramConfig(config)
+            setPhase("running")
+          }
         }
 
-        // 4. Run the experiment loop
-        const finalState = await runExperimentLoop(
-          cwd,
-          programSlug,
-          runResult.runDir,
-          config,
-          modelConfig,
-          callbacks,
-          {
-            maxExperiments: maxExperiments ?? config.max_experiments,
-            signal: abortController.signal,
-          },
-        )
-
+        // Start watching the run directory
         if (!cancelled) {
-          setRunState(finalState)
-          setPhase("complete")
+          const watcher = watchRunDir(activeRunDir, {
+            onStateChange: (state) => {
+              if (cancelled) return
+              setRunState(state)
+              setExperimentNumber(state.experiment_number)
+              setTotalCostUsd(state.total_cost_usd ?? 0)
+              setCurrentPhaseLabel(getPhaseLabel(state.phase, state.error, stoppingRef.current))
+
+              // Detect completion
+              if (state.phase === "complete" || state.phase === "crashed") {
+                setTerminationReason(state.termination_reason ?? null)
+                if (state.phase === "crashed") {
+                  setLastError(state.error ?? "Daemon crashed")
+                  setPhase("error")
+                } else {
+                  setPhase("complete")
+                }
+                watcher.stop()
+              }
+            },
+            onResultsChange: (newResults, newMetricHistory) => {
+              if (cancelled) return
+              setResults(newResults)
+              setMetricHistory(newMetricHistory)
+            },
+            onStreamChange: (text) => {
+              if (cancelled) return
+              setAgentStreamText(prev => truncateStreamText(prev, text))
+            },
+            onStreamReset: () => {
+              if (cancelled) return
+              setAgentStreamText("")
+              setToolStatus(null)
+            },
+            onDaemonDied: () => {
+              if (cancelled) return
+              // Re-read final state
+              reconstructState(activeRunDir, programDir).then((final) => {
+                if (cancelled) return
+                setRunState(final.state)
+                setResults(final.results)
+                setMetricHistory(final.metricHistory)
+                setTerminationReason(final.state.termination_reason ?? null)
+                if (final.state.phase === "crashed") {
+                  setLastError(final.state.error ?? "Daemon died unexpectedly")
+                  setPhase("error")
+                } else if (final.state.phase === "complete") {
+                  setPhase("complete")
+                } else {
+                  setLastError(`Daemon died unexpectedly while ${final.state.phase}`)
+                  setPhase("error")
+                }
+              }).catch(() => {
+                if (!cancelled) {
+                  setLastError("Daemon died and state could not be read")
+                  setPhase("error")
+                }
+              })
+              watcher.stop()
+            },
+          }, { startAtEnd: Boolean(attachRunId) })
+          watcherRef.current = watcher
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -156,16 +251,17 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
     return () => {
       cancelled = true
-      abortController.abort()
+      watcherRef.current?.stop()
     }
-  }, [cwd, programSlug, modelConfig, maxExperiments])
+  }, [cwd, programSlug, modelConfig, maxExperiments, attachRunId])
 
-  const handleAbandon = useCallback(() => {
-    if (originalBranch) {
-      checkoutBranch(cwd, originalBranch).catch(() => {})
+  const handleAbandon = useCallback(async () => {
+    // Remove worktree if we have the path
+    if (runState?.worktree_path) {
+      await removeWorktree(cwd, runState.worktree_path).catch(() => {})
     }
     navigate("home")
-  }, [cwd, originalBranch, navigate])
+  }, [cwd, runState, navigate])
 
   const handleCleanup = useCallback(async () => {
     if (!runState || !runDir || !programConfig) return
@@ -191,6 +287,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           onToolStatus: (status) => setToolStatus(status),
         },
         cleanupAbort.signal,
+        runState.worktree_path, // Use worktree as git cwd
       )
       setCleanupResult(result)
       setTotalCostUsd(prev => prev + (result.cost?.total_cost_usd ?? 0))
@@ -204,13 +301,33 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   useKeyboard((key) => {
     if (phase === "cleanup_complete" || phase === "error") {
       if (key.name === "escape") {
-        handleAbandon()
+        navigate("home")
+      }
+      return
+    }
+
+    if (phase === "complete" && readOnly) {
+      if (key.name === "escape") {
+        navigate("home")
       }
       return
     }
 
     if (phase === "complete") {
       // RunCompletePrompt handles its own keyboard
+      return
+    }
+
+    // Stop confirmation dialog
+    if (showStopConfirm) {
+      if (key.name === "y") {
+        setShowStopConfirm(false)
+        setStopping(true)
+        setCurrentPhaseLabel("Stopping after current experiment...")
+        if (runDir) sendStop(runDir).catch(() => {})
+      } else if (key.name === "n" || key.name === "escape") {
+        setShowStopConfirm(false)
+      }
       return
     }
 
@@ -233,11 +350,45 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       return
     }
 
-    // During execution or cleanup
-    if (key.name === "q" || (key.ctrl && key.name === "c")) {
+    // Stop/abort during execution
+    if (phase === "starting" || phase === "running") {
+      if (key.name === "q") {
+        // Show stop confirmation
+        setShowStopConfirm(true)
+        return
+      }
+
+      if (key.ctrl && key.name === "c") {
+        if (abortSentRef.current) {
+          // Second Ctrl+C: force kill after timeout
+          if (runDir) {
+            forceKillDaemon(runDir).catch(() => {})
+          }
+        } else {
+          // First Ctrl+C: abort
+          abortSentRef.current = true
+          if (runDir) sendAbort(runDir).catch(() => {})
+          // Set up SIGKILL escalation after 5s
+          abortTimerRef.current = setTimeout(() => {
+            if (runDir) forceKillDaemon(runDir).catch(() => {})
+          }, 5_000)
+        }
+        return
+      }
+    }
+
+    // During cleanup: Ctrl+C to abort cleanup
+    if (phase === "cleaning_up" && (key.ctrl && key.name === "c")) {
       abortControllerRef.current.abort()
     }
   })
+
+  // Clean up abort timer on unmount
+  useEffect(() => {
+    return () => {
+      if (abortTimerRef.current) clearTimeout(abortTimerRef.current)
+    }
+  }, [])
 
   return (
     <box flexDirection="column" flexGrow={1}>
@@ -324,6 +475,18 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             </>
           )}
 
+          {showStopConfirm && (
+            <box paddingX={1}>
+              <text fg="#e0af68">Stop after current experiment finishes? (y/n)</text>
+            </box>
+          )}
+
+          {stopping && !showStopConfirm && (
+            <box paddingX={1}>
+              <text fg="#e0af68">Stopping after current experiment...</text>
+            </box>
+          )}
+
           {lastError && (
             <box paddingX={1}>
               <text fg="#ff5555">{lastError}</text>
@@ -332,7 +495,47 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         </box>
       )}
 
-      {phase === "complete" && runState && (
+      {phase === "complete" && runState && readOnly && (
+        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`${programSlug}`}>
+          <StatsHeader
+            experimentNumber={experimentNumber}
+            totalKeeps={runState.total_keeps}
+            totalDiscards={runState.total_discards}
+            totalCrashes={runState.total_crashes}
+            currentBaseline={runState.current_baseline}
+            originalBaseline={runState.original_baseline}
+            bestMetric={runState.best_metric}
+            direction={programConfig?.direction ?? "lower"}
+            metricField={programConfig?.metric_field ?? "metric"}
+            totalCostUsd={totalCostUsd}
+            metricHistory={metricHistory}
+            currentPhaseLabel="Complete"
+            improvementPct={programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
+          />
+          <Divider width={termWidth} label="Results" />
+          <ResultsTable
+            results={results}
+            metricField={programConfig?.metric_field ?? "metric"}
+            width={termWidth}
+            experimentNumber={experimentNumber}
+            focused={tableFocused}
+            selectedResult={selectedResult}
+            onSelect={setSelectedResult}
+          />
+          <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
+          <AgentPanel
+            streamingText={agentStreamText}
+            toolStatus={toolStatus}
+            isRunning={false}
+            selectedResult={selectedResult}
+          />
+          <box paddingX={1}>
+            <text fg="#888888">Press Escape to go back</text>
+          </box>
+        </box>
+      )}
+
+      {phase === "complete" && runState && !readOnly && (
         <RunCompletePrompt
           state={runState}
           direction={programConfig?.direction ?? "higher"}

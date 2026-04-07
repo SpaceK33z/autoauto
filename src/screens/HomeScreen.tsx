@@ -15,6 +15,7 @@ interface HomeScreenProps {
   cwd: string
   navigate: (screen: Screen) => void
   onSelectProgram: (slug: string) => void
+  onSelectRun: (run: RunInfo) => void
 }
 
 interface HomeData {
@@ -85,12 +86,13 @@ async function loadHomeData(cwd: string): Promise<HomeData> {
 
 type Panel = "programs" | "runs"
 
-export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) {
+export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun }: HomeScreenProps) {
   const { width } = useTerminalDimensions()
   const [data, setData] = useState<HomeData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [selectedRunIndex, setSelectedRunIndex] = useState(0)
   const [focusedPanel, setFocusedPanel] = useState<Panel>("programs")
 
   const sideBySide = width >= SIDE_BY_SIDE_MIN_WIDTH
@@ -105,6 +107,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) 
   }, [cwd])
 
   const programs = data?.programs ?? []
+  const selectableRuns = (data?.allRuns ?? []).filter((r) => r.state != null)
 
   useKeyboard((key) => {
     if (key.name === "n") {
@@ -127,6 +130,15 @@ export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) 
         setSelectedIndex((i) => Math.min(programs.length - 1, i + 1))
       } else if (key.name === "return") {
         onSelectProgram(programs[selectedIndex].name)
+      }
+    } else if (focusedPanel === "runs" && selectableRuns.length > 0) {
+      if (key.name === "up" || key.name === "k") {
+        setSelectedRunIndex((i) => Math.max(0, i - 1))
+      } else if (key.name === "down" || key.name === "j") {
+        setSelectedRunIndex((i) => Math.min(selectableRuns.length - 1, i + 1))
+      } else if (key.name === "return") {
+        const run = selectableRuns[selectedRunIndex]
+        if (run) onSelectRun(run)
       }
     }
   })
@@ -209,6 +221,8 @@ export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) 
         runs={data?.allRuns ?? []}
         programConfigs={data?.programConfigs ?? {}}
         width={runsTableWidth}
+        focused={runsFocused}
+        selectedIndex={selectedRunIndex}
       />
     </box>
   )

@@ -53,6 +53,7 @@ bun lint && bun typecheck
 src/
   index.tsx              # Entry point, creates renderer
   App.tsx                # Main layout, keyboard handling, auth check
+  daemon.ts              # Background daemon entry point (detached process)
   components/
     Chat.tsx             # Multi-turn chat with Claude Agent SDK streaming
     RunCompletePrompt.tsx # Post-run prompt (cleanup or abandon)
@@ -75,9 +76,12 @@ src/
     system-prompts.ts    # Agent system prompts (setup, ideation)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
-    events.ts              # Event logging (events.ndjson) for run audit trail
     experiment.ts          # Experiment agent spawning, context packets, lock detection
     experiment-loop.ts     # Main experiment loop orchestrator
+    worktree.ts            # Git worktree create/remove for run isolation
+    daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (stream.log writes)
+    daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
+    daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
 ```
 
 ## Agent Conventions
@@ -110,20 +114,25 @@ src/
 - Context packet = per-experiment user message with baseline, recent results, git log, discarded diffs
 - Experiment Agent tools: Read, Write, Edit, Bash, Glob, Grep — same as setup, auto-approved
 - Lock violation detection: after agent commits, check `git diff` for any `.autoauto/` modifications → immediate discard
-- Loop callbacks (`LoopCallbacks`) are the interface between orchestrator and TUI — no events/observables needed
-- AbortSignal (`options.signal`) provides cooperative cancellation for stop/abort
+- Loop callbacks (`LoopCallbacks`) are the interface between orchestrator and display layer
+- In daemon mode, `FileCallbacks` (daemon-callbacks.ts) implements LoopCallbacks by writing to `stream.log`; all other state persistence is handled by the loop itself
+- `LoopOptions.stopRequested` provides soft stop (checked at iteration boundary); `signal` is for hard abort only
+- Two-root path model: `cwd` (worktree for git/agent ops) vs `programDir` (mainRoot for config/state) — `runExperimentLoop` takes explicit params, not a single `projectRoot`
 - Re-baseline after keeps: `runMeasurementAndDecide()` runs a fresh measurement series after each keep; falls back to candidate measurement if re-baseline fails
 - Re-baseline after consecutive discards: `maybeRebaseline()` runs drift detection every `REBASELINE_AFTER_DISCARDS` (5) non-keep outcomes; updates baseline if drift exceeds noise threshold
 - Results reading: `readAllResults()` returns typed `ExperimentResult[]` from results.tsv; `getMetricHistory()` extracts keep-only metric values for charts
 - Run listing: `listRuns()` enumerates runs for a program with their states; `getLatestRun()` returns the most recent
-- Events logging: `events.ndjson` is an append-only event log in each run directory; structural events only (no streaming text)
-- `createEventLogger()` wraps `LoopCallbacks` to emit events alongside in-memory callbacks
 - Cost tracking: `ExperimentCost` on `ExperimentOutcome` captures SDK cost/usage data per experiment
 - Dashboard components are mostly pure rendering — all primary state lives in ExecutionScreen (ResultsTable has local highlight index for keyboard nav)
-- `onExperimentCost` callback on `LoopCallbacks` provides per-experiment cost data to the TUI
-- Agent streaming text resets on each `onExperimentStart` — never accumulates across experiments
 - Sparkline uses keep-only metric values via `getMetricHistory()` pattern
 - Results table color-codes by status: green=keep, red=discard/crash, yellow=measurement_failure
+- ExecutionScreen supports two modes: spawn new daemon (`spawnDaemon`) or attach to existing (`attachRunId` prop)
+- TUI watches run dir via `fs.watch` (daemon-client.ts) for near-instant updates; falls back to polling
+- Stop/abort escalation: q → confirmation → stop-after-current; Ctrl+C → abort; second Ctrl+C → SIGKILL
+- Daemon runs in AutoAuto-owned git worktree — `git reset --hard` only allowed inside worktree, never main checkout
+- Per-program locking at `.autoauto/programs/<slug>/run.lock` — multiple programs can run concurrently
+- RunState includes `total_cost_usd`, `termination_reason`, `original_branch`, `worktree_path`, `error`, `error_phase` for daemon reconnection
+- Cleanup runs in-process in the TUI (not in daemon) — reads `worktree_path` from state.json
 
 ## Testing the TUI Interactively
 

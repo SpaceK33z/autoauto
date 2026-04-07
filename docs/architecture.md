@@ -45,8 +45,13 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and Claude Agent SDK 
 src/
   index.tsx              # Entry point, creates renderer
   App.tsx                # Screen routing, global keys, auth check
+  daemon.ts              # Background daemon entry point (detached process)
   components/
     Chat.tsx             # Claude Agent SDK streaming chat
+    RunCompletePrompt.tsx # Post-run prompt (cleanup or abandon)
+    StatsHeader.tsx      # Run stats + metric sparkline
+    ResultsTable.tsx     # Navigable experiment results table
+    AgentPanel.tsx       # Live agent streaming output OR experiment detail view
   screens/
     HomeScreen.tsx       # Program list
     SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
@@ -63,9 +68,12 @@ src/
     system-prompts.ts    # Agent system prompts (setup, ideation)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
-    events.ts              # Event logging (events.ndjson) for run audit trail
     experiment.ts          # Experiment agent spawning, context packets, lock detection
     experiment-loop.ts     # Main experiment loop orchestrator
+    worktree.ts            # Git worktree create/remove for run isolation
+    daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (stream.log writes)
+    daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
+    daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
 ```
 
 ## Configuration
@@ -155,13 +163,14 @@ Thin wrappers around git commands for the orchestrator:
 
 The core orchestrator loop that drives the autoresearch pattern:
 
-- `runExperimentLoop()` — main loop: context → agent → measure → decide → repeat
-- `LoopCallbacks` — callback interface for TUI integration (phase change, streaming, results)
-- `LoopOptions` — control knobs: max experiments, abort signal
+- `runExperimentLoop(cwd, programDir, runDir, ...)` — main loop: context → agent → measure → decide → repeat
+- Two-root path model: `cwd` is the git/agent working directory (worktree in daemon mode), `programDir` is the program config directory (always in mainRoot's `.autoauto/`)
+- `LoopCallbacks` — callback interface for display layer (phase change, streaming, results)
+- `LoopOptions` — control knobs: max experiments, abort signal (hard kill), `stopRequested` callback (soft stop at iteration boundary)
 - Calls `runMeasurementAndDecide()` for each iteration (includes measurement + keep/discard)
 - Re-baselines after every keep (fresh measurement on kept code, falls back to candidate measurement on failure)
 - Drift detection: re-measures baseline every 5 consecutive discards to detect environment changes
-- Checks stop conditions at the top of each iteration (signal, max experiments)
+- Persists `termination_reason` and `total_cost_usd` on RunState at loop completion
 - Unlocks evaluator on completion
 
 ## Experiment Agent (`src/lib/experiment.ts`)
@@ -189,9 +198,15 @@ Three-panel dashboard for live experiment monitoring:
 - **ResultsTable** — Navigable table of experiment outcomes, color-coded by status (green=keep, red=discard/crash, yellow=measurement_failure). Tab to focus, j/k/arrows to browse, Enter to select. Auto-scrolls to latest when unfocused.
 - **AgentPanel** — Dual-purpose panel: shows live streaming agent text and tool status by default; switches to a structured experiment detail view (status, commit, metric, quality gates, description) when a result row is selected. Escape deselects and returns to live view.
 
-State management: ExecutionScreen owns all dashboard state (results array, metric history, streaming text, cost accumulator, table focus, selected experiment). Components receive props — no component-local data fetching. LoopCallbacks drive all updates.
+State management: ExecutionScreen owns all dashboard state. Two modes:
+- **Spawn mode** (default): creates worktree, spawns daemon, watches run dir for updates
+- **Attach mode** (`attachRunId` prop): connects to existing daemon, reconstructs state from files
 
-## Results & Events (`src/lib/run.ts`, `src/lib/events.ts`)
+All updates come from file watching (daemon-client.ts `watchRunDir`), not in-process callbacks. Cleanup remains in-process in the TUI.
+
+Stop/abort escalation: `q` → confirmation → stop-after-current; `Ctrl+C` → abort; second `Ctrl+C` after 5s → SIGKILL.
+
+## Results & Cost Tracking (`src/lib/run.ts`)
 
 Results tracking has two layers:
 
@@ -202,30 +217,61 @@ Run discovery:
 - `listRuns()` — enumerates all runs for a program, reads their states
 - `getLatestRun()` — returns the most recent run
 
-Event logging:
-- `events.ndjson` — append-only structural event log per run
-- Events emitted via `createEventLogger()` wrapper around `LoopCallbacks`
-- Structural events only (phase changes, experiment outcomes, errors) — no streaming text
-- Used for debugging and forward-compatible with Phase 4 daemon IPC
-
 Cost tracking:
 - `ExperimentCost` captured from SDK `SDKResultMessage` at end of each agent session
-- Logged to events.ndjson as `experiment_cost` events
-- Not in results.tsv (avoids format migration)
+- Accumulated on `RunState.total_cost_usd` and `total_tokens`
+
+## Background Daemon (`src/daemon.ts`)
+
+Decouples the experiment loop from the TUI so runs survive terminal close/quit.
+
+### Two-Root Path Model
+
+- **mainRoot** — user's original checkout, contains `.autoauto/` with all state and config
+- **worktreePath** — AutoAuto-owned git worktree (`.autoauto/worktrees/<runId>/`), agent's working directory. `.autoauto/` doesn't exist here (gitignored), preventing the agent from touching state files.
+
+### Daemon Lifecycle
+
+1. TUI creates worktree, run dir, `run-config.json`, lock file, then spawns detached daemon
+2. Daemon writes `daemon.json` with UUID `daemon_id` + starts 10s heartbeat
+3. Crash recovery from `state.json` if resuming
+4. Baseline measurement in worktree
+5. Experiment loop via `runExperimentLoop()` with `FileCallbacks`
+6. On complete: final state, unlock measurement, release lock, exit
+
+### IPC (Filesystem-Based)
+
+| File | Writer | Reader | Purpose |
+|---|---|---|---|
+| `daemon.json` | TUI (initial), daemon (heartbeat) | TUI | Liveness detection |
+| `run-config.json` | TUI (once) | Daemon (once) | Per-run model/effort/max overrides |
+| `state.json` | Daemon (atomic) | TUI | Run state source of truth |
+| `results.tsv` | Daemon (append) | TUI | Experiment outcomes |
+| `stream.log` | Daemon (append, truncate per experiment) | TUI | Agent streaming text |
+| `control.json` | TUI | Daemon (on SIGTERM) | Stop/abort commands |
+
+TUI watches the run directory via `fs.watch` (falls back to polling). Delta reads for `results.tsv` and `stream.log`.
+
+### FileCallbacks (`src/lib/daemon-callbacks.ts`)
+
+Thin `LoopCallbacks` implementation — only writes `stream.log`. The loop already writes `state.json`/`results.tsv` directly.
+
+### Locking
+
+Per-program lock at `.autoauto/programs/<slug>/run.lock` with `O_EXCL`. Stale detection via `daemon_id` cross-check + heartbeat age. Multiple programs can run concurrently.
+
+### Worktree Lifecycle
+
+Created by TUI before daemon spawn. Kept after cleanup (user merges). Removed on abandon (with confirmation). Stale worktrees left in place.
 
 ## Current State
 
-Phase 1 (Setup) is complete. Phase 2a (Branch & Baseline) adds the run lifecycle utilities:
-experiment branch creation, baseline measurement, state persistence, evaluator locking, and
-the `startRun()` orchestrator that ties it all together. Phase 2b (Experiment Loop) adds the
-core orchestrator loop: context packet building, experiment agent spawning with streaming,
-lock violation detection, measurement + keep/discard decisions, and the main loop that ties
-everything together. Phase 2d (Results Tracking) adds the read-side utilities for results and
-run state, the events.ndjson persistent event log, run listing/discovery, and per-experiment
-cost tracking from the SDK. Phase 2f (TUI Dashboard) adds the full execution dashboard: stats
-header with sparkline, color-coded results table, and live agent output panel. The dashboard
-is composed of three rendering components (StatsHeader, ResultsTable, AgentPanel) orchestrated
-by ExecutionScreen. The TUI shell, screen navigation, program listing, multi-turn Claude Agent
-SDK chat, setup agent (repo inspection, scope definition, artifact generation, measurement
-validation), and model configuration are all implemented. Authentication is checked on startup
-with a helpful error screen if not configured.
+Phases 1 (Setup) and 2 (Execution) are complete. Phase 4 (Background Daemon) decouples the
+experiment loop from the TUI via a detached daemon process running in a git worktree. The TUI
+is now a client that spawns the daemon and watches state files for updates. The two-root path
+model (`mainRoot` for state, `worktreePath` for experiments) is threaded through the loop,
+measurement, and agent code. RunState carries daemon-specific fields (`total_cost_usd`,
+`termination_reason`, `original_branch`, `worktree_path`, `error`, `error_phase`) for
+reconnection. Stop vs abort is separated: `stopRequested` for graceful stop at iteration
+boundary, `AbortSignal` for hard kill. Process group cleanup (`detached` spawn + negative PID
+kill) handles orphan subprocesses from measurements and agent tools.

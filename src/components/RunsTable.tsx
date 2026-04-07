@@ -8,6 +8,8 @@ export interface RunsTableProps {
   /** Map from program_slug → ProgramConfig for computing gains */
   programConfigs: Record<string, ProgramConfig>
   width: number
+  focused?: boolean
+  selectedIndex?: number
 }
 
 function phaseColor(state: RunState | null): string {
@@ -106,10 +108,12 @@ const RunRow = memo(function RunRow({
   run,
   config,
   gainsWidth,
+  selected,
 }: {
   run: RunInfo
   config: ProgramConfig | undefined
   gainsWidth: number
+  selected: boolean
 }) {
   const state = run.state
   if (!state) return null
@@ -120,7 +124,7 @@ const RunRow = memo(function RunRow({
   const slug = state.program_slug
 
   return (
-    <box paddingX={1}>
+    <box paddingX={1} backgroundColor={selected ? "#333333" : undefined}>
       <text>
         <span fg={dotColor}>{"● "}</span>
         <span fg="#c0caf5">{padRight(truncate(slug, COL_PROGRAM - 1), COL_PROGRAM)}</span>
@@ -134,7 +138,7 @@ const RunRow = memo(function RunRow({
   )
 })
 
-export function RunsTable({ runs, programConfigs, width }: RunsTableProps) {
+export function RunsTable({ runs, programConfigs, width, focused = false, selectedIndex = 0 }: RunsTableProps) {
   const innerWidth = Math.max(width - CHROME, 0)
   const fixedWidth = COL_STATUS + COL_PROGRAM + COL_EXP + COL_MODEL + COL_TOKENS + COL_TIME
   const gainsWidth = Math.max(innerWidth - fixedWidth, COL_GAINS_MIN)
@@ -162,18 +166,17 @@ export function RunsTable({ runs, programConfigs, width }: RunsTableProps) {
             <text fg="#565f89">No runs yet.</text>
           </box>
         ) : (
-          validRuns.map((run) => (
+          validRuns.map((run, index) => (
             <RunRow
               key={`${run.state!.program_slug}-${run.run_id}`}
               run={run}
               config={programConfigs[run.state!.program_slug]}
               gainsWidth={gainsWidth}
+              selected={focused && index === selectedIndex}
             />
           ))
         )}
       </scrollbox>
-
-      {/* TODO: Enter on a run row → resume monitoring / attach to live output */}
     </box>
   )
 }

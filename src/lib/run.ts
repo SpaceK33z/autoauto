@@ -29,6 +29,9 @@ export type RunPhase =
   | "crashed"
   | "cleaning_up"
 
+/** Termination reason for a completed run */
+export type TerminationReason = "aborted" | "max_experiments" | "stopped"
+
 /** Persisted run state — the checkpoint file */
 export interface RunState {
   run_id: string
@@ -54,6 +57,18 @@ export interface RunState {
   effort?: string
   /** Cumulative input+output tokens across all experiments */
   total_tokens?: number
+  /** Cumulative cost in USD across all experiments */
+  total_cost_usd?: number
+  /** Why the run terminated (set on completion) */
+  termination_reason?: TerminationReason | null
+  /** Branch the user was on before the run started */
+  original_branch?: string
+  /** Absolute path to the AutoAuto-owned worktree */
+  worktree_path?: string
+  /** Error message if the run crashed */
+  error?: string | null
+  /** Which phase the error occurred in */
+  error_phase?: RunPhase | null
 }
 
 /** A single row in results.tsv */
@@ -381,6 +396,11 @@ export async function startRun(
     model: modelConfig?.model,
     effort: modelConfig?.effort,
     total_tokens: 0,
+    total_cost_usd: 0,
+    termination_reason: null,
+    original_branch: originalBranchName,
+    error: null,
+    error_phase: null,
   }
 
   await writeState(runDir, state)
