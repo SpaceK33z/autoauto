@@ -31,6 +31,14 @@ export const EFFORT_CHOICES: Record<string, EffortLevel[]> = {
   opus: ["low", "medium", "high", "max"],
 }
 
+export const PROVIDER_CHOICES: AgentProviderID[] = ["claude", "codex", "opencode"]
+
+export const PROVIDER_LABELS: Record<AgentProviderID, string> = {
+  claude: "Claude",
+  codex: "Codex",
+  opencode: "OpenCode",
+}
+
 /** Human-readable labels */
 export const MODEL_LABELS: Record<string, string> = {
   sonnet: "Sonnet",

@@ -15,6 +15,8 @@ import {
   getEffortChoicesForSlot,
   isEffortConfigurable,
   mergeSelectedModelSlot,
+  PROVIDER_CHOICES,
+  PROVIDER_LABELS,
 } from "../lib/config.ts"
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
@@ -33,7 +35,8 @@ interface PreRunScreenProps {
   onStart: (overrides: PreRunOverrides) => void
 }
 
-const FIELD_COUNT = 4 // 0=maxExperiments, 1=model, 2=effort, 3=runMode
+// 0=maxExperiments, 1=provider, 2=model, 3=effort, 4=runMode
+const FIELD_COUNT = 5
 
 export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, onStart }: PreRunScreenProps) {
   const [selected, setSelected] = useState(0)
@@ -65,8 +68,12 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     onStart({ modelConfig: modelSlot, maxExperiments, useWorktree })
   }
 
-  function handleCycleModel() {
-    setPickingModel(true)
+  function handleCycleProvider(direction: -1 | 1) {
+    setModelSlot((slot) => {
+      const nextProvider = cycleChoice(PROVIDER_CHOICES, slot.provider, direction)
+      const defaultModel = nextProvider === "claude" ? "sonnet" : "default"
+      return { provider: nextProvider, model: defaultModel, effort: slot.effort }
+    })
   }
 
   function handleCycleEffort(direction: -1 | 1) {
@@ -82,8 +89,8 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       return
     }
     if (key.name === "return") {
-      if (selected === 1) {
-        handleCycleModel()
+      if (selected === 2) {
+        setPickingModel(true)
         return
       }
       handleStart()
@@ -105,11 +112,14 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (key.name === "backspace") setMaxExpText((t) => t.slice(0, -1))
       else if (/^\d$/.test(key.name)) setMaxExpText((t) => t + key.name)
     } else if (selected === 1) {
-      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") handleCycleModel()
+      if (key.name === "left" || key.name === "h") handleCycleProvider(-1)
+      if (key.name === "right" || key.name === "l") handleCycleProvider(1)
     } else if (selected === 2) {
+      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") setPickingModel(true)
+    } else if (selected === 3) {
       if (key.name === "left" || key.name === "h") handleCycleEffort(-1)
       if (key.name === "right" || key.name === "l") handleCycleEffort(1)
-    } else if (selected === 3) {
+    } else if (selected === 4) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setUseWorktree((v) => !v)
       }
@@ -127,7 +137,8 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     return (
       <ModelPicker
         cwd={cwd}
-        title="Run Model"
+        title={`Run Model — ${PROVIDER_LABELS[modelSlot.provider]}`}
+        providerId={modelSlot.provider}
         onCancel={() => setPickingModel(false)}
         onSelect={(slot) => {
           setModelSlot((prev) => mergeSelectedModelSlot(prev, slot))
@@ -156,12 +167,13 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
       <box height={1} />
 
-      <CycleField label="Model" value={formatModelSlot(modelSlot)} isFocused={selected === 1} />
-      <CycleField label="Effort" value={effortDisplay.label} description={effortDisplay.description} isFocused={selected === 2} />
+      <CycleField label="Provider" value={PROVIDER_LABELS[modelSlot.provider]} isFocused={selected === 1} />
+      <CycleField label="Model" value={formatModelSlot(modelSlot)} isFocused={selected === 2} />
+      <CycleField label="Effort" value={effortDisplay.label} description={effortDisplay.description} isFocused={selected === 3} />
 
       <box height={1} />
 
-      <CycleField label="Run Mode" value={useWorktree ? "Worktree (recommended)" : "In-place"} isFocused={selected === 3} />
+      <CycleField label="Run Mode" value={useWorktree ? "Worktree (recommended)" : "In-place"} isFocused={selected === 4} />
       {!useWorktree && (
         <box flexDirection="column">
           <text fg="#ff5555">{"  \u26A0 DANGER: Runs git reset --hard in your main checkout."}</text>
