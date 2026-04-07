@@ -2,6 +2,14 @@
 
 TUI tool for autoresearch — autonomous experiment loops on any codebase.
 
+## Key Docs
+
+- `IDEA.md` — Design choices and overall idea
+- `docs/architecture.md` — System architecture (Bun + OpenTUI + Claude Agent SDK)
+- `docs/autoresearch-ideas.md` — Non-ML autoresearch ideas extracted from reference articles
+- `docs/failure-patterns.md` — Documented failure modes, anti-patterns & safeguards from real implementations
+- `references/articles/INDEX.md` — 30 indexed autoresearch articles for inspiration
+
 ## Stack
 
 - **Runtime:** Bun (not Node)
@@ -31,6 +39,7 @@ bun lint && bun typecheck
 - Intrinsic elements are lowercase: `<box>`, `<text>`, `<input>`, `<scrollbox>`
 - Text modifiers are nested tags: `<text><strong>Bold</strong></text>`
 - `<input>` requires `focused` prop to receive keystrokes
+- For more details see `/opentui` skill
 - Never call `process.exit()` — use `renderer.destroy()` via `useRenderer()` hook
 - Run with `bun run`, never `npm` or `node`
 
@@ -42,6 +51,17 @@ src/
   App.tsx                # Main layout, keyboard handling
   components/
     Chat.tsx             # Chat interface with Claude Agent SDK streaming
+```
+
+## Testing the TUI Interactively
+
+Use tmux to launch and interact with the TUI app:
+
+```bash
+tmux new-session -d -s autoauto -x 80 -y 24 'bun dev'  # Launch in background
+tmux send-keys -t autoauto 'n'                           # Send keystrokes
+tmux capture-pane -t autoauto -p                         # Read the screen
+tmux kill-session -t autoauto                            # Clean up
 ```
 
 ## Commits

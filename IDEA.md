@@ -2,7 +2,9 @@
 
 A TUI tool that makes the autoresearch pattern easy to set up and run on any project. Autoresearch is the autonomous experiment loop pioneered by Karpathy — define a metric, let an AI agent iteratively optimize code, keep improvements, discard failures, loop forever.
 
-AutoAuto encodes autoresearch expertise into a guided workflow so users don't need to learn the pitfalls (metric gaming, scope violations, false improvements, variance) from scratch.
+While autoresearch originated in ML model training, AutoAuto focuses on the broader set of use cases: software performance, test stability, prompt optimization, search ranking, marketing experiments, and anything else where you have code and a measurable metric — no training loops, datasets, or GPUs required. See `docs/autoresearch-ideas.md` for a full list.
+
+AutoAuto encodes autoresearch expertise into a guided workflow so users don't need to learn the pitfalls (metric gaming, scope violations, false improvements, variance) from scratch. See `docs/failure-patterns.md` for a comprehensive catalog of documented failure modes and the safeguards AutoAuto implements against them.
 
 ## Stack
 
@@ -55,7 +57,9 @@ All state lives inside the target repo, gitignored (`.autoauto/` is added to `.g
       measure.sh                 # generated measurement script
       config.json                # metric field, direction, noise threshold, repeats, quality gates
       runs/
-        apr07/
+        20260407-143022/
+          daemon.pid             # PID of running daemon (if active)
+          state.json             # current run state (experiment #, status, etc.)
           results.tsv
           summary.md
     api-latency/
@@ -95,6 +99,8 @@ All state lives inside the target repo, gitignored (`.autoauto/` is added to `.g
   }
 }
 ```
+
+For non-ML use cases where the metric is subjective (prompt quality, copy, templates), the setup agent should prefer binary yes/no eval criteria over sliding scales. 3-6 binary criteria (e.g. "includes a call to action: yes/no") produce more stable and gameable-resistant scores than numeric scales (1-7). If you can't explain how to score it in one sentence, rewrite it.
 
 ### program.md Structure
 
@@ -143,6 +149,8 @@ The setup agent:
 4. Runs it multiple times to validate stability
 5. Detects variance and warns if measurements are unreliable
 6. Iterates until the measurement is stable
+
+Measurement scripts should assume they'll run hundreds of times — keep servers/browsers warm, use incremental builds, avoid cold starts. The setup agent should generate scripts that reuse long-lived processes (e.g. keep the dev server running, reuse the browser instance across Lighthouse runs) rather than starting from scratch each iteration.
 
 When creating a second program that reuses the same measurement type (e.g. Lighthouse for a different page), the agent recognizes the existing setup and adapts it.
 
@@ -219,8 +227,21 @@ Review and package the results:
 ## Constraints
 
 - **Locked evaluator** — `measure.sh` and `config.json` are immutable during execution (read-only permissions + orchestrator enforcement). Only the Setup Agent may modify them, never the Experiment Agent.
-- One run at a time per project (MVP)
+- One run at a time per project (MVP, architecture supports multiple)
+- Run directories use timestamps (`YYYYMMDD-HHMMSS`) for unique, collision-free identification
 - No Fix Agent for MVP — measurement failure or quality gate failure → discard and move on
+
+### Phase 4: Background Daemon
+
+Decouple the orchestrator from the TUI so runs survive terminal close/quit.
+
+**Architecture:** Client-server split. The orchestrator runs as a detached Bun daemon process. The TUI is a client that reads state and displays it.
+
+- **Daemon lifecycle:** "Start Run" spawns a detached child process. Daemon writes its PID to `daemon.pid` in the run directory. TUI uses `kill(pid, 0)` to check liveness, `SIGTERM` to request graceful stop.
+- **IPC:** Filesystem-based. Daemon writes `state.json` (current experiment, status, baseline) and appends to `results.tsv`. TUI watches/polls the files. No socket protocol needed.
+- **Graceful stop:** Daemon catches `SIGTERM`, finishes or reverts the current experiment, writes final state, exits.
+- **Crash recovery:** On daemon startup, check if the branch has uncommitted changes or a commit newer than the last `results.tsv` entry. If so, the previous daemon died mid-experiment. `git revert` that commit (or `git reset --hard` to last known-good if uncommitted). Log it as a "crashed" row in results.tsv. Safe because experiments are single commits on a dedicated branch — blast radius is always one commit.
+- **Multi-daemon ready:** Architecture supports multiple concurrent daemons (one per run/program) via separate PID files and run directories. MVP enforces single run via lock file, but the plumbing is there.
 
 ## Future Ideas
 
