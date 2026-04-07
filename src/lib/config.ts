@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
-import { getProjectRoot } from "./programs.ts"
+import { getProjectRoot, AUTOAUTO_DIR } from "./programs.ts"
 
 export type EffortLevel = "low" | "medium" | "high" | "max"
 
@@ -14,7 +14,6 @@ export interface ProjectConfig {
   supportModel: ModelSlot
 }
 
-const AUTOAUTO_DIR = ".autoauto"
 const CONFIG_FILE = "config.json"
 
 export const DEFAULT_CONFIG: ProjectConfig = {

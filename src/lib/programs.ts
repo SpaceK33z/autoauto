@@ -12,7 +12,7 @@ export interface Program {
 
 export type Screen = "home" | "setup" | "settings"
 
-const AUTOAUTO_DIR = ".autoauto"
+export const AUTOAUTO_DIR = ".autoauto"
 
 let cachedRoot: string | undefined
 

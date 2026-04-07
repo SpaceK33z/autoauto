@@ -40,14 +40,7 @@ export function App() {
     })
   }, [])
 
-  // Load project config after auth succeeds
-  useEffect(() => {
-    if (authState === "authenticated") {
-      loadProjectConfig(cwd).then(setProjectConfig)
-    }
-  }, [authState])
-
-  // Reload config when returning to home (settings may have changed)
+  // Load project config after auth succeeds + reload when returning to home
   useEffect(() => {
     if (screen === "home" && authState === "authenticated") {
       loadProjectConfig(cwd).then(setProjectConfig)
@@ -110,13 +103,20 @@ export function App() {
         />
       )}
       {screen === "settings" && (
-        <SettingsScreen cwd={cwd} navigate={setScreen} />
+        <SettingsScreen
+          cwd={cwd}
+          navigate={setScreen}
+          config={projectConfig}
+          onConfigChange={setProjectConfig}
+        />
       )}
 
       <text fg="#888888">
         {screen === "home"
           ? " n: new program | s: settings | Escape: quit"
-          : " Escape: back"}
+          : screen === "settings"
+            ? " ↑↓: navigate | ←→: change | Escape: back"
+            : " Escape: back"}
       </text>
     </box>
   )

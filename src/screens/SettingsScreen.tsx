@@ -1,42 +1,30 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { Screen } from "../lib/programs.ts"
 import {
   type ProjectConfig,
-  DEFAULT_CONFIG,
   MODEL_CHOICES,
   EFFORT_CHOICES,
   MODEL_LABELS,
   EFFORT_LABELS,
   EFFORT_DESCRIPTIONS,
-  loadProjectConfig,
   saveProjectConfig,
 } from "../lib/config.ts"
 
 interface SettingsScreenProps {
   cwd: string
   navigate: (screen: Screen) => void
+  config: ProjectConfig
+  onConfigChange: (config: ProjectConfig) => void
 }
 
-export function SettingsScreen({ cwd, navigate }: SettingsScreenProps) {
-  const [config, setConfig] = useState<ProjectConfig>(DEFAULT_CONFIG)
+export function SettingsScreen({ cwd, navigate, config, onConfigChange }: SettingsScreenProps) {
   const [selected, setSelected] = useState(0)
-  const [dirty, setDirty] = useState(false)
-
-  useEffect(() => {
-    loadProjectConfig(cwd).then(setConfig)
-  }, [cwd])
-
-  useEffect(() => {
-    if (dirty) {
-      saveProjectConfig(cwd, config)
-      setDirty(false)
-    }
-  }, [config, dirty, cwd])
 
   const updateConfig = (updater: (prev: ProjectConfig) => ProjectConfig) => {
-    setConfig(updater)
-    setDirty(true)
+    const next = updater(config)
+    onConfigChange(next)
+    saveProjectConfig(cwd, next)
   }
 
   function cycleValue(direction: -1 | 1) {
