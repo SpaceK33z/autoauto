@@ -1,29 +1,49 @@
-import { useState, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { query } from "@anthropic-ai/claude-agent-sdk"
+import { createPushStream, type PushStream } from "../lib/push-stream.ts"
+
+interface ChatMessage {
+  id: string
+  role: "user" | "assistant"
+  content: string
+}
+
+interface SDKUserMessage {
+  type: "user"
+  message: { role: "user"; content: string }
+  parent_tool_use_id: string | null
+}
 
 export function Chat() {
-  const [response, setResponse] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [streamingText, setStreamingText] = useState("")
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputStreamRef = useRef<PushStream<SDKUserMessage> | null>(null)
+  const [inputKey, setInputKey] = useState(0)
 
-  const handleSubmit = useCallback(
-    async (value: string) => {
-      const prompt = value.trim()
-      if (!prompt || loading) return
+  useEffect(() => {
+    const abortController = new AbortController()
+    const inputStream = createPushStream<SDKUserMessage>()
+    inputStreamRef.current = inputStream
 
-      setLoading(true)
-      setResponse("")
-
+    ;(async () => {
       try {
-        for await (const message of query({
-          prompt,
+        const q = query({
+          prompt: inputStream,
           options: {
             systemPrompt:
               "You are AutoAuto, an autoresearch assistant. Be concise.",
-            maxTurns: 1,
             allowedTools: [],
             includePartialMessages: true,
+            abortController,
+            persistSession: false,
           },
-        })) {
+        })
+
+        for await (const message of q) {
+          if (abortController.signal.aborted) break
+
           if (message.type === "stream_event") {
             const event = message.event
             if (
@@ -32,40 +52,137 @@ export function Chat() {
               event.delta.type === "text_delta" &&
               "text" in event.delta
             ) {
-              setResponse((prev: string) => prev + (event.delta as { text: string }).text)
+              setStreamingText(
+                (prev) => prev + (event.delta as { text: string }).text
+              )
             }
+          } else if (message.type === "assistant") {
+            const fullText = (message as any).message.content
+              .filter((block: any) => block.type === "text")
+              .map((block: any) => block.text)
+              .join("")
+
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: fullText,
+              },
+            ])
+            setStreamingText("")
+            setIsStreaming(false)
+          } else if (message.type === "result") {
+            if ((message as any).subtype !== "success") {
+              setError(
+                `Agent error: ${(message as any).errors?.join(", ") ?? "unknown"}`
+              )
+            }
+            setIsStreaming(false)
           }
         }
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err)
-        setResponse(`Error: ${message}`)
-      } finally {
-        setLoading(false)
+        if (!abortController.signal.aborted) {
+          setError(err instanceof Error ? err.message : String(err))
+          setIsStreaming(false)
+        }
       }
+    })()
+
+    return () => {
+      abortController.abort()
+      inputStream.end()
+      inputStreamRef.current = null
+    }
+  }, [])
+
+  const handleSubmit = useCallback(
+    (value: string) => {
+      const text = value.trim()
+      if (!text || isStreaming || !inputStreamRef.current) return
+
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "user", content: text },
+      ])
+
+      inputStreamRef.current.push({
+        type: "user" as const,
+        message: { role: "user" as const, content: text },
+        parent_tool_use_id: null,
+      })
+
+      setIsStreaming(true)
+      setStreamingText("")
+      setError(null)
+      setInputKey((k) => k + 1)
     },
-    [loading]
+    [isStreaming]
   )
 
   return (
     <box flexDirection="column" flexGrow={1}>
-      <scrollbox focused={loading} flexGrow={1} border borderStyle="rounded">
-        <text>
-          {response || "Type a message below and press Enter to ask Claude."}
-        </text>
+      <scrollbox
+        focused={isStreaming}
+        flexGrow={1}
+        border
+        borderStyle="rounded"
+        stickyScroll
+        stickyStart="bottom"
+      >
+        {messages.length === 0 && !streamingText ? (
+          <text fg="#888888">
+            Type a message below and press Enter to start a conversation.
+          </text>
+        ) : (
+          <box flexDirection="column">
+            {messages.map((msg) => (
+              <box key={msg.id} flexDirection="column">
+                <text fg={msg.role === "user" ? "#7aa2f7" : "#9ece6a"}>
+                  <strong>{msg.role === "user" ? "You" : "AutoAuto"}</strong>
+                </text>
+                <text>{msg.content}</text>
+                <text>{""}</text>
+              </box>
+            ))}
+
+            {streamingText && (
+              <box flexDirection="column">
+                <text fg="#9ece6a">
+                  <strong>AutoAuto</strong>
+                </text>
+                <text>{streamingText}</text>
+              </box>
+            )}
+
+            {isStreaming && !streamingText && (
+              <box flexDirection="column">
+                <text fg="#9ece6a">
+                  <strong>AutoAuto</strong>
+                </text>
+                <text fg="#888888">Thinking...</text>
+              </box>
+            )}
+
+            {error && <text fg="#ff5555">Error: {error}</text>}
+          </box>
+        )}
       </scrollbox>
 
       <box border borderStyle="rounded" height={3} title="Message">
         <input
-          placeholder="Ask something..."
-          focused={!loading}
-          // eslint-disable-next-line typescript-eslint/no-explicit-any -- OpenTUI type conflict between React and Core onSubmit signatures
-          onSubmit={((value: string) => { handleSubmit(value) }) as any}
+          key={inputKey}
+          placeholder={
+            isStreaming ? "Waiting for response..." : "Ask something..."
+          }
+          focused={!isStreaming}
+          onSubmit={
+            ((value: string) => {
+              handleSubmit(value)
+            }) as any
+          }
         />
       </box>
-
-      <text fg="#888888">
-        {loading ? " Streaming..." : " Enter: send | Escape: quit"}
-      </text>
     </box>
   )
 }
