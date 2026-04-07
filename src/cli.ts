@@ -25,6 +25,9 @@ import {
 } from "./lib/run.ts"
 import { loadProjectConfig, type ModelSlot, type EffortLevel } from "./lib/config.ts"
 import { streamLogName } from "./lib/daemon-callbacks.ts"
+import { closeProviders, type AgentProviderID } from "./lib/agent/index.ts"
+import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
+import { getCodexDefaultModel, getOpenCodeDefaultModel } from "./lib/model-options.ts"
 
 // --- Arg Parsing ---
 
@@ -120,6 +123,11 @@ function parsePositiveInt(value: string): number | null {
   if (!/^\d+$/.test(value)) return null
   const n = parseInt(value, 10)
   return n >= 1 ? n : null
+}
+
+function parseProvider(value: string | undefined): AgentProviderID | null {
+  if (value === "claude" || value === "opencode" || value === "codex") return value
+  return null
 }
 
 // --- Resolve common context ---
@@ -262,9 +270,38 @@ async function cmdStart(args: ParsedArgs) {
   const projectConfig = await loadProjectConfig(root)
 
   // Build model config from flags or defaults
+  const providerFlag = getFlag(args.flags, "provider")
+  const parsedProvider = parseProvider(providerFlag)
+  if (providerFlag && !parsedProvider) die(`Invalid --provider: "${providerFlag}". Use claude, opencode, or codex.`)
+
+  const explicitModel = getFlag(args.flags, "model")
+  const provider: AgentProviderID = parsedProvider ?? (explicitModel ? "claude" : projectConfig.executionModel.provider)
+  if (provider === "opencode" && hasFlag(args.flags, "effort")) {
+    die("--effort is not supported with --provider opencode yet.")
+  }
+
+  let model = explicitModel
+  if (!model) {
+    if (provider === projectConfig.executionModel.provider) {
+      model = projectConfig.executionModel.model
+    } else if (provider === "opencode") {
+      model = await getOpenCodeDefaultModel(root) ?? undefined
+      if (!model) die("No connected OpenCode models found. Run `opencode auth login` or `/connect` first.")
+    } else if (provider === "codex") {
+      model = await getCodexDefaultModel(root) ?? undefined
+      if (!model) die("Could not resolve Codex default model.")
+    } else {
+      model = "sonnet"
+    }
+  }
+  if (!model) die("Could not resolve model.")
+
   const modelConfig: ModelSlot = {
-    model: getFlag(args.flags, "model") ?? projectConfig.executionModel.model,
-    effort: (getFlag(args.flags, "effort") as EffortLevel) ?? projectConfig.executionModel.effort,
+    provider,
+    model,
+    effort: provider !== "opencode"
+      ? ((getFlag(args.flags, "effort") as EffortLevel) ?? projectConfig.executionModel.effort)
+      : projectConfig.executionModel.effort,
   }
 
   const maxExperimentsStr = getFlag(args.flags, "max-experiments")
@@ -281,10 +318,12 @@ async function cmdStart(args: ParsedArgs) {
       ? true
       : projectConfig.ideasBacklogEnabled
 
+  const useWorktree = !hasFlag(args.flags, "in-place")
+
   // Spawn daemon
-  let result: { runId: string; runDir: string; worktreePath: string; pid: number }
+  let result: { runId: string; runDir: string; worktreePath: string | null; pid: number }
   try {
-    result = await spawnDaemon(root, slug, modelConfig, maxExperiments, ideasBacklogEnabled)
+    result = await spawnDaemon(root, slug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes("uncommitted changes")) die(msg)
@@ -461,11 +500,13 @@ async function cmdStatus(args: ParsedArgs) {
         ? "aborted"
         : state.termination_reason === "max_experiments"
           ? `reached max experiments (${state.experiment_number})`
-          : state.termination_reason === "stopped"
-            ? "stopped by user"
-            : state.phase === "crashed"
-              ? "crashed"
-              : "finished"
+          : state.termination_reason === "stagnation"
+            ? `stagnation (${state.total_discards} consecutive discards)`
+            : state.termination_reason === "stopped"
+              ? "stopped by user"
+              : state.phase === "crashed"
+                ? "crashed"
+                : "finished"
     out(`Status: ${state.phase} (${reason})`)
     out(
       `Baseline: ${state.original_baseline} → Final best: ${state.best_metric} (${formatChangePct(state.original_baseline, state.best_metric, programConfig.direction)})`,
@@ -707,6 +748,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<void>> = {
 }
 
 export async function run(argv: string[]) {
+  registerDefaultProviders()
   const args = parseArgs(argv)
   const handler = COMMANDS[args.command]
 
@@ -724,6 +766,7 @@ export async function run(argv: string[]) {
     out("Global flags:")
     out("  --json                       Output as JSON")
     out("  --cwd <path>                 Override working directory")
+    out("  --provider <claude|opencode|codex> Agent provider for start")
     process.exit(1)
   }
 
@@ -732,5 +775,7 @@ export async function run(argv: string[]) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     die(msg, 2)
+  } finally {
+    await closeProviders()
   }
 }

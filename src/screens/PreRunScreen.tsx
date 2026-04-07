@@ -9,19 +9,20 @@ import {
 import { getLatestRun, readAllResults, getAvgMeasurementDuration } from "../lib/run.ts"
 import {
   type ModelSlot,
-  type EffortLevel,
-  MODEL_CHOICES,
-  EFFORT_CHOICES,
-  MODEL_LABELS,
-  EFFORT_LABELS,
-  EFFORT_DESCRIPTIONS,
   cycleChoice,
+  formatEffortSlot,
+  formatModelSlot,
+  getEffortChoicesForSlot,
+  isEffortConfigurable,
+  mergeSelectedModelSlot,
 } from "../lib/config.ts"
 import { CycleField } from "../components/CycleField.tsx"
+import { ModelPicker } from "../components/ModelPicker.tsx"
 
 export interface PreRunOverrides {
   modelConfig: ModelSlot
   maxExperiments: number | undefined
+  useWorktree: boolean
 }
 
 interface PreRunScreenProps {
@@ -32,13 +33,14 @@ interface PreRunScreenProps {
   onStart: (overrides: PreRunOverrides) => void
 }
 
-const FIELD_COUNT = 3 // 0=maxExperiments, 1=model, 2=effort
+const FIELD_COUNT = 4 // 0=maxExperiments, 1=model, 2=effort, 3=runMode
 
 export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, onStart }: PreRunScreenProps) {
   const [selected, setSelected] = useState(0)
   const [maxExpText, setMaxExpText] = useState("")
-  const [model, setModel] = useState(defaultModelConfig.model)
-  const [effort, setEffort] = useState<EffortLevel>(defaultModelConfig.effort)
+  const [modelSlot, setModelSlot] = useState<ModelSlot>(defaultModelConfig)
+  const [useWorktree, setUseWorktree] = useState(true)
+  const [pickingModel, setPickingModel] = useState(false)
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
   const [avgDurationMs, setAvgDurationMs] = useState<number | null>(null)
 
@@ -60,29 +62,30 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   function handleStart() {
     const parsed = parseInt(maxExpText, 10)
     const maxExperiments = !isNaN(parsed) && parsed > 0 ? parsed : undefined
-    onStart({ modelConfig: { model, effort }, maxExperiments })
+    onStart({ modelConfig: modelSlot, maxExperiments, useWorktree })
   }
 
-  function handleCycleModel(direction: -1 | 1) {
-    const next = cycleChoice(MODEL_CHOICES, model as (typeof MODEL_CHOICES)[number], direction)
-    setModel(next)
-    const validEfforts = EFFORT_CHOICES[next] ?? EFFORT_CHOICES.sonnet
-    if (!validEfforts.includes(effort)) {
-      setEffort("high")
-    }
+  function handleCycleModel() {
+    setPickingModel(true)
   }
 
   function handleCycleEffort(direction: -1 | 1) {
-    const validEfforts = EFFORT_CHOICES[model] ?? EFFORT_CHOICES.sonnet
-    setEffort(cycleChoice(validEfforts, effort, direction))
+    if (!isEffortConfigurable(modelSlot)) return
+    const validEfforts = getEffortChoicesForSlot(modelSlot)
+    setModelSlot((slot) => ({ ...slot, effort: cycleChoice(validEfforts, slot.effort, direction) }))
   }
 
   useKeyboard((key) => {
+    if (pickingModel) return
     if (key.name === "escape") {
       navigate("home")
       return
     }
     if (key.name === "return") {
+      if (selected === 1) {
+        handleCycleModel()
+        return
+      }
       handleStart()
       return
     }
@@ -102,11 +105,14 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (key.name === "backspace") setMaxExpText((t) => t.slice(0, -1))
       else if (/^\d$/.test(key.name)) setMaxExpText((t) => t + key.name)
     } else if (selected === 1) {
-      if (key.name === "left" || key.name === "h") handleCycleModel(-1)
-      if (key.name === "right" || key.name === "l") handleCycleModel(1)
+      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") handleCycleModel()
     } else if (selected === 2) {
       if (key.name === "left" || key.name === "h") handleCycleEffort(-1)
       if (key.name === "right" || key.name === "l") handleCycleEffort(1)
+    } else if (selected === 3) {
+      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
+        setUseWorktree((v) => !v)
+      }
     }
   })
 
@@ -115,6 +121,21 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const repeats = programConfig?.repeats ?? 3
   const maxExp = parseInt(maxExpText, 10)
   const hasMaxExp = !isNaN(maxExp) && maxExp > 0
+  const effortDisplay = formatEffortSlot(modelSlot)
+
+  if (pickingModel) {
+    return (
+      <ModelPicker
+        cwd={cwd}
+        title="Run Model"
+        onCancel={() => setPickingModel(false)}
+        onSelect={(slot) => {
+          setModelSlot((prev) => mergeSelectedModelSlot(prev, slot))
+          setPickingModel(false)
+        }}
+      />
+    )
+  }
 
   return (
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`Run: ${programSlug}`}>
@@ -135,8 +156,19 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
       <box height={1} />
 
-      <CycleField label="Model" value={MODEL_LABELS[model] ?? model} isFocused={selected === 1} />
-      <CycleField label="Effort" value={EFFORT_LABELS[effort]} description={EFFORT_DESCRIPTIONS[effort]} isFocused={selected === 2} />
+      <CycleField label="Model" value={formatModelSlot(modelSlot)} isFocused={selected === 1} />
+      <CycleField label="Effort" value={effortDisplay.label} description={effortDisplay.description} isFocused={selected === 2} />
+
+      <box height={1} />
+
+      <CycleField label="Run Mode" value={useWorktree ? "Worktree (recommended)" : "In-place"} isFocused={selected === 3} />
+      {!useWorktree && (
+        <box flexDirection="column">
+          <text fg="#ff5555">{"  \u26A0 DANGER: Runs git reset --hard in your main checkout."}</text>
+          <text fg="#ff5555">{"    All uncommitted changes will be destroyed between experiments."}</text>
+          <text fg="#ff5555">{"    Your branch will be changed. Only use on a clean, throwaway branch."}</text>
+        </box>
+      )}
 
       <box height={1} />
 
@@ -156,7 +188,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
       <box flexGrow={1} />
 
-      <text fg="#565f89">{"  Enter: start run | Escape: back | Tab: next field"}</text>
+      <text fg="#565f89">{"  Enter: start/open model picker | Escape: back | Tab: next field"}</text>
     </box>
   )
 }

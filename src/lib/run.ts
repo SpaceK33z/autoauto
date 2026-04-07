@@ -31,7 +31,7 @@ export type RunPhase =
   | "finalizing"
 
 /** Termination reason for a completed run */
-export type TerminationReason = "aborted" | "max_experiments" | "stopped"
+export type TerminationReason = "aborted" | "max_experiments" | "stopped" | "stagnation"
 
 /** Persisted run state — the checkpoint file */
 export interface RunState {
@@ -52,7 +52,9 @@ export interface RunState {
   candidate_sha: string | null
   started_at: string
   updated_at: string
-  /** Model alias used for this run (e.g. "sonnet", "opus") */
+  /** Agent provider used for this run. Legacy runs omit this and default to Claude. */
+  provider?: string
+  /** Model alias/ID used for this run (e.g. "sonnet" or "anthropic/claude-sonnet-4-5") */
   model?: string
   /** Effort level used for this run */
   effort?: string
@@ -66,6 +68,8 @@ export interface RunState {
   original_branch?: string
   /** Absolute path to the AutoAuto-owned worktree */
   worktree_path?: string
+  /** True when running without worktree isolation (experiments run in main checkout) */
+  in_place?: boolean
   /** Error message if the run crashed */
   error?: string | null
   /** Which phase the error occurred in */
@@ -372,8 +376,8 @@ export async function deleteRun(projectRoot: string, run: RunInfo): Promise<void
 
   const state = run.state
 
-  // Remove worktree if it exists
-  if (state?.worktree_path) {
+  // Remove worktree if it exists (skip for in-place runs — there's no worktree)
+  if (state?.worktree_path && !state?.in_place) {
     await $`git worktree remove --force ${state.worktree_path}`.cwd(projectRoot).nothrow().quiet()
   }
 
@@ -466,6 +470,7 @@ export async function startRun(
     candidate_sha: null,
     started_at: now,
     updated_at: now,
+    provider: modelConfig?.provider,
     model: modelConfig?.model,
     effort: modelConfig?.effort,
     total_tokens: 0,

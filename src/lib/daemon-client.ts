@@ -67,7 +67,8 @@ export async function spawnDaemon(
   modelConfig: ModelSlot,
   maxExperiments?: number,
   ideasBacklogEnabled = true,
-): Promise<{ runId: string; runDir: string; worktreePath: string; pid: number }> {
+  useWorktree = true,
+): Promise<{ runId: string; runDir: string; worktreePath: string | null; pid: number }> {
   // 1. Check working tree
   if (!(await isWorkingTreeClean(mainRoot))) {
     throw new Error("Working tree has uncommitted changes. Commit or stash them before starting a run.")
@@ -76,7 +77,7 @@ export async function spawnDaemon(
   // 2. Generate run ID + acquire lock before creating isolated work
   const runId = generateRunId()
   const programDir = getProgramDir(mainRoot, programSlug)
-  const worktreePath = join(mainRoot, ".autoauto", "worktrees", runId)
+  const worktreePath = useWorktree ? join(mainRoot, ".autoauto", "worktrees", runId) : mainRoot
   const daemonId = randomUUID()
 
   const locked = await acquireLock(programDir, runId, daemonId, 0, worktreePath)
@@ -85,15 +86,24 @@ export async function spawnDaemon(
   }
 
   try {
-    await createWorktree(mainRoot, runId, programSlug)
+    if (useWorktree) {
+      await createWorktree(mainRoot, runId, programSlug)
+    } else {
+      // In-place mode: create experiment branch directly in main checkout
+      const { $ } = await import("bun")
+      const branchName = `autoauto-${programSlug}-${runId}`
+      await $`git checkout -b ${branchName}`.cwd(mainRoot).quiet()
+    }
 
     // 3. Init run dir in main root + write run-config.json
     const runDir = await initRunDir(programDir, runId)
     const runConfig: RunConfig = {
+      provider: modelConfig.provider,
       model: modelConfig.model,
       effort: modelConfig.effort,
       max_experiments: maxExperiments,
       ideas_backlog_enabled: ideasBacklogEnabled,
+      in_place: useWorktree ? undefined : true,
     }
     await writeRunConfig(runDir, runConfig)
 
@@ -102,9 +112,12 @@ export async function spawnDaemon(
     const logPath = join(runDir, "daemon.log")
     const logFd = await open(logPath, "w")
 
+    const daemonArgs = [daemonPath, "--program", programSlug, "--run-id", runId, "--main-root", mainRoot, "--worktree", worktreePath, "--daemon-id", daemonId]
+    if (!useWorktree) daemonArgs.push("--in-place")
+
     const proc = spawn(
       "bun",
-      [daemonPath, "--program", programSlug, "--run-id", runId, "--main-root", mainRoot, "--worktree", worktreePath, "--daemon-id", daemonId],
+      daemonArgs,
       {
         detached: true,
         stdio: ["ignore", logFd.fd, logFd.fd],
@@ -127,7 +140,7 @@ export async function spawnDaemon(
     proc.unref()
     await logFd.close()
 
-    return { runId, runDir, worktreePath, pid }
+    return { runId, runDir, worktreePath: useWorktree ? worktreePath : null, pid }
   } catch (err) {
     await releaseLock(programDir)
     throw err

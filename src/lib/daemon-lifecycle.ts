@@ -5,6 +5,7 @@ import type { RunState } from "./run.ts"
 import { writeState, readState, appendResult, readAllResults } from "./run.ts"
 import { resetHard } from "./git.ts"
 import type { ModelSlot } from "./config.ts"
+import type { AgentProviderID } from "./agent/index.ts"
 
 // --- Types ---
 
@@ -18,10 +19,12 @@ export interface DaemonJson {
 }
 
 export interface RunConfig {
+  provider?: AgentProviderID
   model: string
   effort: string
   max_experiments?: number
   ideas_backlog_enabled?: boolean
+  in_place?: boolean
 }
 
 export interface ControlAction {
@@ -118,7 +121,11 @@ export async function writeRunConfig(runDir: string, config: RunConfig): Promise
 }
 
 export function runConfigToModelSlot(config: RunConfig): ModelSlot {
-  return { model: config.model, effort: config.effort as ModelSlot["effort"] }
+  return {
+    provider: config.provider ?? "claude",
+    model: config.model,
+    effort: config.effort as ModelSlot["effort"],
+  }
 }
 
 // --- Locking ---

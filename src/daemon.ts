@@ -9,8 +9,8 @@
  */
 
 import { join } from "node:path"
-import { setProvider } from "./lib/agent/index.ts"
-import { ClaudeProvider } from "./lib/agent/claude-provider.ts"
+import { closeProviders } from "./lib/agent/index.ts"
+import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
 import { loadProgramConfig } from "./lib/programs.ts"
 import { readState, writeState, lockMeasurement, unlockMeasurement, appendResult, serializeSecondaryValues } from "./lib/run.ts"
 import type { RunState } from "./lib/run.ts"
@@ -32,13 +32,16 @@ import {
 
 // --- Parse CLI args ---
 
-function parseArgs(): { programSlug: string; runId: string; mainRoot: string; worktreePath: string; daemonId: string } {
+function parseArgs(): { programSlug: string; runId: string; mainRoot: string; worktreePath: string; daemonId: string; inPlace: boolean } {
   const args = process.argv.slice(2)
+  const inPlace = args.includes("--in-place")
+  // Remove --in-place before key-value parsing (it's a boolean flag)
+  const kvArgs = args.filter((a) => a !== "--in-place")
   const map = new Map<string, string>()
 
-  for (let i = 0; i < args.length; i += 2) {
-    const key = args[i]?.replace(/^--/, "")
-    const val = args[i + 1]
+  for (let i = 0; i < kvArgs.length; i += 2) {
+    const key = kvArgs[i]?.replace(/^--/, "")
+    const val = kvArgs[i + 1]
     if (key && val) map.set(key, val)
   }
 
@@ -49,18 +52,18 @@ function parseArgs(): { programSlug: string; runId: string; mainRoot: string; wo
   const daemonId = map.get("daemon-id")
 
   if (!programSlug || !runId || !mainRoot || !worktreePath || !daemonId) {
-    process.stderr.write("Usage: daemon.ts --program <slug> --run-id <id> --main-root <path> --worktree <path> --daemon-id <id>\n")
+    process.stderr.write("Usage: daemon.ts --program <slug> --run-id <id> --main-root <path> --worktree <path> --daemon-id <id> [--in-place]\n")
     process.exit(1)
   }
 
-  return { programSlug, runId, mainRoot, worktreePath, daemonId }
+  return { programSlug, runId, mainRoot, worktreePath, daemonId, inPlace }
 }
 
 // --- Main ---
 
 async function main() {
-  setProvider(new ClaudeProvider())
-  const { programSlug, runId, mainRoot, worktreePath, daemonId } = parseArgs()
+  registerDefaultProviders()
+  const { programSlug, runId, mainRoot, worktreePath, daemonId, inPlace } = parseArgs()
   const programDir = join(mainRoot, ".autoauto", "programs", programSlug)
   const runDir = join(programDir, "runs", runId)
 
@@ -71,7 +74,7 @@ async function main() {
 
   // 2. Read per-run config
   const runConfig = await readRunConfig(runDir)
-  const modelConfig = runConfig ? runConfigToModelSlot(runConfig) : { model: "sonnet", effort: "high" as const }
+  const modelConfig = runConfig ? runConfigToModelSlot(runConfig) : { provider: "claude" as const, model: "sonnet", effort: "high" as const }
   const maxExperiments = runConfig?.max_experiments
   const ideasBacklogEnabled = runConfig?.ideas_backlog_enabled ?? true
 
@@ -136,12 +139,14 @@ async function main() {
         started_at: now,
         updated_at: now,
         model: modelConfig.model,
+        provider: modelConfig.provider,
         effort: modelConfig.effort,
         total_tokens: 0,
         total_cost_usd: 0,
         termination_reason: null,
         original_branch: originalBranch,
         worktree_path: worktreePath,
+        in_place: inPlace || undefined,
         error: null,
         error_phase: null,
       }
@@ -244,6 +249,7 @@ async function main() {
   } finally {
     // Cleanup
     clearInterval(heartbeatInterval)
+    await closeProviders()
     await releaseLock(programDir)
     await unlockMeasurement(programDir).catch(() => {})
   }

@@ -9,9 +9,7 @@ import { SetupScreen } from "./screens/SetupScreen.tsx"
 import { SettingsScreen } from "./screens/SettingsScreen.tsx"
 import { ExecutionScreen } from "./screens/ExecutionScreen.tsx"
 import { PreRunScreen, type PreRunOverrides } from "./screens/PreRunScreen.tsx"
-import { AuthErrorScreen } from "./screens/AuthErrorScreen.tsx"
 import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.ts"
-import { checkAuth } from "./lib/auth.ts"
 import { loadProjectConfig, DEFAULT_CONFIG, type ProjectConfig } from "./lib/config.ts"
 import { isRunActive } from "./lib/run.ts"
 
@@ -23,8 +21,6 @@ export function App() {
   const [screen, setScreen] = useState<Screen>("home")
   const [selectedProgram, setSelectedProgram] = useState<string | null>(null)
   const [projectRoot, setProjectRoot] = useState(cwd)
-  const [authState, setAuthState] = useState<"checking" | "authenticated" | "error">("checking")
-  const [authError, setAuthError] = useState("")
   const [projectConfig, setProjectConfig] = useState<ProjectConfig>(DEFAULT_CONFIG)
   const [preRunOverrides, setPreRunOverrides] = useState<PreRunOverrides | null>(null)
   const [attachRunId, setAttachRunId] = useState<string | null>(null)
@@ -35,58 +31,21 @@ export function App() {
     ensureAutoAutoDir(cwd).catch(() => {})
   }, [])
 
-  // Auth check on mount
+  // Load project config + reload when returning to home
   useEffect(() => {
-    checkAuth().then((result) => {
-      if (result.authenticated) {
-        setAuthState("authenticated")
-      } else {
-        setAuthState("error")
-        setAuthError(result.error)
-      }
-    })
-  }, [])
-
-  // Load project config after auth succeeds + reload when returning to home
-  useEffect(() => {
-    if (screen === "home" && authState === "authenticated") {
+    if (screen === "home") {
       loadProjectConfig(cwd).then(setProjectConfig)
     }
-  }, [screen, authState])
+  }, [screen])
 
   useKeyboard((key) => {
     if (key.name === "escape") {
-      if (screen === "home" || authState === "error") {
+      if (screen === "home") {
         renderer.destroy()
       }
       // execution screen handles its own Escape
     }
   })
-
-  // Loading state
-  if (authState === "checking") {
-    return (
-      <box
-        flexDirection="column"
-        width={width}
-        height={height}
-        justifyContent="center"
-        alignItems="center"
-      >
-        <text fg="#888888">Connecting...</text>
-      </box>
-    )
-  }
-
-  // Auth error
-  if (authState === "error") {
-    return (
-      <box flexDirection="column" width={width} height={height}>
-        <AuthErrorScreen error={authError} />
-        <text fg="#888888">{" Escape: quit"}</text>
-      </box>
-    )
-  }
 
   const footerText =
     screen === "home"
@@ -94,7 +53,7 @@ export function App() {
       : screen === "execution"
         ? " Escape: detach (daemon continues) | q: stop | Ctrl+C: abort"
         : screen === "settings"
-          ? " ↑↓: navigate | ←→: change | Escape: back"
+          ? " ↑↓: navigate | ←→: change/open | Enter: open model picker | Escape: back"
           : " Escape: back"
 
   return (
@@ -172,6 +131,7 @@ export function App() {
             ideasBacklogEnabled={projectConfig.ideasBacklogEnabled}
             navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setScreen(s) }}
             maxExperiments={preRunOverrides?.maxExperiments}
+            useWorktree={preRunOverrides?.useWorktree ?? true}
             attachRunId={attachRunId ?? undefined}
             readOnly={attachReadOnly}
           />

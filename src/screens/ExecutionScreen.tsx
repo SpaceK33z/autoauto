@@ -41,6 +41,8 @@ interface ExecutionScreenProps {
   ideasBacklogEnabled: boolean
   navigate: (screen: Screen) => void
   maxExperiments?: number
+  /** Use git worktree for isolation (default true). When false, runs in-place in main checkout. */
+  useWorktree?: boolean
   /** If set, attach to an existing run instead of starting a new one */
   attachRunId?: string
   readOnly?: boolean
@@ -74,7 +76,7 @@ function Divider({ width, label }: { width: number; label?: string }) {
   return <text fg="#565f89">{"─".repeat(innerWidth)}</text>
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, attachRunId, readOnly = false }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, useWorktree = true, attachRunId, readOnly = false }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
@@ -178,7 +180,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           }
         } else {
           // Spawn mode: create worktree, spawn daemon
-          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled)
+          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree)
           if (cancelled) return
 
           activeRunDir = result.runDir
@@ -274,11 +276,17 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       cancelled = true
       watcherRef.current?.stop()
     }
-  }, [cwd, programSlug, modelConfig, maxExperiments, attachRunId, ideasBacklogEnabled])
+  }, [cwd, programSlug, modelConfig, maxExperiments, useWorktree, attachRunId, ideasBacklogEnabled])
 
   const handleAbandon = useCallback(async () => {
-    // Remove worktree if we have the path
-    if (runState?.worktree_path) {
+    if (runState?.in_place) {
+      // In-place mode: restore original branch
+      if (runState.original_branch) {
+        const { checkoutBranch } = await import("../lib/git.ts")
+        await checkoutBranch(cwd, runState.original_branch).catch(() => {})
+      }
+    } else if (runState?.worktree_path) {
+      // Worktree mode: remove the worktree
       await removeWorktree(cwd, runState.worktree_path).catch(() => {})
     }
     navigate("home")
@@ -308,8 +316,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           onToolStatus: (status) => setToolStatus(status),
         },
         finalizeAbort.signal,
-        runState.worktree_path, // Use worktree as git cwd
+        runState.in_place ? undefined : runState.worktree_path, // In-place mode uses projectRoot (cwd)
       )
+      // In-place mode: restore original branch after finalize
+      if (runState.in_place && runState.original_branch) {
+        const { checkoutBranch } = await import("../lib/git.ts")
+        await checkoutBranch(cwd, runState.original_branch).catch(() => {})
+      }
       setFinalizeResult(result)
       setTotalCostUsd(prev => prev + (result.cost?.total_cost_usd ?? 0))
       setPhase("finalize_complete")
