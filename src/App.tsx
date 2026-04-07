@@ -8,6 +8,7 @@ import { HomeScreen } from "./screens/HomeScreen.tsx"
 import { SetupScreen } from "./screens/SetupScreen.tsx"
 import { SettingsScreen } from "./screens/SettingsScreen.tsx"
 import { ExecutionScreen } from "./screens/ExecutionScreen.tsx"
+import { PreRunScreen, type PreRunOverrides } from "./screens/PreRunScreen.tsx"
 import { AuthErrorScreen } from "./screens/AuthErrorScreen.tsx"
 import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.ts"
 import { checkAuth } from "./lib/auth.ts"
@@ -24,6 +25,7 @@ export function App() {
   const [authState, setAuthState] = useState<"checking" | "authenticated" | "error">("checking")
   const [authError, setAuthError] = useState("")
   const [projectConfig, setProjectConfig] = useState<ProjectConfig>(DEFAULT_CONFIG)
+  const [preRunOverrides, setPreRunOverrides] = useState<PreRunOverrides | null>(null)
 
   useEffect(() => {
     getProjectRoot(cwd).then(setProjectRoot).catch(() => {})
@@ -85,7 +87,7 @@ export function App() {
 
   return (
     <box flexDirection="column" width={width} height={height}>
-      {screen !== "execution" && (
+      {screen !== "execution" && screen !== "pre-run" && (
         <box
           height={3}
           border
@@ -105,7 +107,7 @@ export function App() {
           navigate={setScreen}
           onSelectProgram={(slug) => {
             setSelectedProgram(slug)
-            setScreen("execution")
+            setScreen("pre-run")
           }}
         />
       )}
@@ -124,25 +126,40 @@ export function App() {
           onConfigChange={setProjectConfig}
         />
       )}
-      {screen === "execution" && selectedProgram && (
+      {screen === "pre-run" && selectedProgram && (
+        <PreRunScreen
+          cwd={projectRoot}
+          programSlug={selectedProgram}
+          defaultModelConfig={projectConfig.executionModel}
+          navigate={setScreen}
+          onStart={(overrides) => {
+            setPreRunOverrides(overrides)
+            setScreen("execution")
+          }}
+        />
+      )}
+      {screen === "execution" && selectedProgram && preRunOverrides && (
         <ExecutionScreen
           cwd={projectRoot}
           programSlug={selectedProgram}
-          modelConfig={projectConfig.executionModel}
+          modelConfig={preRunOverrides.modelConfig}
           supportModelConfig={projectConfig.supportModel}
-          navigate={setScreen}
+          navigate={(s) => { setPreRunOverrides(null); setScreen(s) }}
+          maxExperiments={preRunOverrides.maxExperiments}
         />
       )}
 
-      <text fg="#888888">
-        {screen === "home"
-          ? " n: new program | s: settings | Enter: run | Escape: quit"
-          : screen === "execution"
-            ? " q: abort run | Escape: back (after completion)"
-            : screen === "settings"
-              ? " ↑↓: navigate | ←→: change | Escape: back"
-              : " Escape: back"}
-      </text>
+      {screen !== "pre-run" && (
+        <text fg="#888888">
+          {screen === "home"
+            ? " n: new program | s: settings | Enter: run | Escape: quit"
+            : screen === "execution"
+              ? " q: abort run | Escape: back (after completion)"
+              : screen === "settings"
+                ? " ↑↓: navigate | ←→: change | Escape: back"
+                : " Escape: back"}
+        </text>
+      )}
     </box>
   )
 }

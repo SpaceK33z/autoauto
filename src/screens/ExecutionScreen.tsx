@@ -27,6 +27,7 @@ interface ExecutionScreenProps {
   modelConfig: ModelSlot
   supportModelConfig: ModelSlot
   navigate: (screen: Screen) => void
+  maxExperiments?: number
 }
 
 function Divider({ width, label }: { width: number; label?: string }) {
@@ -40,7 +41,7 @@ function Divider({ width, label }: { width: number; label?: string }) {
   return <text fg="#414868">{"─".repeat(innerWidth)}</text>
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, navigate }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, navigate, maxExperiments }: ExecutionScreenProps) {
   const { width: termWidth } = useTerminalDimensions()
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
   const [runState, setRunState] = useState<RunState | null>(null)
@@ -133,7 +134,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           modelConfig,
           callbacks,
           {
-            maxExperiments: config.max_experiments,
+            maxExperiments: maxExperiments ?? config.max_experiments,
             signal: abortController.signal,
           },
         )
@@ -154,7 +155,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       cancelled = true
       abortController.abort()
     }
-  }, [cwd, programSlug, modelConfig])
+  }, [cwd, programSlug, modelConfig, maxExperiments])
 
   const handleAbandon = useCallback(() => {
     if (originalBranch) {

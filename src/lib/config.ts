@@ -43,6 +43,12 @@ export const EFFORT_LABELS: Record<EffortLevel, string> = {
   max: "Max",
 }
 
+/** Cycle through a readonly array by direction (-1 or +1), wrapping around */
+export function cycleChoice<T>(choices: readonly T[], current: T, direction: -1 | 1): T {
+  const idx = choices.indexOf(current)
+  return choices[(idx + direction + choices.length) % choices.length]
+}
+
 export const EFFORT_DESCRIPTIONS: Record<EffortLevel, string> = {
   low: "Fastest, cheapest — minimal thinking",
   medium: "Balanced speed and quality",

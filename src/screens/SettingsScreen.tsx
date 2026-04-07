@@ -8,8 +8,10 @@ import {
   MODEL_LABELS,
   EFFORT_LABELS,
   EFFORT_DESCRIPTIONS,
+  cycleChoice,
   saveProjectConfig,
 } from "../lib/config.ts"
+import { CycleField } from "../components/CycleField.tsx"
 
 interface SettingsScreenProps {
   cwd: string
@@ -34,24 +36,14 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       const slot = { ...prev[slotKey] }
 
       if (propKey === "model") {
-        const idx = MODEL_CHOICES.indexOf(slot.model as (typeof MODEL_CHOICES)[number])
-        const next =
-          MODEL_CHOICES[
-            (idx + direction + MODEL_CHOICES.length) % MODEL_CHOICES.length
-          ]
-        slot.model = next
-        const validEfforts = EFFORT_CHOICES[next] ?? EFFORT_CHOICES.sonnet
+        slot.model = cycleChoice(MODEL_CHOICES, slot.model as (typeof MODEL_CHOICES)[number], direction)
+        const validEfforts = EFFORT_CHOICES[slot.model] ?? EFFORT_CHOICES.sonnet
         if (!validEfforts.includes(slot.effort)) {
           slot.effort = "high"
         }
       } else {
-        const validEfforts =
-          EFFORT_CHOICES[slot.model] ?? EFFORT_CHOICES.sonnet
-        const idx = validEfforts.indexOf(slot.effort)
-        slot.effort =
-          validEfforts[
-            (idx + direction + validEfforts.length) % validEfforts.length
-          ]
+        const validEfforts = EFFORT_CHOICES[slot.model] ?? EFFORT_CHOICES.sonnet
+        slot.effort = cycleChoice(validEfforts, slot.effort, direction)
       }
 
       return { ...prev, [slotKey]: slot }
@@ -67,29 +59,6 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
     if (key.name === "left" || key.name === "h") cycleValue(-1)
     if (key.name === "right" || key.name === "l") cycleValue(1)
   })
-
-  function renderField(
-    index: number,
-    label: string,
-    value: string,
-    description?: string,
-  ) {
-    const isFocused = selected === index
-    return (
-      <box flexDirection="column">
-        <text>
-          {isFocused ? (
-            <span fg="#7aa2f7"><strong>{`  ${label}: \u25C2 ${value} \u25B8`}</strong></span>
-          ) : (
-            `  ${label}: ${value}`
-          )}
-        </text>
-        {isFocused && description && (
-          <text fg="#888888">{`  ${description}`}</text>
-        )}
-      </box>
-    )
-  }
 
   const execSlot = config.executionModel
   const supportSlot = config.supportModel
@@ -107,33 +76,33 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
         <text><strong>{"  Execution Model "}</strong></text>
         <text fg="#888888">{"(experiment agents)"}</text>
       </box>
-      {renderField(
-        0,
-        "Model",
-        MODEL_LABELS[execSlot.model] ?? execSlot.model,
-      )}
-      {renderField(
-        1,
-        "Effort",
-        EFFORT_LABELS[execSlot.effort],
-        EFFORT_DESCRIPTIONS[execSlot.effort],
-      )}
+      <CycleField
+        label="Model"
+        value={MODEL_LABELS[execSlot.model] ?? execSlot.model}
+        isFocused={selected === 0}
+      />
+      <CycleField
+        label="Effort"
+        value={EFFORT_LABELS[execSlot.effort]}
+        description={EFFORT_DESCRIPTIONS[execSlot.effort]}
+        isFocused={selected === 1}
+      />
       <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Support Model "}</strong></text>
         <text fg="#888888">{"(setup & cleanup)"}</text>
       </box>
-      {renderField(
-        2,
-        "Model",
-        MODEL_LABELS[supportSlot.model] ?? supportSlot.model,
-      )}
-      {renderField(
-        3,
-        "Effort",
-        EFFORT_LABELS[supportSlot.effort],
-        EFFORT_DESCRIPTIONS[supportSlot.effort],
-      )}
+      <CycleField
+        label="Model"
+        value={MODEL_LABELS[supportSlot.model] ?? supportSlot.model}
+        isFocused={selected === 2}
+      />
+      <CycleField
+        label="Effort"
+        value={EFFORT_LABELS[supportSlot.effort]}
+        description={EFFORT_DESCRIPTIONS[supportSlot.effort]}
+        isFocused={selected === 3}
+      />
     </box>
   )
 }
