@@ -1,6 +1,16 @@
 #!/bin/bash
 set -e
 
+# Kill all child processes on exit (Ctrl+C, SIGTERM, etc.)
+set -m  # Enable job control so this script is a process group leader
+cleanup() {
+    trap - SIGINT SIGTERM  # Prevent re-entry
+    kill 0 2>/dev/null     # Kill entire process group (all children)
+    wait 2>/dev/null
+    exit 1
+}
+trap cleanup SIGINT SIGTERM EXIT
+
 PLANS_DIR=".ralph"
 DONE_FILE="$PLANS_DIR/completed-phases"
 
