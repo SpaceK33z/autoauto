@@ -71,6 +71,8 @@ src/
     system-prompts.ts    # Agent system prompts (setup, ideation)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
+    experiment.ts          # Experiment agent spawning, context packets, lock detection
+    experiment-loop.ts     # Main experiment loop orchestrator
 ```
 
 ## Agent Conventions
@@ -97,6 +99,13 @@ src/
 - Git operations in `src/lib/git.ts` — prefer `git revert` over `git reset` to preserve history
 - Measurement series returns median of N runs — use `runMeasurementSeries()` for all metric comparisons
 - `compareMetric()` uses relative change as a decimal fraction compared against `noise_threshold`
+- Experiment Agent is one-shot: single user message → autonomous run → commit or exit
+- Experiment Agent system prompt = program.md wrapped with framing instructions (`getExperimentSystemPrompt()`)
+- Context packet = per-iteration user message with baseline, recent results, git log, discarded diffs
+- Experiment Agent tools: Read, Write, Edit, Bash, Glob, Grep — same as setup, auto-approved
+- Lock violation detection: after agent commits, check `git diff` for any `.autoauto/` modifications → immediate discard
+- Loop callbacks (`LoopCallbacks`) are the interface between orchestrator and TUI — no events/observables needed
+- AbortSignal (`options.signal`) provides cooperative cancellation for stop/abort
 
 ## Testing the TUI Interactively
 

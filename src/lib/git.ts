@@ -3,19 +3,16 @@ import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
 
-/** Returns short (7-char) SHA of HEAD. */
-export async function getCurrentSha(cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })
-  return stdout.trim()
-}
-
-/** Returns full SHA of HEAD (for state.json). */
 export async function getFullSha(cwd: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd })
   return stdout.trim()
 }
 
-/** Returns recent git log for context packet. */
+export async function getShortSha(cwd: string): Promise<string> {
+  const fullSha = await getFullSha(cwd)
+  return fullSha.slice(0, 7)
+}
+
 export async function getRecentLog(cwd: string, count?: number): Promise<string> {
   const { stdout } = await execFileAsync(
     "git",
@@ -50,24 +47,21 @@ export async function revertCommits(cwd: string, fromSha: string, toSha: string)
   }
 }
 
-/** Fallback hard reset if revert fails (conflict). Only used when revert is impossible. */
+/** Only used as fallback when revert fails due to conflicts. */
 export async function resetHard(cwd: string, sha: string): Promise<void> {
   await execFileAsync("git", ["reset", "--hard", sha], { cwd })
 }
 
-/** Gets the subject line of HEAD commit (for results.tsv description). */
 export async function getLatestCommitMessage(cwd: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["log", "-1", "--format=%s"], { cwd })
   return stdout.trim()
 }
 
-/** Gets the diff stat of a specific commit (for context packet — discarded diffs). */
 export async function getCommitDiff(cwd: string, sha: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["show", "--stat", sha], { cwd })
   return stdout.trim()
 }
 
-/** Checks if a branch name already exists. */
 export async function branchExists(cwd: string, branchName: string): Promise<boolean> {
   try {
     await execFileAsync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
@@ -77,4 +71,82 @@ export async function branchExists(cwd: string, branchName: string): Promise<boo
   } catch {
     return false
   }
+}
+
+export async function isWorkingTreeClean(cwd: string): Promise<boolean> {
+  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd })
+  return !stdout.trim()
+}
+
+export async function getCurrentBranch(cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })
+  return stdout.trim()
+}
+
+export async function createExperimentBranch(
+  cwd: string,
+  programSlug: string,
+  runId: string,
+): Promise<string> {
+  const branchName = `autoauto-${programSlug}-${runId}`
+
+  try {
+    await execFileAsync("git", ["checkout", "-b", branchName], { cwd })
+  } catch (err) {
+    throw new Error(
+      `Failed to create branch "${branchName}" — was a previous run interrupted? ` +
+        `Delete it with \`git branch -D ${branchName}\` to proceed.`,
+      { cause: err },
+    )
+  }
+
+  return branchName
+}
+
+export async function checkoutBranch(cwd: string, branchName: string): Promise<void> {
+  await execFileAsync("git", ["checkout", branchName], { cwd })
+}
+
+/** Returns files changed between two SHAs (relative paths). */
+export async function getFilesChangedBetween(
+  cwd: string,
+  fromSha: string,
+  toSha: string,
+): Promise<string[]> {
+  const { stdout } = await execFileAsync(
+    "git", ["diff", "--name-only", fromSha, toSha], { cwd },
+  )
+  return stdout.trim().split("\n").filter(Boolean)
+}
+
+/** Returns the number of commits between two SHAs. */
+export async function countCommitsBetween(
+  cwd: string,
+  fromSha: string,
+  toSha: string,
+): Promise<number> {
+  const { stdout } = await execFileAsync(
+    "git", ["rev-list", "--count", `${fromSha}..${toSha}`], { cwd },
+  )
+  return parseInt(stdout.trim(), 10)
+}
+
+/** Returns formatted diff summaries for discarded commits, capped at maxLength chars. */
+export async function getDiscardedDiffs(
+  cwd: string,
+  shas: string[],
+  maxLength = 2000,
+): Promise<string> {
+  const parts: string[] = []
+  let totalLength = 0
+
+  for (const sha of shas) {
+    if (totalLength >= maxLength) break
+    const diff = await getCommitDiff(cwd, sha) // eslint-disable-line no-await-in-loop -- sequential by design
+    const entry = `[${sha.slice(0, 7)}]\n${diff}\n`
+    parts.push(entry)
+    totalLength += entry.length
+  }
+
+  return parts.join("\n")
 }

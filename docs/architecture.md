@@ -63,6 +63,8 @@ src/
     system-prompts.ts    # Agent system prompts (setup, ideation)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
+    experiment.ts          # Experiment agent spawning, context packets, lock detection
+    experiment-loop.ts     # Main experiment loop orchestrator
 ```
 
 ## Configuration
@@ -149,11 +151,43 @@ Thin wrappers around git commands for the orchestrator:
 - `revertCommits()` uses `git revert --no-edit` (not reset) to preserve history for agent learning
 - `resetHard()` is the fallback for revert conflicts only
 
+## Experiment Loop (`src/lib/experiment-loop.ts`)
+
+The core orchestrator loop that drives the autoresearch pattern:
+
+- `runExperimentLoop()` — main loop: context → agent → measure → decide → repeat
+- `LoopCallbacks` — callback interface for TUI integration (phase change, streaming, results)
+- `LoopOptions` — control knobs: max experiments, abort signal
+- Calls `runMeasurementAndDecide()` for each iteration (includes measurement + keep/discard)
+- Re-baselines after every keep (code changed, old baseline invalid)
+- Checks stop conditions at the top of each iteration (signal, max experiments)
+- Unlocks evaluator on completion
+
+## Experiment Agent (`src/lib/experiment.ts`)
+
+Manages per-iteration experiment agent sessions:
+
+- `buildContextPacket()` — assembles baseline, results, git log, discarded diffs from disk
+- `buildExperimentPrompt()` — formats context packet as user message
+- `runExperimentAgent()` — one-shot SDK session with streaming callbacks
+- `checkLockViolation()` — detects modifications to `.autoauto/` files via git diff
+- Agent is stateless between iterations — all memory comes from the context packet
+
+### Agent Architecture (updated)
+
+| Role | System Prompt | User Message | Session | File |
+|------|---------------|--------------|---------|------|
+| Setup Agent | `getSetupSystemPrompt()` | Interactive multi-turn | Long-lived | `system-prompts.ts` |
+| Experiment Agent | `getExperimentSystemPrompt()` | Context packet (one-shot) | Per-iteration | `experiment.ts` |
+
 ## Current State
 
 Phase 1 (Setup) is complete. Phase 2a (Branch & Baseline) adds the run lifecycle utilities:
 experiment branch creation, baseline measurement, state persistence, evaluator locking, and
-the `startRun()` orchestrator that ties it all together. The TUI shell, screen navigation,
-program listing, multi-turn Claude Agent SDK chat, setup agent (repo inspection, scope
-definition, artifact generation, measurement validation), and model configuration are all
-implemented. Authentication is checked on startup with a helpful error screen if not configured.
+the `startRun()` orchestrator that ties it all together. Phase 2b (Experiment Loop) adds the
+core orchestrator loop: context packet building, experiment agent spawning with streaming,
+lock violation detection, measurement + keep/discard decisions, and the main loop that ties
+everything together. The TUI shell, screen navigation, program listing, multi-turn Claude
+Agent SDK chat, setup agent (repo inspection, scope definition, artifact generation,
+measurement validation), and model configuration are all implemented. Authentication is
+checked on startup with a helpful error screen if not configured.

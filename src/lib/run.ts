@@ -1,13 +1,14 @@
 import { readFile, writeFile, appendFile, rename, mkdir, chmod } from "node:fs/promises"
 import { join } from "node:path"
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
-import { getProgramDir } from "./programs.ts"
-import type { ProgramConfig } from "./programs.ts"
+import { getProgramDir, loadProgramConfig } from "./programs.ts"
 import { runMeasurementSeries } from "./measure.ts"
-import { getCurrentSha, getFullSha } from "./git.ts"
-
-const execFileAsync = promisify(execFile)
+import {
+  getFullSha,
+  isWorkingTreeClean,
+  getCurrentBranch,
+  createExperimentBranch,
+  checkoutBranch,
+} from "./git.ts"
 
 // --- Types ---
 
@@ -60,59 +61,9 @@ export interface ExperimentResult {
 
 const pad = (n: number) => String(n).padStart(2, "0")
 
-/** Returns a timestamp string like "20260407-143022". */
 export function generateRunId(): string {
   const now = new Date()
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
-}
-
-// --- Branch Management ---
-
-/** Creates a dedicated git branch from current HEAD for the experiment run. */
-export async function createExperimentBranch(
-  projectRoot: string,
-  programSlug: string,
-  runId: string,
-): Promise<string> {
-  const branchName = `autoauto-${programSlug}-${runId}`
-
-  try {
-    await execFileAsync("git", ["checkout", "-b", branchName], { cwd: projectRoot })
-  } catch (err) {
-    throw new Error(
-      `Failed to create branch "${branchName}" — was a previous run interrupted? ` +
-        `Delete it with \`git branch -D ${branchName}\` to proceed.`,
-      { cause: err },
-    )
-  }
-
-  return branchName
-}
-
-// --- Config ---
-
-/** Reads and validates config.json from the program directory. */
-export async function loadProgramConfig(programDir: string): Promise<ProgramConfig> {
-  const raw = await readFile(join(programDir, "config.json"), "utf-8")
-  const config = JSON.parse(raw) as Record<string, unknown>
-
-  if (!config.metric_field || typeof config.metric_field !== "string") {
-    throw new Error("config.json: metric_field must be a non-empty string")
-  }
-  if (config.direction !== "lower" && config.direction !== "higher") {
-    throw new Error('config.json: direction must be "lower" or "higher"')
-  }
-  if (typeof config.noise_threshold !== "number" || !isFinite(config.noise_threshold) || config.noise_threshold <= 0) {
-    throw new Error("config.json: noise_threshold must be a finite positive number")
-  }
-  if (typeof config.repeats !== "number" || !Number.isInteger(config.repeats) || config.repeats < 1) {
-    throw new Error("config.json: repeats must be an integer >= 1")
-  }
-  if (typeof config.quality_gates !== "object" || config.quality_gates === null || Array.isArray(config.quality_gates)) {
-    throw new Error("config.json: quality_gates must be an object")
-  }
-
-  return config as unknown as ProgramConfig
 }
 
 // --- Evaluator Locking ---
@@ -123,7 +74,6 @@ export async function lockEvaluator(programDir: string): Promise<void> {
   await chmod(join(programDir, "config.json"), 0o444)
 }
 
-/** Restores write permissions (chmod 644) — called on run completion/cleanup. */
 export async function unlockEvaluator(programDir: string): Promise<void> {
   await chmod(join(programDir, "measure.sh"), 0o644)
   await chmod(join(programDir, "config.json"), 0o644)
@@ -131,12 +81,10 @@ export async function unlockEvaluator(programDir: string): Promise<void> {
 
 // --- Run Directory ---
 
-/** Creates the run directory structure and initializes files. */
 export async function initRunDir(programDir: string, runId: string): Promise<string> {
   const runDir = join(programDir, "runs", runId)
   await mkdir(runDir, { recursive: true })
 
-  // Initialize results.tsv with header row
   await writeFile(
     join(runDir, "results.tsv"),
     "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\n",
@@ -154,7 +102,6 @@ export async function writeState(runDir: string, state: RunState): Promise<void>
   await rename(tmpPath, join(runDir, "state.json"))
 }
 
-/** Reads and parses state.json. */
 export async function readState(runDir: string): Promise<RunState> {
   const raw = await readFile(join(runDir, "state.json"), "utf-8")
   return JSON.parse(raw) as RunState
@@ -162,26 +109,75 @@ export async function readState(runDir: string): Promise<RunState> {
 
 // --- Results ---
 
-/** Appends a single row to results.tsv. */
 export async function appendResult(runDir: string, result: ExperimentResult): Promise<void> {
   const secondaryStr = result.secondary_values || ""
   const line = `${result.experiment_number}\t${result.commit}\t${result.metric_value}\t${secondaryStr}\t${result.status}\t${result.description}\n`
   await appendFile(join(runDir, "results.tsv"), line)
 }
 
+// --- Results Reading ---
+
+/** Reads results.tsv header + last N data rows as a string. */
+export async function readRecentResults(
+  runDir: string,
+  count = 15,
+): Promise<string> {
+  const raw = await readFile(join(runDir, "results.tsv"), "utf-8")
+  const lines = raw.split("\n").filter(Boolean)
+  if (lines.length <= 1) return lines.join("\n")
+
+  const header = lines[0]
+  const rows = lines.slice(1)
+  const recent = rows.slice(-count)
+  return [header, ...recent].join("\n")
+}
+
+/** Parses the last row of results.tsv into a typed object. */
+export async function parseLastResult(
+  runDir: string,
+): Promise<ExperimentResult | null> {
+  const raw = await readFile(join(runDir, "results.tsv"), "utf-8")
+  const lines = raw.trim().split("\n")
+  if (lines.length <= 1) return null // only header
+
+  const lastLine = lines[lines.length - 1]
+  const parts = lastLine.split("\t")
+  if (parts.length < 6) return null
+
+  return {
+    experiment_number: parseInt(parts[0], 10),
+    commit: parts[1],
+    metric_value: parseFloat(parts[2]),
+    secondary_values: parts[3],
+    status: parts[4] as ExperimentStatus,
+    description: parts[5],
+  }
+}
+
+/** Returns SHAs of recent discarded/crashed experiments for the context packet. */
+export async function getDiscardedCommitShas(
+  runDir: string,
+  count = 5,
+): Promise<string[]> {
+  const raw = await readFile(join(runDir, "results.tsv"), "utf-8")
+  const lines = raw.trim().split("\n")
+  const shas: string[] = []
+
+  for (let i = lines.length - 1; i >= 1 && shas.length < count; i--) {
+    const parts = lines[i].split("\t")
+    if (parts.length >= 5) {
+      const status = parts[4]
+      if (status === "discard" || status === "crash" || status === "measurement_failure") {
+        shas.push(parts[1]) // commit SHA
+      }
+    }
+  }
+
+  return shas
+}
+
 // --- High-Level Orchestration ---
 
-/**
- * Orchestrates the full run setup sequence:
- * 1. Load and validate program config
- * 2. Check for clean working tree
- * 3. Create experiment branch
- * 4. Initialize run directory
- * 5. Lock evaluator
- * 6. Establish baseline measurement
- * 7. Record baseline in results.tsv
- * 8. Write initial state
- */
 export async function startRun(
   projectRoot: string,
   programSlug: string,
@@ -189,70 +185,52 @@ export async function startRun(
   const programDir = getProgramDir(projectRoot, programSlug)
   const measureShPath = join(programDir, "measure.sh")
 
-  // 1. Load and validate program config
   const config = await loadProgramConfig(programDir)
 
-  // 2. Check for clean working tree — uncommitted changes would contaminate baseline
-  const { stdout: statusOutput } = await execFileAsync("git", ["status", "--porcelain"], {
-    cwd: projectRoot,
-  })
-  if (statusOutput.trim()) {
+  if (!(await isWorkingTreeClean(projectRoot))) {
     throw new Error("Working tree has uncommitted changes. Commit or stash them before starting a run.")
   }
 
-  // 3. Record original branch so we can restore on failure
-  const { stdout: originalBranch } = await execFileAsync(
-    "git",
-    ["rev-parse", "--abbrev-ref", "HEAD"],
-    { cwd: projectRoot },
-  )
-  const originalBranchName = originalBranch.trim()
+  const originalBranchName = await getCurrentBranch(projectRoot)
 
-  // 4. Generate run ID and create branch
   const runId = generateRunId()
   const branchName = await createExperimentBranch(projectRoot, programSlug, runId)
 
-  // 5. Initialize run directory and files
   const runDir = await initRunDir(programDir, runId)
 
-  // 6. Lock the evaluator (measure.sh + config.json)
   await lockEvaluator(programDir)
 
-  // 7. Establish baseline — run measurement series
+  const cleanup = async () => {
+    await unlockEvaluator(programDir)
+    await checkoutBranch(projectRoot, originalBranchName).catch(() => {})
+  }
+
   const baseline = await runMeasurementSeries(measureShPath, projectRoot, config)
 
   if (!baseline.success) {
-    await unlockEvaluator(programDir)
-    await execFileAsync("git", ["checkout", originalBranchName], { cwd: projectRoot }).catch(
-      () => {},
-    )
+    await cleanup()
     throw new Error(
       `Baseline measurement failed: ${baseline.individual_runs.map((r) => (r.success ? "ok" : r.error)).join(", ")}`,
     )
   }
 
   if (!baseline.quality_gates_passed) {
-    await unlockEvaluator(programDir)
-    await execFileAsync("git", ["checkout", originalBranchName], { cwd: projectRoot }).catch(
-      () => {},
-    )
+    await cleanup()
     throw new Error(`Baseline quality gates failed: ${baseline.gate_violations.join(", ")}`)
   }
 
-  // 8. Record baseline in results.tsv
-  const sha = await getCurrentSha(projectRoot)
-  const secondaryValues = JSON.stringify(baseline.median_quality_gates)
+  const fullSha = await getFullSha(projectRoot)
 
   await appendResult(runDir, {
     experiment_number: 0,
-    commit: sha,
+    commit: fullSha.slice(0, 7),
     metric_value: baseline.median_metric,
-    secondary_values: secondaryValues,
+    secondary_values: JSON.stringify(baseline.median_quality_gates),
     status: "keep",
     description: "baseline",
   })
 
-  // 9. Write initial state
+  const now = new Date().toISOString()
   const state: RunState = {
     run_id: runId,
     program_slug: programSlug,
@@ -266,10 +244,10 @@ export async function startRun(
     total_discards: 0,
     total_crashes: 0,
     branch_name: branchName,
-    last_known_good_sha: await getFullSha(projectRoot),
+    last_known_good_sha: fullSha,
     candidate_sha: null,
-    started_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    started_at: now,
+    updated_at: now,
   }
 
   await writeState(runDir, state)
