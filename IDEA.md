@@ -4,7 +4,7 @@ A TUI tool that makes the autoresearch pattern easy to set up and run on any pro
 
 While autoresearch originated in ML model training, AutoAuto focuses on the broader set of use cases: software performance, test stability, prompt optimization, search ranking, marketing experiments, and anything else where you have code and a measurable metric — no training loops, datasets, or GPUs required. See `docs/autoresearch-ideas.md` for a full list.
 
-AutoAuto encodes autoresearch expertise into a guided workflow so users don't need to learn the pitfalls (metric gaming, scope violations, false improvements, variance) from scratch. See `docs/failure-patterns.md` for a comprehensive catalog of documented failure modes and the safeguards AutoAuto implements against them.
+AutoAuto encodes autoresearch expertise into a guided workflow so users don't need to learn the pitfalls (metric gaming, scope violations, false improvements, variance) from scratch. See `docs/failure-patterns.md` for documented failure modes, `docs/measurement-patterns.md` for metric design patterns, and `docs/orchestration-patterns.md` for loop design and context packet patterns — all extracted from real implementations.
 
 ## Stack
 
@@ -100,7 +100,7 @@ All state lives inside the target repo, gitignored (`.autoauto/` is added to `.g
 }
 ```
 
-For non-ML use cases where the metric is subjective (prompt quality, copy, templates), the setup agent should prefer binary yes/no eval criteria over sliding scales. 3-6 binary criteria (e.g. "includes a call to action: yes/no") produce more stable and gameable-resistant scores than numeric scales (1-7). If you can't explain how to score it in one sentence, rewrite it.
+For non-ML use cases where the metric is subjective (prompt quality, copy, templates), the setup agent should prefer binary yes/no eval criteria over sliding scales — see `docs/failure-patterns.md` section 1d for rationale.
 
 ### program.md Structure
 
@@ -150,7 +150,7 @@ The setup agent:
 5. Detects variance and warns if measurements are unreliable
 6. Iterates until the measurement is stable
 
-Measurement scripts should assume they'll run hundreds of times — keep servers/browsers warm, use incremental builds, avoid cold starts. The setup agent should generate scripts that reuse long-lived processes (e.g. keep the dev server running, reuse the browser instance across Lighthouse runs) rather than starting from scratch each iteration.
+Measurement scripts should assume they'll run hundreds of times — keep servers/browsers warm, use incremental builds, avoid cold starts. The setup agent should generate scripts that reuse long-lived processes (e.g. keep the dev server running, reuse the browser instance across Lighthouse runs) rather than starting from scratch each iteration. See `docs/measurement-patterns.md` for variance handling, stability validation, and scoring approach guidance.
 
 When creating a second program that reuses the same measurement type (e.g. Lighthouse for a different page), the agent recognizes the existing setup and adapts it.
 
@@ -226,9 +226,8 @@ Review and package the results:
 
 ## Constraints
 
-- **Locked evaluator** — `measure.sh` and `config.json` are immutable during execution (read-only permissions + orchestrator enforcement). Only the Setup Agent may modify them, never the Experiment Agent.
+- **Locked evaluator** — see Phase 2 for details
 - One run at a time per project (MVP, architecture supports multiple)
-- Run directories use timestamps (`YYYYMMDD-HHMMSS`) for unique, collision-free identification
 - No Fix Agent for MVP — measurement failure or quality gate failure → discard and move on
 
 ### Phase 4: Background Daemon

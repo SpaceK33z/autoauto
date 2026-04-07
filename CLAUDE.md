@@ -8,6 +8,8 @@ TUI tool for autoresearch — autonomous experiment loops on any codebase.
 - `docs/architecture.md` — System architecture (Bun + OpenTUI + Claude Agent SDK)
 - `docs/autoresearch-ideas.md` — Non-ML autoresearch ideas extracted from reference articles
 - `docs/failure-patterns.md` — Documented failure modes, anti-patterns & safeguards from real implementations
+- `docs/measurement-patterns.md` — Metric design, scoring approaches, variance handling, gaming defenses
+- `docs/orchestration-patterns.md` — Loop design, context packets, ideas backlog, stopping criteria, model choice
 - `references/articles/INDEX.md` — 30 indexed autoresearch articles for inspiration
 
 ## Stack
@@ -40,6 +42,8 @@ bun lint && bun typecheck
 - Text modifiers are nested tags: `<text><strong>Bold</strong></text>`
 - `<input>` requires `focused` prop to receive keystrokes
 - For more details see `/opentui` skill
+- Use `stickyScroll` + `stickyStart="bottom"` on `<scrollbox>` for auto-scroll-to-bottom behavior
+- Clear `<input>` after submit via key remount (`<input key={inputKey} />` where `inputKey` increments)
 - Never call `process.exit()` — use `renderer.destroy()` via `useRenderer()` hook
 - Run with `bun run`, never `npm` or `node`
 
@@ -50,7 +54,13 @@ src/
   index.tsx              # Entry point, creates renderer
   App.tsx                # Main layout, keyboard handling
   components/
-    Chat.tsx             # Chat interface with Claude Agent SDK streaming
+    Chat.tsx             # Multi-turn chat with Claude Agent SDK streaming
+  screens/
+    HomeScreen.tsx       # Program list
+    SetupScreen.tsx      # Setup flow (chat wrapper)
+  lib/
+    programs.ts          # Filesystem ops, program CRUD
+    push-stream.ts       # Push-based async iterable utility
 ```
 
 ## Testing the TUI Interactively

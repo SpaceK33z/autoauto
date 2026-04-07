@@ -42,4 +42,6 @@
 - [marktechpost-autoresearch-630-line-tool.md](marktechpost-autoresearch-630-line-tool.md) — Marktechpost — Release coverage, 630-line implementation, Shopify CEO case study
 - [venturebeat-autoresearch.md](venturebeat-autoresearch.md) — VentureBeat — Viral adoption, Hyperspace 35-agent run, marketing applications
 
-Also see: https://github.com/WecoAI/awesome-autoresearch for a big collection of articles
+Also see some collections with more resources:
+* https://github.com/WecoAI/awesome-autoresearch
+* https://github.com/yibie/awesome-autoresearch
