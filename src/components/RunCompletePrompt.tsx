@@ -52,7 +52,7 @@ export function RunCompletePrompt({
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Run Complete">
       <box flexDirection="column" padding={1}>
         <text fg="#9ece6a"><strong>{reasonLabel}</strong></text>
-        <text>{""}</text>
+        <box height={1} />
         <text>Program: {state.program_slug}</text>
         <text>Branch: {state.branch_name}</text>
         <text>Experiments: {stats.total_experiments} ({stats.total_keeps} kept, {stats.total_discards} discarded, {stats.total_crashes} crashed)</text>
@@ -63,9 +63,9 @@ export function RunCompletePrompt({
         )}
         {error && <text fg="#ff5555">Error: {error}</text>}
 
-        <text>{""}</text>
+        <box height={1} />
         <text><strong>What would you like to do?</strong></text>
-        <text>{""}</text>
+        <box height={1} />
         <text fg={selected === 0 ? "#ffffff" : "#888888"}>
           {selected === 0 ? " > " : "   "}
           Run cleanup (review & package changes)

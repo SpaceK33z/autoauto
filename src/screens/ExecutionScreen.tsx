@@ -309,7 +309,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             )}
             <text fg="#565f89">Summary saved to run directory. Press Escape to go back.</text>
           </box>
-          <scrollbox flexGrow={1}>
+          <scrollbox flexGrow={1} focused>
             <box paddingX={1} flexDirection="column">
               <markdown content={cleanupResult.summary} syntaxStyle={syntaxStyle} />
             </box>

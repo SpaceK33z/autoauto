@@ -1,3 +1,4 @@
+import { memo } from "react"
 import type { ExperimentResult, ExperimentStatus } from "../lib/run.ts"
 
 interface ResultsTableProps {
@@ -23,6 +24,20 @@ function truncate(str: string, maxLen: number): string {
   return str.length > maxLen ? str.slice(0, maxLen - 1) + "…" : str
 }
 
+const ResultRow = memo(function ResultRow({ result: r, descWidth }: { result: ExperimentResult; descWidth: number }) {
+  return (
+    <box paddingX={1}>
+      <text fg={statusColor(r.status)}>
+        {padRight(String(r.experiment_number), 4)}
+        {padRight(r.commit, 9)}
+        {padRight(r.metric_value ? String(r.metric_value) : "—", 12)}
+        {padRight(r.status, 12)}
+        {truncate(r.description, descWidth)}
+      </text>
+    </box>
+  )
+})
+
 const FIXED_COLS_WIDTH = 4 + 9 + 12 + 12 // #, commit, metric, status
 // outer border (2) + paddingX (2)
 const CHROME_WIDTH = 4
@@ -46,15 +61,7 @@ export function ResultsTable({ results, metricField, width }: ResultsTableProps)
           </box>
         ) : (
           experiments.map((r) => (
-            <box key={r.experiment_number} paddingX={1}>
-              <text fg={statusColor(r.status)}>
-                {padRight(String(r.experiment_number), 4)}
-                {padRight(r.commit, 9)}
-                {padRight(r.metric_value ? String(r.metric_value) : "—", 12)}
-                {padRight(r.status, 12)}
-                {truncate(r.description, descWidth)}
-              </text>
-            </box>
+            <ResultRow key={r.experiment_number} result={r} descWidth={descWidth} />
           ))
         )}
       </scrollbox>

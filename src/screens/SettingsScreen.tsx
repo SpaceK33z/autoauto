@@ -79,7 +79,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       <box flexDirection="column">
         <text>
           {isFocused ? (
-            <strong fg="#7aa2f7">{`  ${label}: \u25C2 ${value} \u25B8`}</strong>
+            <span fg="#7aa2f7"><strong>{`  ${label}: \u25C2 ${value} \u25B8`}</strong></span>
           ) : (
             `  ${label}: ${value}`
           )}
@@ -102,7 +102,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       borderStyle="rounded"
       title="Settings"
     >
-      <text>{""}</text>
+      <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Execution Model "}</strong></text>
         <text fg="#888888">{"(experiment agents)"}</text>
@@ -118,7 +118,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
         EFFORT_LABELS[execSlot.effort],
         EFFORT_DESCRIPTIONS[execSlot.effort],
       )}
-      <text>{""}</text>
+      <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Support Model "}</strong></text>
         <text fg="#888888">{"(setup & cleanup)"}</text>
