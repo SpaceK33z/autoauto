@@ -2,43 +2,60 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: node
+          skip-labeling: true
+
   build:
-    name: Build (${{ matrix.target }})
+    name: Build (${{ matrix.artifact }})
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: bun-darwin-arm64
             os: macos-latest
             artifact: autoauto-darwin-arm64
           - target: bun-darwin-x64
-            os: macos-latest
+            os: macos-13
             artifact: autoauto-darwin-x64
           - target: bun-linux-x64
             os: ubuntu-latest
             artifact: autoauto-linux-x64
           - target: bun-linux-arm64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             artifact: autoauto-linux-arm64
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun build --compile --target=${{ matrix.target }} src/index.tsx --outfile dist/${{ matrix.artifact }}
+      - run: bun build --compile src/index.tsx --outfile dist/${{ matrix.artifact }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
 
-  release:
-    name: Release
-    needs: build
+  upload:
+    name: Upload Release Assets
+    needs: [release-please, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -46,7 +63,10 @@ jobs:
           path: artifacts
           merge-multiple: true
       - run: chmod +x artifacts/*
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/*
-          generate_release_notes: true
+      - run: |
+          for f in artifacts/*; do
+            gh release upload ${{ needs.release-please.outputs.tag_name }} "$f" --clobber
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}

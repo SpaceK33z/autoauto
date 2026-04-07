@@ -32,4 +32,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun build --compile --target=bun-linux-x64 src/index.tsx --outfile dist/autoauto
+      - run: bun build --compile src/index.tsx --outfile dist/autoauto
