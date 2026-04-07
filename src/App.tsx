@@ -152,7 +152,7 @@ export function App() {
       {screen !== "pre-run" && (
         <text fg="#888888">
           {screen === "home"
-            ? " n: new program | s: settings | Enter: run | Escape: quit"
+            ? " n: new program | s: settings | Tab: switch panel | Enter: run | Escape: quit"
             : screen === "execution"
               ? " q: abort run | Escape: back (after completion)"
               : screen === "settings"

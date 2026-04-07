@@ -137,6 +137,14 @@ export async function listPrograms(cwd: string): Promise<Program[]> {
   }
 }
 
+/** Enriched program metadata for the home screen. */
+export interface ProgramInfo {
+  name: string
+  totalRuns: number
+  lastRunDate: string | null
+  hasActiveRun: boolean
+}
+
 /** Returns the absolute path to the programs directory */
 export function getProgramsDir(cwd: string): string {
   return join(cwd, AUTOAUTO_DIR, "programs")

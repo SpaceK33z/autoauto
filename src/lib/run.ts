@@ -281,34 +281,9 @@ export async function getLatestRun(programDir: string): Promise<RunInfo | null> 
   return runs.length > 0 ? runs[0] : null
 }
 
-function isRunActive(r: RunInfo): boolean {
+export function isRunActive(r: RunInfo): boolean {
   const phase = r.state?.phase
   return phase != null && phase !== "complete" && phase !== "crashed"
-}
-
-/** Lists all runs across all programs, sorted with in-progress pinned to top, then newest first. Max 50. */
-export async function listAllRuns(projectRoot: string): Promise<RunInfo[]> {
-  const { listPrograms, getProgramDir: getProgDir } = await import("./programs.ts")
-  const programs = await listPrograms(projectRoot)
-
-  const allRuns: RunInfo[] = []
-  await Promise.all(
-    programs.map(async (p) => {
-      const programDir = getProgDir(projectRoot, p.name)
-      const runs = await listRuns(programDir)
-      allRuns.push(...runs)
-    }),
-  )
-
-  allRuns.sort((a, b) => {
-    const aActive = isRunActive(a)
-    const bActive = isRunActive(b)
-    if (aActive && !bActive) return -1
-    if (!aActive && bActive) return 1
-    return b.run_id.localeCompare(a.run_id)
-  })
-
-  return allRuns.slice(0, 50)
 }
 
 // --- High-Level Orchestration ---
