@@ -125,7 +125,7 @@ const RunRow = memo(function RunRow({
 
   return (
     <box paddingX={1} backgroundColor={selected ? "#333333" : undefined}>
-      <text>
+      <text selectable>
         <span fg={dotColor}>{"● "}</span>
         <span fg="#c0caf5">{padRight(truncate(slug, COL_PROGRAM - 1), COL_PROGRAM)}</span>
         <span fg="#a9b1d6">{padRight(String(totalExp), COL_EXP)}</span>

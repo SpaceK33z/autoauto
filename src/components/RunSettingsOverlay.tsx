@@ -22,7 +22,7 @@ export function RunSettingsOverlay({ maxExpText, experimentNumber, validationErr
         </text>
       </box>
       {validationError ? (
-        <text fg="#ff5555">{validationError}</text>
+        <text fg="#ff5555" selectable>{validationError}</text>
       ) : (
         <text fg="#888888">Type a number, or clear for unlimited</text>
       )}

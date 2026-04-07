@@ -23,7 +23,7 @@ export function AuthErrorScreen({ error }: { error: string }) {
       {error && (
         <>
           <box height={1} />
-          <text fg="#888888">Error: {error}</text>
+          <text fg="#888888" selectable>Error: {error}</text>
         </>
       )}
     </box>

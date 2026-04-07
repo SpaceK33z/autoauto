@@ -50,7 +50,7 @@ export function StatsHeader(props: StatsHeaderProps) {
   return (
       <box paddingX={1} flexDirection="column">
         <box>
-          <text>
+          <text selectable>
             <span fg="#9ece6a"><strong>✓ {props.totalKeeps}</strong></span>
             {"  "}
             <span fg="#ff5555">✗ {props.totalDiscards}</span>
@@ -64,7 +64,7 @@ export function StatsHeader(props: StatsHeaderProps) {
           </text>
         </box>
         <box>
-          <text>
+          <text selectable>
             <span fg="#a9b1d6">baseline </span>
             <span fg="#7aa2f7">{props.currentBaseline}</span>
             {"   "}
@@ -85,7 +85,7 @@ export function StatsHeader(props: StatsHeaderProps) {
           </text>
         </box>
         <box>
-          <text>
+          <text selectable>
             <span fg="#a9b1d6">{"› "}</span>
             <span fg="#c0caf5">{props.currentPhaseLabel}</span>
           </text>

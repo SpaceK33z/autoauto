@@ -154,7 +154,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun }: Home
   if (error) {
     return (
       <box flexGrow={1} justifyContent="center" alignItems="center">
-        <text fg="#ff5555">Error: {error}</text>
+        <text fg="#ff5555" selectable>Error: {error}</text>
       </box>
     )
   }

@@ -25,7 +25,7 @@ function ToolStatusSpinner({ status }: { status: string }) {
       : `${seconds}s`
 
   return (
-    <text fg="#888888">
+    <text fg="#888888" selectable>
       {spinner} {status} ({timeStr})
     </text>
   )
@@ -237,7 +237,7 @@ export function Chat({
                 {msg.role === "assistant" ? (
                   <markdown content={msg.content} syntaxStyle={syntaxStyle} />
                 ) : (
-                  <text>{msg.content}</text>
+                  <text selectable>{msg.content}</text>
                 )}
                 <text>{""}</text>
               </box>
@@ -269,7 +269,7 @@ export function Chat({
               <ToolStatusSpinner key={toolStatus} status={toolStatus} />
             )}
 
-            {error && <text fg="#ff5555">Error: {error}</text>}
+            {error && <text fg="#ff5555" selectable>Error: {error}</text>}
           </box>
         )}
       </scrollbox>

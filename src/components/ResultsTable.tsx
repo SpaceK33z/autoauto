@@ -28,7 +28,7 @@ const ResultRow = memo(function ResultRow({ result: r, descWidth, highlighted, s
   const fg = statusColor(r.status)
   return (
     <box paddingX={1} backgroundColor={bg}>
-      <text fg={fg}>
+      <text fg={fg} selectable>
         {padRight(String(r.experiment_number), 4)}
         {padRight(r.commit, 9)}
         {padRight(r.metric_value != null ? String(r.metric_value) : "—", 12)}

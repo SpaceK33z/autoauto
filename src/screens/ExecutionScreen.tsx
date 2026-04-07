@@ -532,19 +532,19 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
           {showStopConfirm && (
             <box paddingX={1}>
-              <text fg="#e0af68">Stop after current experiment finishes? (y/n)</text>
+              <text fg="#e0af68" selectable>Stop after current experiment finishes? (y/n)</text>
             </box>
           )}
 
           {stopping && !showStopConfirm && (
             <box paddingX={1}>
-              <text fg="#e0af68">Stopping after current experiment...</text>
+              <text fg="#e0af68" selectable>Stopping after current experiment...</text>
             </box>
           )}
 
           {lastError && (
             <box paddingX={1}>
-              <text fg="#ff5555">{lastError}</text>
+              <text fg="#ff5555" selectable>{lastError}</text>
             </box>
           )}
         </box>
@@ -633,9 +633,9 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Cleanup Complete">
           <box flexDirection="column" paddingX={1}>
             {cleanupResult.squashedSha ? (
-              <text fg="#9ece6a">Commits squashed into {cleanupResult.squashedSha.slice(0, 7)}</text>
+              <text fg="#9ece6a" selectable>Commits squashed into {cleanupResult.squashedSha.slice(0, 7)}</text>
             ) : (
-              <text fg="#888888">No changes to squash (0 keeps)</text>
+              <text fg="#888888" selectable>No changes to squash (0 keeps)</text>
             )}
             <text fg="#a9b1d6">Summary saved to run directory. Press Escape to go back.</text>
           </box>
@@ -650,7 +650,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       {phase === "error" && (
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Error">
           <box padding={1}>
-            <text fg="#ff5555">{lastError ?? "Unknown error"}</text>
+            <text fg="#ff5555" selectable>{lastError ?? "Unknown error"}</text>
           </box>
           <box padding={1}>
             <text fg="#888888">Press Escape to go back</text>

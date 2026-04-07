@@ -20,28 +20,28 @@ function ExperimentDetail({ result }: { result: ExperimentResult }) {
   return (
     <box flexDirection="column" paddingX={1} gap={1}>
       <box flexDirection="column">
-        <text><strong fg="#a9b1d6">Experiment #{result.experiment_number}</strong></text>
+        <text selectable><strong fg="#a9b1d6">Experiment #{result.experiment_number}</strong></text>
         <text fg="#565f89">{"─".repeat(40)}</text>
       </box>
 
       <box flexDirection="column">
-        <text><strong fg="#a9b1d6">Status:  </strong><strong fg={statusColor(result.status)}>{result.status}</strong></text>
-        <text><strong fg="#a9b1d6">Commit:  </strong><strong fg="#c0caf5">{result.commit}</strong></text>
-        <text><strong fg="#a9b1d6">Metric:  </strong><strong fg="#c0caf5">{result.metric_value ?? "—"}</strong></text>
+        <text selectable><strong fg="#a9b1d6">Status:  </strong><strong fg={statusColor(result.status)}>{result.status}</strong></text>
+        <text selectable><strong fg="#a9b1d6">Commit:  </strong><strong fg="#c0caf5">{result.commit}</strong></text>
+        <text selectable><strong fg="#a9b1d6">Metric:  </strong><strong fg="#c0caf5">{result.metric_value ?? "—"}</strong></text>
       </box>
 
       {secondaryValues && Object.keys(secondaryValues).length > 0 && (
         <box flexDirection="column">
           <text><strong fg="#a9b1d6">Quality Gates:</strong></text>
           {Object.entries(secondaryValues).map(([key, val]) => (
-            <text key={key} fg="#c0caf5">  {key}: {String(val)}</text>
+            <text key={key} fg="#c0caf5" selectable>  {key}: {String(val)}</text>
           ))}
         </box>
       )}
 
       <box flexDirection="column">
         <text><strong fg="#a9b1d6">Description:</strong></text>
-        <text fg="#c0caf5">{result.description}</text>
+        <text fg="#c0caf5" selectable>{result.description}</text>
       </box>
     </box>
   )
@@ -65,7 +65,7 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
     <box flexDirection="column" flexGrow={1}>
       {toolStatus && isRunning && (
         <box paddingX={1}>
-          <text fg="#a9b1d6">⟳ {toolStatus}</text>
+          <text fg="#a9b1d6" selectable>⟳ {toolStatus}</text>
         </box>
       )}
       <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
