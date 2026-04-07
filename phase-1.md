@@ -24,10 +24,10 @@ High-level tasks to complete the interactive setup flow described in [IDEA.md](.
 
 ## 1d. Measurement Validation
 
-- [ ] Run `measure.sh` multiple times after generation
-- [ ] Check variance, warn if measurements are unreliable
-- [ ] Iterate with agent until measurement is stable
-- [ ] Guide user on noise threshold and repeats based on observed variance
+- [x] Run `measure.sh` multiple times after generation
+- [x] Check variance, warn if measurements are unreliable
+- [x] Iterate with agent until measurement is stable
+- [x] Guide user on noise threshold and repeats based on observed variance
 
 ## 1e. Model Configuration
 
