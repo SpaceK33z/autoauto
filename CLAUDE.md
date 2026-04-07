@@ -52,13 +52,17 @@ bun lint && bun typecheck
 ```
 src/
   index.tsx              # Entry point, creates renderer
-  App.tsx                # Main layout, keyboard handling
+  App.tsx                # Main layout, keyboard handling, auth check
   components/
     Chat.tsx             # Multi-turn chat with Claude Agent SDK streaming
   screens/
     HomeScreen.tsx       # Program list
     SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
+    SettingsScreen.tsx   # Model configuration (execution + support slots)
+    AuthErrorScreen.tsx  # Auth error display with setup instructions
   lib/
+    auth.ts              # Authentication checking via SDK
+    config.ts            # Project config CRUD (.autoauto/config.json)
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     system-prompts.ts    # Agent system prompts (setup, ideation)
@@ -78,6 +82,11 @@ src/
 - Measurement validation uses a standalone script (`src/lib/validate-measurement.ts`) called via Bash
 - The validation script runs measure.sh multiple times and computes variance statistics (CV%)
 - Config recommendations (noise_threshold, repeats) are based on observed CV%
+- Model configuration (model alias + effort level) stored in `.autoauto/config.json`
+- Two model slots: `executionModel` (for experiment agents) and `supportModel` (for setup/cleanup)
+- Defaults: Sonnet + high effort for both slots
+- Model/effort passed to `query()` via `model` and `effort` options
+- Auth checked on startup via SDK `accountInfo()` — supports API key, OAuth, and cloud providers
 
 ## Testing the TUI Interactively
 

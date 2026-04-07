@@ -3,6 +3,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk"
 import { createPushStream, type PushStream } from "../lib/push-stream.ts"
 import { DEFAULT_SYSTEM_PROMPT } from "../lib/system-prompts.ts"
 import { formatToolEvent } from "../lib/tool-events.ts"
+import type { EffortLevel } from "../lib/config.ts"
 
 interface ChatMessage {
   id: string
@@ -27,6 +28,10 @@ interface ChatProps {
   allowedTools?: string[]
   /** Max conversation turns (user message + assistant response pairs) */
   maxTurns?: number
+  /** Model alias ('sonnet', 'opus') or full model ID */
+  model?: string
+  /** Reasoning effort level */
+  effort?: EffortLevel
 }
 
 export function Chat({
@@ -35,6 +40,8 @@ export function Chat({
   tools,
   allowedTools,
   maxTurns,
+  model,
+  effort,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streamingText, setStreamingText] = useState("")
@@ -46,7 +53,7 @@ export function Chat({
 
   // Capture config in refs — the agent session is long-lived and should not
   // restart when parent re-renders. These are stable for the component lifetime.
-  const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns })
+  const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns, model, effort })
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -64,6 +71,8 @@ export function Chat({
             allowedTools: config.allowedTools,
             maxTurns: config.maxTurns,
             cwd: config.cwd,
+            model: config.model,
+            effort: config.effort,
             permissionMode: "bypassPermissions",
             allowDangerouslySkipPermissions: true,
             includePartialMessages: true,

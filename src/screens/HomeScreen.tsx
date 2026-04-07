@@ -25,6 +25,8 @@ export function HomeScreen({ cwd, navigate }: HomeScreenProps) {
   useKeyboard((key) => {
     if (key.name === "n") {
       navigate("setup")
+    } else if (key.name === "s") {
+      navigate("settings")
     } else if (programs.length > 0) {
       if (key.name === "up" || key.name === "k") {
         setSelected((s) => Math.max(0, s - 1))

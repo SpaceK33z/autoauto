@@ -2,12 +2,13 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { getProgramsDir } from "./programs.ts"
 
+const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "validate-measurement.ts")
+
 export const DEFAULT_SYSTEM_PROMPT =
   "You are AutoAuto, an autoresearch assistant. Be concise."
 
 export function getSetupSystemPrompt(cwd: string): string {
   const programsDir = getProgramsDir(cwd)
-  const validateScript = join(dirname(fileURLToPath(import.meta.url)), "validate-measurement.ts")
 
   return `You are the AutoAuto Setup Agent — an expert at setting up autonomous experiment loops (autoresearch) on any codebase.
 
@@ -179,7 +180,7 @@ After saving program files, ALWAYS validate measurement stability before telling
 
 Run this exact command via Bash (substituting the actual slug):
 \`\`\`bash
-bun run ${validateScript} ${programsDir}/<slug>/measure.sh ${programsDir}/<slug>/config.json 5
+bun run ${VALIDATE_SCRIPT} ${programsDir}/<slug>/measure.sh ${programsDir}/<slug>/config.json 5
 \`\`\`
 
 This runs 1 warmup run (excluded from stats) + 5 measurement runs, validates each output against config.json, and computes variance statistics. The output is a JSON object with the results.

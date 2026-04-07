@@ -10,7 +10,7 @@ export interface Program {
   configPath: string
 }
 
-export type Screen = "home" | "setup"
+export type Screen = "home" | "setup" | "settings"
 
 const AUTOAUTO_DIR = ".autoauto"
 

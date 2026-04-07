@@ -10,12 +10,14 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and Claude Agent SDK 
 
 ## Screen Navigation
 
-`App.tsx` manages a simple `Screen` state (`"home" | "setup"`) and renders the active screen. Global keyboard handling (Escape to quit from home).
+`App.tsx` manages a `Screen` state (`"home" | "setup" | "settings"`) and renders the active screen. On mount, runs an auth check via SDK `accountInfo()` — shows a loading state, then the normal UI or an auth error screen. Global keyboard handling (Escape to quit from home).
 
 ### Screens
 
-- **HomeScreen** — lists existing programs from `.autoauto/programs/`, supports j/k navigation, `n` to create new
-- **SetupScreen** — wraps the `Chat` component, Escape to go back
+- **HomeScreen** — lists existing programs from `.autoauto/programs/`, supports j/k navigation, `n` to create new, `s` for settings
+- **SetupScreen** — wraps the `Chat` component with configured support model, Escape to go back
+- **SettingsScreen** — model configuration for execution and support slots, keyboard-driven value cycling
+- **AuthErrorScreen** — displayed when authentication fails, shows setup instructions
 
 ## Components
 
@@ -42,18 +44,42 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and Claude Agent SDK 
 ```
 src/
   index.tsx              # Entry point, creates renderer
-  App.tsx                # Screen routing, global keys
+  App.tsx                # Screen routing, global keys, auth check
   components/
     Chat.tsx             # Claude Agent SDK streaming chat
   screens/
     HomeScreen.tsx       # Program list
     SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
+    SettingsScreen.tsx   # Model configuration (execution + support slots)
+    AuthErrorScreen.tsx  # Auth error display with setup instructions
   lib/
+    auth.ts              # Authentication checking via SDK
+    config.ts            # Project config CRUD (.autoauto/config.json)
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     system-prompts.ts    # Agent system prompts (setup, ideation)
     validate-measurement.ts  # Standalone measurement validation script
 ```
+
+## Configuration
+
+`src/lib/config.ts` — project-level configuration at `.autoauto/config.json`:
+
+- `ModelSlot` — model alias + effort level
+- `ProjectConfig` — two slots: `executionModel` and `supportModel`
+- `loadProjectConfig()` — reads config, merges with defaults for forward compatibility
+- `saveProjectConfig()` — writes config as formatted JSON
+
+Default: Sonnet + high effort for both slots.
+
+## Authentication
+
+`src/lib/auth.ts` — checks auth on startup:
+
+- Uses SDK `accountInfo()` to verify authentication works
+- Supports all SDK auth methods (API key, OAuth, cloud providers)
+- Returns account info on success, error message on failure
+- App shows `AuthErrorScreen` on failure with remediation instructions
 
 ## Agent Architecture
 
@@ -94,9 +120,7 @@ Standalone Bun script that validates measurement script stability:
 
 ## Current State
 
-Phase 1 (Setup) is in progress. The TUI shell, screen navigation, program listing, and
-multi-turn Claude Agent SDK chat are wired up. The setup agent can inspect the target repo,
-suggest optimization targets, guide the user through scope and measurement design, generate
-program artifacts (program.md, measure.sh, config.json), and save them after user review.
-Measurement validation runs the generated script multiple times to check variance and
-recommends noise/repeats configuration. Model configuration is not yet implemented.
+Phase 1 (Setup) is complete. The TUI shell, screen navigation, program listing, multi-turn
+Claude Agent SDK chat, setup agent (repo inspection, scope definition, artifact generation,
+measurement validation), and model configuration are all implemented. Authentication is
+checked on startup with a helpful error screen if not configured.
