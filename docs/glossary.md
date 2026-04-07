@@ -24,8 +24,8 @@
 | **Context packet** | One-shot message to the Experiment Agent: baseline, recent results, git log, discarded diffs, program.md. |
 | **Experiment Agent** | Short-lived one-shot Claude session. Receives context packet, makes one change, commits, exits. |
 | **Setup Agent** | Multi-turn Claude session that inspects the repo, generates program artifacts, and validates measurement stability. |
-| **Cleanup Agent** | Reviews accumulated diff and produces a summary report. |
-| **Model slot** | Model + effort config. Two slots: `executionModel` (experiments) and `supportModel` (setup/cleanup). |
+| **Finalize Agent** | Reviews accumulated diff, groups changes into independent branches (or squashes as fallback), and produces a summary. |
+| **Model slot** | Provider + model + effort config. Two slots: `executionModel` (experiments) and `supportModel` (setup/finalize). |
 | **Measurement locking** | `chmod 444` on measure.sh/config.json before the loop. Prevents agent from gaming the metric. |
 | **Lock violation** | Agent modified `.autoauto/` files — immediate discard. |
 | **Verdict** | Comparison result: `"keep"`, `"regressed"`, or `"noise"`. |
@@ -33,7 +33,12 @@
 | **Discarded diffs** | Recent reverted diffs included in context packet so the agent learns from failures. |
 | **Experiment cost** | Per-experiment SDK usage: cost USD, duration, tokens in/out, turns. |
 | **Results TSV** | Append-only log of experiment outcomes (one row per experiment). |
-| **Events NDJSON** | Append-only structural event log for audit trail. |
+| **Ideas backlog** | Optional `ideas.md` file that accumulates per-experiment notes (hypothesis, failure reason, next ideas, things to avoid). Prevents the agent from retrying failed approaches. |
+| **Secondary metric** | A tracked metric (with direction) that appears in context packets but has no hard threshold — informational, not a gate. |
+| **Agent provider** | Pluggable backend that implements `AgentProvider` (create sessions, check auth, list models). Three built-in: Claude, Codex, OpenCode. |
+| **Simplification** | An experiment within noise that has net-negative LOC (more lines removed than added). Auto-kept by the simplicity criterion. |
+| **In-place mode** | Optional run mode that skips worktree isolation — experiments run directly in the main checkout. |
+| **Diff stats** | Lines added/removed per experiment, used by the simplicity criterion and stored in results.tsv. |
 | **State (state.json)** | Atomic checkpoint: run phase, experiment number, baselines, SHAs, timestamps. |
 | **Consecutive discards** | Counter of non-keep outcomes in a row. Triggers re-baselining every 5. |
 | **Scope constraints** | program.md rules defining what files/systems the agent may modify. |

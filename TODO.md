@@ -19,7 +19,10 @@ ASK: from a higher level, do we have clean separation of concerns? Any higher le
 
 ASK: When exactly do we use the finalize step? Should we perhaps make this more clear to the user, any ideas?
 
-ASK: for the first setup, I'd like to guide the user through selecting a provider/model etc that works. Basically the settings page. /grill-me
+ASK: collect research (exa search) about best practices for prompts. Do our agent prompts work well for this? Do note they go to coding agents (claude agent sdk etc)
+-> should we use progresive disclosure? I might want to add more data soon like examples etc, but I worry the system prompt will be too heavy
+
+ASK: make it possible to delete entire programs
 
 ---
 

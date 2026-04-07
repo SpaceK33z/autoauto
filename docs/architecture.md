@@ -2,26 +2,40 @@
 
 ## Overview
 
-Bun + TypeScript TUI app using OpenTUI React for rendering and Claude Agent SDK for AI interactions. App controls flow, agents provide intelligence.
+Bun + TypeScript TUI app using OpenTUI React for rendering and pluggable agent providers (Claude Agent SDK, Codex, OpenCode) for AI interactions. App controls flow, agents provide intelligence.
 
-## Entry Point
+## Entry Points
 
-`src/index.tsx` — creates an OpenTUI CLI renderer and mounts the React root with `<App />`.
+`src/index.tsx` — dispatcher: if CLI args are present, imports `src/cli.ts` (headless CLI mode); otherwise imports `src/tui.tsx` (interactive TUI).
+
+- **`src/tui.tsx`** — creates an OpenTUI CLI renderer, registers agent providers, and mounts `<App />`.
+- **`src/cli.ts`** — headless CLI for listing programs/runs, spawning/stopping/attaching daemon runs, and managing state without the TUI.
 
 ## Screen Navigation
 
-`App.tsx` manages a `Screen` state (`"home" | "setup" | "settings"`) and renders the active screen. On mount, runs an auth check via SDK `accountInfo()` — shows a loading state, then the normal UI or an auth error screen. Global keyboard handling (Escape to quit from home).
+`App.tsx` manages a `Screen` state (`"home" | "setup" | "settings" | "program-detail" | "pre-run" | "execution" | "first-setup"`) and renders the active screen. On mount, checks whether `.autoauto/config.json` exists — if not, shows the first-setup screen; otherwise shows the home screen. Global keyboard handling (Escape to quit from home).
 
 ### Screens
 
-- **HomeScreen** — lists existing programs from `.autoauto/programs/`, supports j/k navigation, `n` to create new, `s` for settings
+- **FirstSetupScreen** — first-time setup: provider/model selection with auth verification, creates initial `config.json`
+- **HomeScreen** — two-panel layout: programs list (left) + runs table (right, `RunsTable`), supports j/k navigation, `n` to create new, `s` for settings, Tab to switch panels, Enter to run/attach
 - **SetupScreen** — wraps the `Chat` component with configured support model, Escape to go back
+- **PreRunScreen** — pre-run configuration: model/provider/effort overrides, max experiments, worktree toggle
+- **ExecutionScreen** — three-panel experiment dashboard (see Execution Dashboard section)
 - **SettingsScreen** — model configuration for execution and support slots, keyboard-driven value cycling
 - **AuthErrorScreen** — displayed when authentication fails, shows setup instructions
 
 ## Components
 
-- **Chat** (`src/components/Chat.tsx`) — Multi-turn conversational interface. Maintains a long-lived `query()` session using a push-based `AsyncIterable<SDKUserMessage>` prompt. Renders full message history (user + assistant) in an auto-scrolling scrollbox. Streams assistant responses token-by-token via `includePartialMessages`.
+- **Chat** (`src/components/Chat.tsx`) — Multi-turn conversational interface. Maintains a long-lived agent session using a push-based `AsyncIterable` prompt. Renders full message history (user + assistant) in an auto-scrolling scrollbox. Streams assistant responses token-by-token.
+- **ResultsTable** (`src/components/ResultsTable.tsx`) — Navigable experiment results table, color-coded by status. Tab to focus, j/k/arrows to browse, Enter to inspect.
+- **RunsTable** (`src/components/RunsTable.tsx`) — Table of runs across programs, shown in the HomeScreen right panel.
+- **StatsHeader** (`src/components/StatsHeader.tsx`) — Run stats + metric sparkline.
+- **AgentPanel** (`src/components/AgentPanel.tsx`) — Live agent streaming output OR experiment detail view.
+- **RunCompletePrompt** (`src/components/RunCompletePrompt.tsx`) — Post-run prompt (finalize or abandon).
+- **CycleField** (`src/components/CycleField.tsx`) — Reusable keyboard-driven cycle-through field (← → to change value).
+- **ModelPicker** (`src/components/ModelPicker.tsx`) — Model selection UI with provider-specific model lists.
+- **RunSettingsOverlay** (`src/components/RunSettingsOverlay.tsx`) — Inline overlay for editing max experiments during a run.
 
 ## Utilities
 
@@ -43,34 +57,56 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and Claude Agent SDK 
 
 ```
 src/
-  index.tsx              # Entry point, creates renderer
-  App.tsx                # Screen routing, global keys, auth check
+  index.tsx              # Entry point dispatcher (CLI args → cli.ts, else → tui.tsx)
+  tui.tsx                # TUI entry: creates renderer, registers providers, mounts <App />
+  cli.ts                 # Headless CLI: list/run/stop/attach without TUI
+  App.tsx                # Screen routing, global keys, config check
   daemon.ts              # Background daemon entry point (detached process)
   components/
-    Chat.tsx             # Claude Agent SDK streaming chat
-    RunCompletePrompt.tsx # Post-run prompt (cleanup or abandon)
-    StatsHeader.tsx      # Run stats + metric sparkline
+    Chat.tsx             # Agent streaming chat (multi-turn)
     ResultsTable.tsx     # Navigable experiment results table
+    RunsTable.tsx        # Runs table for HomeScreen
+    StatsHeader.tsx      # Run stats + metric sparkline
     AgentPanel.tsx       # Live agent streaming output OR experiment detail view
+    RunCompletePrompt.tsx # Post-run prompt (finalize or abandon)
+    CycleField.tsx       # Reusable cycle-through field component
+    ModelPicker.tsx      # Model selection UI with provider-specific lists
+    RunSettingsOverlay.tsx # Inline max-experiments editor overlay
   screens/
-    HomeScreen.tsx       # Program list
+    FirstSetupScreen.tsx # First-time setup (provider/model + auth check)
+    HomeScreen.tsx       # Two-panel: programs list + runs table
     SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
+    PreRunScreen.tsx     # Pre-run config (model/effort/max/worktree overrides)
+    ExecutionScreen.tsx  # Three-panel experiment dashboard
     SettingsScreen.tsx   # Model configuration (execution + support slots)
     AuthErrorScreen.tsx  # Auth error display with setup instructions
   lib/
-    auth.ts              # Authentication checking via SDK
+    agent/               # Agent provider abstraction layer
+      types.ts           # AgentEvent, AgentSession, AgentProvider interfaces
+      index.ts           # Provider registry (setProvider/getProvider)
+      claude-provider.ts # Claude Agent SDK provider
+      codex-provider.ts  # Codex CLI provider
+      opencode-provider.ts # OpenCode provider
+      default-providers.ts # Registers all available providers at startup
+      mock-provider.ts   # Mock provider for testing
+    auth.ts              # Authentication checking via agent provider
     config.ts            # Project config CRUD (.autoauto/config.json)
-    git.ts               # Git operations (branch, revert, log, SHA)
+    git.ts               # Git operations (branch, revert, log, SHA, diff stats)
     measure.ts           # Measurement execution, validation, comparison
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     run.ts               # Run lifecycle (branch, baseline, state, locking)
-    system-prompts.ts    # Agent system prompts (setup, ideation)
+    system-prompts.ts    # Agent system prompts (setup, experiment, finalize)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
     experiment.ts          # Experiment agent spawning, context packets, lock detection
     experiment-loop.ts     # Main experiment loop orchestrator
+    ideas-backlog.ts       # Ideas backlog: append/read per-experiment notes (ideas.md)
+    model-options.ts       # Model picker option loading from providers
+    format.ts              # Table formatting utilities (padRight, truncate, column allocation)
+    syntax-theme.ts        # Tokyo Night syntax highlighting theme for code display
     worktree.ts            # Git worktree create/remove for run isolation
+    finalize.ts            # Post-run finalize: agent review, group branches, squash fallback
     daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (per-experiment stream log writes)
     daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
     daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
@@ -80,33 +116,43 @@ src/
 
 `src/lib/config.ts` — project-level configuration at `.autoauto/config.json`:
 
-- `ModelSlot` — model alias + effort level
-- `ProjectConfig` — two slots: `executionModel` and `supportModel`
+- `ModelSlot` — provider + model alias + effort level
+- `ProjectConfig` — two model slots (`executionModel`, `supportModel`) + `ideasBacklogEnabled` flag
 - `loadProjectConfig()` — reads config, merges with defaults for forward compatibility
 - `saveProjectConfig()` — writes config as formatted JSON
 
-Default: Sonnet + high effort for both slots.
+Three providers: Claude (`claude-provider.ts`), Codex (`codex-provider.ts`), OpenCode (`opencode-provider.ts`). Default: Claude / Sonnet + high effort for both slots.
 
 ## Authentication
 
-`src/lib/auth.ts` — checks auth on startup:
+`src/lib/auth.ts` — checks auth via the active agent provider:
 
-- Uses SDK `accountInfo()` to verify authentication works
-- Supports all SDK auth methods (API key, OAuth, cloud providers)
+- Calls `provider.checkAuth()` to verify authentication works
+- Supports all providers (Claude SDK, Codex CLI, OpenCode)
 - Returns account info on success, error message on failure
+- First-time setup (`FirstSetupScreen`) verifies auth before saving config
 - App shows `AuthErrorScreen` on failure with remediation instructions
 
 ## Agent Architecture
 
-AutoAuto uses the Claude Agent SDK's `query()` function with built-in tools. The host
-application (AutoAuto TUI) manages the conversation UI while the SDK handles the agent
-loop, tool execution, and context management.
+AutoAuto uses an agent provider abstraction (`src/lib/agent/`) that decouples the app from any specific SDK. Providers implement the `AgentProvider` interface (create sessions, run one-shot, check auth, list models). The host application manages the conversation UI while the provider handles the agent loop, tool execution, and context management.
+
+### Agent Providers (`src/lib/agent/`)
+
+- **`AgentProvider`** interface: `createSession()`, `runOnce()`, `checkAuth()`, `listModels()`
+- **`AgentSession`** interface: `AsyncIterable<AgentEvent>` + `pushMessage()` + `endInput()` + `close()`
+- **`AgentEvent`** union: `text_delta`, `tool_use`, `assistant_complete`, `error`, `result`
+- **`claude-provider.ts`** — Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)
+- **`codex-provider.ts`** — Codex CLI wrapper
+- **`opencode-provider.ts`** — OpenCode provider
+- **`default-providers.ts`** — Registers all available providers at startup
+- **Provider registry** (`index.ts`): `setProvider(id, provider)` / `getProvider(id)`
 
 ### Setup Agent (`src/lib/system-prompts.ts`)
 
 - **Purpose:** Inspect repo, suggest targets, define scope, generate program artifacts
 - **Tools:** Read, Write, Edit, Bash, Glob, Grep
-- **Permission mode:** `bypassPermissions` (AutoAuto manages UI, not the SDK)
+- **Permission mode:** `bypassPermissions` (AutoAuto manages UI, not the provider)
 - **Working directory:** Target project root (resolved via `getProjectRoot()`)
 - **System prompt:** Encodes autoresearch expertise — guides user through repo inspection,
   target identification, scope definition, measurement approach, artifact generation
@@ -114,7 +160,7 @@ loop, tool execution, and context management.
 - **Artifacts generated:**
   - `program.md` — Goal, scope, rules, steps for the experiment agent
   - `measure.sh` — Measurement script tailored to the repo (must output JSON to stdout)
-  - `config.json` — Metric field, direction, noise threshold, repeats, quality gates
+  - `config.json` — Metric field, direction, noise threshold, repeats, quality gates, secondary metrics
 - **Review flow:** Agent presents artifacts as code blocks for review before writing to disk
 - **Measurement validation:** After saving, the agent runs a standalone validation script
   (`src/lib/validate-measurement.ts`) that executes measure.sh 5 times, computes variance
@@ -138,8 +184,8 @@ Standalone Bun script that validates measurement script stability:
 Manages the experiment run setup and state:
 
 - `startRun()` — orchestrates branch creation → baseline measurement → state initialization → evaluator locking
-- `RunState` — checkpoint persisted atomically to `state.json` via temp-file + rename
-- `ExperimentResult` — typed row for the append-only `results.tsv`
+- `RunState` — checkpoint persisted atomically to `state.json` via temp-file + rename; includes `provider`, `model`, `effort`, `in_place` fields for reconnection
+- `ExperimentResult` — typed row for the append-only `results.tsv`; includes `measurement_duration_ms` and `diff_stats` columns
 - Branch naming: `autoauto-<slug>-<YYYYMMDD-HHMMSS>`
 - Evaluator locking: `chmod 444` on `measure.sh` + `config.json` before loop starts
 
@@ -168,9 +214,11 @@ The core orchestrator loop that drives the autoresearch pattern:
 - `LoopCallbacks` — callback interface for display layer (phase change, streaming, results)
 - `LoopOptions` — control knobs: max experiments, abort signal (hard kill), `stopRequested` callback (soft stop at iteration boundary)
 - Calls `runMeasurementAndDecide()` for each iteration (includes measurement + keep/discard)
+- **Simplicity criterion:** experiments within noise that have net-negative LOC (more lines removed than added) are auto-kept as "simplification"
 - Re-baselines after every keep (fresh measurement on kept code, falls back to candidate measurement on failure)
 - Drift detection: re-measures baseline every 5 consecutive discards to detect environment changes
 - Stagnation detection: auto-stops after `max_consecutive_discards` (default 10) consecutive non-improving experiments; warns at ~2/3 of the limit; counter resets on any keep
+- Ideas backlog: when enabled (`ideasBacklogEnabled` in project config), appends per-experiment notes (hypothesis, why it worked/failed, next ideas, things to avoid) to `ideas.md` in the run dir
 - Persists `termination_reason` and `total_cost_usd` on RunState at loop completion
 - Unlocks evaluator on completion
 
@@ -178,18 +226,19 @@ The core orchestrator loop that drives the autoresearch pattern:
 
 Manages per-iteration experiment agent sessions:
 
-- `buildContextPacket()` — assembles baseline, results, git log, discarded diffs from disk
+- `buildContextPacket()` — assembles baseline, results, git log, discarded diffs, ideas backlog, secondary metrics from disk
 - `buildExperimentPrompt()` — formats context packet as user message
-- `runExperimentAgent()` — one-shot SDK session with streaming callbacks
+- `runExperimentAgent()` — one-shot agent session with streaming callbacks (uses `getProvider()`)
 - `checkLockViolation()` — detects modifications to `.autoauto/` files via git diff
 - Agent is stateless between iterations — all memory comes from the context packet
 
-### Agent Architecture (updated)
+### Agent Architecture (summary)
 
 | Role | System Prompt | User Message | Session | File |
 |------|---------------|--------------|---------|------|
 | Setup Agent | `getSetupSystemPrompt()` | Interactive multi-turn | Long-lived | `system-prompts.ts` |
 | Experiment Agent | `getExperimentSystemPrompt()` | Context packet (one-shot) | Per-iteration | `experiment.ts` |
+| Finalize Agent | `getFinalizeSystemPrompt()` | Accumulated diff + results | One-shot | `finalize.ts` |
 
 ## Execution Dashboard (`src/screens/ExecutionScreen.tsx`)
 
@@ -219,7 +268,7 @@ Run discovery:
 - `getLatestRun()` — returns the most recent run
 
 Cost tracking:
-- `ExperimentCost` captured from SDK `SDKResultMessage` at end of each agent session
+- `ExperimentCost` (aliased from `AgentCost`) captured from agent provider at end of each session
 - Accumulated on `RunState.total_cost_usd` and `total_tokens`
 
 ## Background Daemon (`src/daemon.ts`)
@@ -296,6 +345,7 @@ All state lives inside the target repo, gitignored (`.autoauto/` is added to `.g
           results.tsv            # durable experiment outcomes (append-only)
           stream-001.log         # per-experiment agent streaming text (one file per experiment)
           stream-002.log
+          ideas.md               # ideas backlog — per-experiment notes (optional)
           daemon.log             # daemon stderr/stdout (not surfaced in TUI)
           summary.md
 ```
@@ -327,7 +377,7 @@ Strict contract:
 
 ### Program Config
 
-`config.json` declares the primary metric, direction, and quality gates:
+`config.json` declares the primary metric, direction, quality gates, and optional secondary metrics:
 
 ```json
 {
@@ -338,6 +388,9 @@ Strict contract:
   "quality_gates": {
     "cls": { "max": 0.1 },
     "tbt_ms": { "max": 300 }
+  },
+  "secondary_metrics": {
+    "fcp_ms": { "direction": "lower" }
   },
   "max_consecutive_discards": 10
 }
@@ -375,7 +428,7 @@ Reduce Largest Contentful Paint on the homepage.
 Each experiment is logged as a row:
 
 ```
-experiment#	commit	metric_value	secondary_values	status	description
+experiment#	commit	metric_value	secondary_values	status	description	measurement_duration_ms	diff_stats
 ```
 
 - `status`: `keep`, `discard`, `measurement_failure`, or `crash`
@@ -385,12 +438,19 @@ experiment#	commit	metric_value	secondary_values	status	description
 
 ## Current State
 
-Phases 1 (Setup) and 2 (Execution) are complete. Phase 4 (Background Daemon) decouples the
-experiment loop from the TUI via a detached daemon process running in a git worktree. The TUI
-is now a client that spawns the daemon and watches state files for updates. The two-root path
-model (`mainRoot` for state, `worktreePath` for experiments) is threaded through the loop,
-measurement, and agent code. RunState carries daemon-specific fields (`total_cost_usd`,
-`termination_reason`, `original_branch`, `worktree_path`, `error`, `error_phase`) for
-reconnection. Stop vs abort is separated: `stopRequested` for graceful stop at iteration
-boundary, `AbortSignal` for hard kill. Process group cleanup (`detached` spawn + negative PID
-kill) handles orphan subprocesses from measurements and agent tools.
+All core phases are complete: Setup, Execution (daemon-backed), Finalize, and CLI mode.
+
+Key capabilities:
+- **Agent provider abstraction** — pluggable providers (Claude, Codex, OpenCode) behind a common interface
+- **Provider-specific model selection** — model picker UI queries each provider for available models
+- **First-setup flow** — new users go through provider/model selection + auth check before reaching home
+- **Pre-run configuration** — per-run overrides for model, effort, max experiments, and worktree toggle
+- **In-place run mode** — optional mode that skips worktree isolation and runs experiments in the main checkout
+- **Simplicity criterion** — auto-keeps experiments that are within noise but simplify code (net-negative LOC)
+- **Ideas backlog** — optional `ideas.md` that accumulates per-experiment notes (hypothesis, failure reasons, next ideas)
+- **Secondary metrics** — tracked alongside quality gates but without hard thresholds; shown in context packets
+- **Finalize agent** — reviews accumulated diff and groups changes into independent branches (squash fallback)
+- **CLI mode** — headless CLI for listing, running, stopping, and attaching without the TUI
+- **Background daemon** — decoupled experiment loop running in a git worktree; TUI watches state files for updates
+- **Two-root path model** — `mainRoot` for state, `worktreePath` for experiments
+- **Stop/abort separation** — `stopRequested` for graceful stop, `AbortSignal` for hard kill, process group cleanup for orphan subprocesses

@@ -51,38 +51,59 @@ bun lint && bun typecheck
 
 ```
 src/
-  index.tsx              # Entry point, creates renderer
-  App.tsx                # Main layout, keyboard handling, auth check
+  index.tsx              # Entry point dispatcher (CLI args → cli.ts, else → tui.tsx)
+  tui.tsx                # TUI entry: creates renderer, registers providers, mounts <App />
+  cli.ts                 # Headless CLI: list/run/stop/attach without TUI
+  App.tsx                # Screen routing, global keys, config check
   daemon.ts              # Background daemon entry point (detached process)
   components/
-    Chat.tsx             # Multi-turn chat with Claude Agent SDK streaming
-    RunCompletePrompt.tsx # Post-run prompt (finalize or abandon)
-    StatsHeader.tsx      # Run stats + metric sparkline
+    Chat.tsx             # Agent streaming chat (multi-turn)
     ResultsTable.tsx     # Navigable experiment results table (Tab to focus, j/k/arrows to browse, Enter to inspect)
+    RunsTable.tsx        # Runs table for HomeScreen
+    StatsHeader.tsx      # Run stats + metric sparkline
     AgentPanel.tsx       # Live agent streaming output OR experiment detail view
+    RunCompletePrompt.tsx # Post-run prompt (finalize or abandon)
+    CycleField.tsx       # Reusable cycle-through field component
+    ModelPicker.tsx      # Model selection UI with provider-specific lists
+    RunSettingsOverlay.tsx # Inline max-experiments editor overlay
   screens/
-    HomeScreen.tsx       # Program list
+    FirstSetupScreen.tsx # First-time setup (provider/model + auth check)
+    HomeScreen.tsx       # Two-panel: programs list + runs table
     SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
+    PreRunScreen.tsx     # Pre-run config (model/effort/max/worktree overrides)
+    ExecutionScreen.tsx  # Three-panel experiment dashboard
     SettingsScreen.tsx   # Model configuration (execution + support slots)
     AuthErrorScreen.tsx  # Auth error display with setup instructions
   lib/
-    auth.ts              # Authentication checking via SDK
+    agent/               # Agent provider abstraction layer
+      types.ts           # AgentEvent, AgentSession, AgentProvider interfaces
+      index.ts           # Provider registry (setProvider/getProvider)
+      claude-provider.ts # Claude Agent SDK provider
+      codex-provider.ts  # Codex CLI provider
+      opencode-provider.ts # OpenCode provider
+      default-providers.ts # Registers all available providers at startup
+      mock-provider.ts   # Mock provider for testing
+    auth.ts              # Authentication checking via agent provider
     config.ts            # Project config CRUD (.autoauto/config.json)
-    git.ts               # Git operations (branch, revert, log, SHA)
+    git.ts               # Git operations (branch, revert, log, SHA, diff stats)
     measure.ts           # Measurement execution, validation, comparison
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     run.ts               # Run lifecycle (branch, baseline, state, locking)
-    system-prompts.ts    # Agent system prompts (setup, ideation)
+    system-prompts.ts    # Agent system prompts (setup, experiment, finalize)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
     experiment.ts          # Experiment agent spawning, context packets, lock detection
     experiment-loop.ts     # Main experiment loop orchestrator
+    ideas-backlog.ts       # Ideas backlog: append/read per-experiment notes (ideas.md)
+    model-options.ts       # Model picker option loading from providers
+    format.ts              # Table formatting utilities (padRight, truncate, column allocation)
+    syntax-theme.ts        # Tokyo Night syntax highlighting theme for code display
     worktree.ts            # Git worktree create/remove for run isolation
+    finalize.ts            # Post-run finalize: agent review, group branches, squash fallback
     daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (per-experiment stream log writes)
     daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
     daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
-    finalize.ts            # Post-run finalize: agent review, group branches, squash fallback
 ```
 
 ## Bun-Native API Conventions

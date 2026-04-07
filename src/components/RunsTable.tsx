@@ -95,8 +95,12 @@ function formatModelEffort(state: RunState): string {
   if (!state.model) return "—"
   const provider = state.provider === "opencode" || state.provider === "codex" ? state.provider : "claude"
   const effort: EffortLevel = VALID_EFFORTS.has(state.effort ?? "") ? state.effort as EffortLevel : "high"
-  const compact = formatModelSlot({ provider, model: state.model, effort }, true)
-  return provider === "opencode" || !state.effort ? compact : `${compact}/${state.effort}`
+  if (provider === "opencode") {
+    return formatModelSlot({ provider, model: state.model, effort }, true)
+  }
+  // Short format: "sonnet/high", "cx/sonnet/high", "opus/max"
+  const prefix = provider === "codex" ? "cx/" : ""
+  return state.effort ? `${prefix}${state.model}/${state.effort}` : `${prefix}${state.model}`
 }
 
 
@@ -104,7 +108,7 @@ function formatModelEffort(state: RunState): string {
 const COL_STATUS = 2    // color dot
 const COL_PROGRAM = 30
 const COL_EXP = 5       // "##"
-const COL_MODEL = 14    // "sonnet/high"
+const COL_MODEL = 16    // "cx/sonnet/high" or "sonnet/high"
 const COL_TOKENS = 7
 const COL_TIME = 9
 const COL_GAINS_MIN = 16
