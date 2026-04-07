@@ -90,6 +90,7 @@ src/
 - Setup Agent writes program artifacts to `.autoauto/programs/<slug>/` only after user confirmation
 - Setup Agent validates measurement stability after saving program files
 - Measurement validation uses a standalone script (`src/lib/validate-measurement.ts`) called via Bash
+- The validation script runs optional `build.sh` once first when present
 - The validation script runs measure.sh multiple times and computes variance statistics (CV%)
 - Config recommendations (noise_threshold, repeats) are based on observed CV%
 - Model configuration (model alias + effort level) stored in `.autoauto/config.json`

@@ -1,9 +1,13 @@
 #!/usr/bin/env bun
 /* eslint-disable no-console, no-await-in-loop */
-import { readFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { validateProgramConfig, type ProgramConfig } from "./programs.ts"
-import { runMeasurement as runMeasurementCore, validateMeasurementOutput } from "./measure.ts"
+import {
+  runBuild,
+  runMeasurement as runMeasurementCore,
+  validateMeasurementOutput,
+} from "./measure.ts"
 
 interface RunResult {
   run: number
@@ -24,7 +28,7 @@ interface FieldStats {
   cv_percent: number
 }
 
-type Assessment = "excellent" | "acceptable" | "noisy" | "unstable"
+type Assessment = "deterministic" | "excellent" | "acceptable" | "noisy" | "unstable"
 
 interface ValidationOutput {
   success: boolean
@@ -40,6 +44,12 @@ interface ValidationOutput {
     repeats: number
   } | null
   avg_duration_ms: number
+  build: {
+    ran: boolean
+    success: boolean
+    duration_ms: number
+    error?: string
+  }
 }
 
 // --- Input Parsing ---
@@ -119,6 +129,7 @@ function computeStats(field: string, values: number[]): FieldStats {
 // --- Assessment & Recommendations ---
 
 function assess(cv_percent: number): Assessment {
+  if (cv_percent < 1) return "deterministic"
   if (cv_percent < 5) return "excellent"
   if (cv_percent < 15) return "acceptable"
   if (cv_percent < 30) return "noisy"
@@ -126,6 +137,9 @@ function assess(cv_percent: number): Assessment {
 }
 
 function recommend(cv_percent: number): { noise_threshold: number; repeats: number } {
+  if (cv_percent < 1) {
+    return { noise_threshold: 0.01, repeats: 1 }
+  }
   if (cv_percent < 5) {
     return { noise_threshold: 0.02, repeats: 3 }
   }
@@ -148,6 +162,40 @@ function recommend(cv_percent: number): { noise_threshold: number; repeats: numb
 // --- Main ---
 
 async function main() {
+  const buildShPath = join(dirname(measureShPath), "build.sh")
+  const hasBuildScript = existsSync(buildShPath)
+  const buildResult = hasBuildScript
+    ? await runBuild(buildShPath, projectRoot)
+    : { success: true, duration_ms: 0 }
+
+  if (hasBuildScript) {
+    process.stderr.write("Build...")
+    process.stderr.write(` ${buildResult.success ? "OK" : "FAIL"} (${buildResult.duration_ms}ms)\n`)
+  }
+
+  if (!buildResult.success) {
+    const output: ValidationOutput = {
+      success: false,
+      total_runs: 0,
+      valid_runs: 0,
+      failed_runs: [],
+      validation_errors: [],
+      metric: null,
+      quality_gates: {},
+      assessment: null,
+      recommendations: null,
+      avg_duration_ms: 0,
+      build: {
+        ran: true,
+        success: false,
+        duration_ms: buildResult.duration_ms,
+        error: buildResult.error,
+      },
+    }
+    console.log(JSON.stringify(output, null, 2))
+    return
+  }
+
   // 1. Warmup run — excluded from stats
   process.stderr.write("Warmup run...")
   const warmup = await runMeasurement(measureShPath, 0, projectRoot)
@@ -220,6 +268,11 @@ async function main() {
     assessment,
     recommendations,
     avg_duration_ms: avgDuration,
+    build: {
+      ran: hasBuildScript,
+      success: true,
+      duration_ms: buildResult.duration_ms,
+    },
   }
 
   console.log(JSON.stringify(output, null, 2))

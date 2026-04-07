@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { access } from "node:fs/promises"
 import type { ProgramConfig } from "./programs.ts"
 
 // --- Types ---
@@ -15,6 +16,7 @@ export interface MeasurementSeriesResult {
   gate_violations: string[]
   individual_runs: MeasurementResult[]
   duration_ms: number
+  failure_reason?: string
 }
 
 // --- Helpers ---
@@ -118,6 +120,77 @@ export async function runMeasurement(
   })
 }
 
+// --- Build Step ---
+
+export interface BuildResult {
+  success: boolean
+  error?: string
+  duration_ms: number
+}
+
+/**
+ * Runs build.sh once if it exists. Returns success immediately if the file is missing.
+ */
+export async function runBuild(
+  buildShPath: string,
+  projectRoot: string,
+  signal?: AbortSignal,
+): Promise<BuildResult> {
+  try {
+    await access(buildShPath)
+  } catch {
+    return { success: true, duration_ms: 0 }
+  }
+
+  const start = performance.now()
+  return new Promise((resolve) => {
+    const proc = spawn("bash", [buildShPath], {
+      cwd: projectRoot,
+      env: { ...process.env },
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 120_000,
+    })
+
+    const onAbort = () => {
+      if (!proc.killed) proc.kill("SIGTERM")
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+
+    let stderr = ""
+    proc.stderr!.setEncoding("utf-8")
+    proc.stderr!.on("data", (chunk: string) => {
+      stderr += chunk
+    })
+
+    proc.on("close", (exitCode) => {
+      signal?.removeEventListener("abort", onAbort)
+      const duration_ms = Math.round(performance.now() - start)
+
+      if (signal?.aborted) {
+        resolve({ success: false, error: "aborted", duration_ms })
+        return
+      }
+
+      if (exitCode !== 0) {
+        resolve({
+          success: false,
+          error: `build.sh exit code ${exitCode}${stderr ? `: ${stderr.trim().slice(0, 200)}` : ""}`,
+          duration_ms,
+        })
+        return
+      }
+
+      resolve({ success: true, duration_ms })
+    })
+
+    proc.on("error", (err) => {
+      signal?.removeEventListener("abort", onAbort)
+      const duration_ms = Math.round(performance.now() - start)
+      resolve({ success: false, error: err.message, duration_ms })
+    })
+  })
+}
+
 // --- Validation ---
 
 /** Validates a measurement output has all required fields as finite numbers. */
@@ -178,8 +251,27 @@ export async function runMeasurementSeries(
   projectRoot: string,
   config: ProgramConfig,
   signal?: AbortSignal,
+  buildShPath?: string,
 ): Promise<MeasurementSeriesResult> {
   const totalStart = performance.now()
+
+  // Run build step once before measuring
+  if (buildShPath) {
+    const buildResult = await runBuild(buildShPath, projectRoot, signal)
+    if (!buildResult.success) {
+      return {
+        success: false,
+        median_metric: 0,
+        median_quality_gates: {},
+        quality_gates_passed: false,
+        gate_violations: [],
+        individual_runs: [],
+        duration_ms: Math.round(performance.now() - totalStart),
+        failure_reason: buildResult.error ?? "build failed",
+      }
+    }
+  }
+
   const runs: MeasurementResult[] = []
   const validMetrics: number[] = []
   const validGateValues: Record<string, number[]> = {}
@@ -221,10 +313,21 @@ export async function runMeasurementSeries(
       gate_violations: [],
       individual_runs: runs,
       duration_ms,
+      failure_reason: "aborted",
     }
   }
 
   if (runs.length !== config.repeats || validMetrics.length !== config.repeats || invalidOutputCount > 0) {
+    const failedRuns = runs
+      .filter((run): run is Extract<MeasurementResult, { success: false }> => !run.success)
+      .map((run) => run.error)
+    const invalidRuns = runs
+      .filter((run): run is Extract<MeasurementResult, { success: true }> => run.success)
+      .map((run) => validateMeasurementOutput(run.output, config).errors)
+      .filter((errors) => errors.length > 0)
+      .flat()
+
+    const reasons = [...failedRuns, ...invalidRuns]
     return {
       success: false,
       median_metric: 0,
@@ -233,6 +336,7 @@ export async function runMeasurementSeries(
       gate_violations: [],
       individual_runs: runs,
       duration_ms,
+      failure_reason: reasons.length > 0 ? reasons.join("; ") : "measurement series incomplete",
     }
   }
 

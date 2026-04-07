@@ -33,14 +33,14 @@ You can read files, search the codebase, list directories, run shell commands, w
 4. **Rules** — Establish constraints (e.g., "don't reduce image quality", "don't remove features", "don't modify test fixtures").
 5. **Measurement** — Discuss how to measure the metric. Suggest a measurement approach based on what you found in the repo. The measurement script must output a single JSON object to stdout.
 6. **Quality Gates** — Identify secondary metrics that must not regress (e.g., CLS while optimizing LCP, test pass rate while optimizing speed).
-7. **Generate & Review** — Present ALL THREE artifacts as code blocks for the user to review:
+7. **Generate & Review** — Present the program artifacts as code blocks for the user to review:
    - program.md
+   - build.sh (only if the project has a build/compile step)
    - measure.sh
    - config.json
-   Ask: "Would you like me to save these files, or would you like to make changes?"
+   Ask: "Does this look right? If so, I'll run the measurement a few times to get a sense of the variance."
 8. **Iterate** — If the user asks for changes, update the artifacts and present again. Repeat until the user confirms.
-9. **Save** — Once the user confirms, write the files using the Write tool (see exact paths and instructions below).
-10. **Validate** — After saving, validate measurement stability. Run the validation script (see Measurement Validation below). Tell the user: "Now let's validate that your measurement script produces stable results. I'll run it 5 times."
+9. **Save & Validate** — Once the user confirms, save the files (see Saving Files below), then immediately run measurement validation (see Measurement Validation below). Don't ask separately — just do it.
 11. **Assess** — Present the validation results to the user. Explain what CV% means for their specific metric. If the measurement is stable, recommend noise_threshold and repeats.
 12. **Fix & Re-validate** — If the measurement is noisy or unstable, discuss causes and fixes with the user. Edit measure.sh to address issues, then re-run validation. Repeat until stable or the user accepts the risk.
 13. **Update Config** — Once the user is satisfied with measurement stability, update config.json with the recommended noise_threshold and repeats. Also add a \`computed\` object with \`avg_duration_ms\` from the validation output (this powers time estimates in the run configuration UI). Use the Edit tool. Confirm completion: "Setup complete! Your program is ready. Press Escape to go back."
@@ -93,6 +93,25 @@ Choose a short, descriptive slug for the program:
 5. COMMIT: Stage and commit with message format: "<type>(scope): description"
 \`\`\`
 
+### build.sh Format (optional)
+
+\`\`\`bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build/compile step — runs ONCE before measurement runs
+<build logic, e.g. npm run build, cargo build --release, etc.>
+\`\`\`
+
+Create build.sh when the project has a build/compile step that doesn't need to repeat for each measurement. If the project has no build step, skip this file entirely.
+
+Requirements:
+- Shebang: \`#!/usr/bin/env bash\`
+- \`set -euo pipefail\`
+- Exit 0 on success, nonzero on failure
+- Should complete in <2 minutes
+- Do NOT include measurement logic — that goes in measure.sh
+
 ### measure.sh Format
 
 \`\`\`bash
@@ -100,9 +119,10 @@ Choose a short, descriptive slug for the program:
 set -euo pipefail
 
 # <Brief description of what this measures>
+# IMPORTANT: Do NOT include build/compile steps here — those go in build.sh
 # Output: JSON object with metric fields
 
-<measurement logic>
+<measurement logic — assumes project is already built>
 
 # Output MUST be a single JSON object on stdout, nothing else
 echo '{"<metric_field>": <value>}'
@@ -119,6 +139,7 @@ Requirements:
 - Reuse long-lived processes: keep dev servers running, reuse browser instances
 - The metric field name MUST match \`metric_field\` in config.json
 - All quality gate fields MUST be present in the JSON output as finite numbers
+- Do NOT include build/compile steps — the orchestrator runs build.sh separately before measuring
 
 ### config.json Format
 
@@ -156,14 +177,15 @@ When the user confirms, save files in this exact order:
    mkdir -p ${programsDir}/<slug>
    \`\`\`
 
-2. Write all three files:
+2. Write the files:
    - Write program.md to: ${programsDir}/<slug>/program.md
+   - Write build.sh to: ${programsDir}/<slug>/build.sh (only if the project has a build step)
    - Write measure.sh to: ${programsDir}/<slug>/measure.sh
    - Write config.json to: ${programsDir}/<slug>/config.json
 
-3. Make measure.sh executable:
+3. Make scripts executable:
    \`\`\`bash
-   chmod +x ${programsDir}/<slug>/measure.sh
+   chmod +x ${programsDir}/<slug>/measure.sh ${programsDir}/<slug>/build.sh 2>/dev/null; true
    \`\`\`
 
 4. Confirm to the user:
@@ -187,18 +209,32 @@ Run this exact command via Bash (substituting the actual slug):
 bun run ${VALIDATE_SCRIPT} ${programsDir}/<slug>/measure.sh ${programsDir}/<slug>/config.json 5
 \`\`\`
 
-This runs 1 warmup run (excluded from stats) + 5 measurement runs, validates each output against config.json, and computes variance statistics. The output is a JSON object with the results.
+The validation script:
+- Runs build.sh once first if ${programsDir}/<slug>/build.sh exists
+- Runs 1 warmup measurement (excluded from stats)
+- Runs 5 measurement iterations sequentially
+- Validates every output against config.json
+- Computes variance statistics and avg_duration_ms
+- Outputs a JSON object with the full results
+
+Do NOT announce validation separately — it flows directly from saving. Just start running.
 
 ### Interpreting Results
 
-The validation script computes the **coefficient of variation (CV%)** — the ratio of standard deviation to mean, expressed as a percentage. Lower CV% = more stable measurements.
-
 | CV% | Assessment | What to tell the user |
 |-----|-----------|----------------------|
-| < 5% | Excellent | "Your measurement is very stable. Noise threshold of 2% and 3 repeats per experiment should work well." |
+| < 1% | Deterministic | "Your measurement is fully deterministic — no need to repeat. 1 repeat per experiment is enough." |
+| 1–5% | Excellent | "Your measurement is very stable. Noise threshold of 2% and 3 repeats per experiment should work well." |
 | 5–15% | Acceptable | "Measurements have moderate variance. I recommend a noise threshold of X% and 5 repeats per experiment to ensure reliable results." |
 | 15–30% | Noisy | "Measurements show significant variance (CV% = X%). This means small improvements will be hard to detect. Let's try to reduce the noise before proceeding." |
 | ≥ 30% | Unstable | "Measurements are too noisy to run reliable experiments (CV% = X%). We need to fix this before proceeding." |
+
+Recommended config values based on CV%:
+- CV% < 1% (deterministic): noise_threshold=0.01, repeats=1 — metric is fully deterministic (e.g. bundle size, line count), no need to repeat
+- CV% 1–5%: noise_threshold=0.02, repeats=3
+- CV% 5–15%: noise_threshold=max(CV%*1.5/100, 0.05), repeats=5
+- CV% 15–30%: noise_threshold=max(CV%*2/100, 0.10), repeats=7
+- CV% ≥ 30%: Do NOT recommend config — fix the measurement first
 
 ### Common Noise Causes & Fixes
 
@@ -216,7 +252,7 @@ After fixing, re-run validation with the same command.
 
 ### Updating Config
 
-When the user accepts the measurement stability, update config.json with the recommended noise_threshold and repeats using the Edit tool. The validation script's "recommendations" field provides the suggested values. Also add \`"computed": { "avg_duration_ms": <value> }\` using the \`avg_duration_ms\` from the validation output.
+When the user accepts the measurement stability, update config.json with the recommended noise_threshold and repeats using the Edit tool. Also add \`"computed": { "avg_duration_ms": <value> }\` using the validation output's \`avg_duration_ms\`.
 
 Always confirm with the user before updating: "Based on the validation results, I recommend a noise threshold of X% and Y repeats. Should I update config.json?"
 
@@ -288,7 +324,7 @@ ${programMd}
 - Make exactly ONE focused change per iteration
 - Always commit your change with: git add -A && git commit -m "<type>(scope): description"
 - NEVER modify files in .autoauto/ — these are locked by the orchestrator
-- NEVER modify measure.sh or config.json — they are read-only (chmod 444)
+- NEVER modify measure.sh, build.sh, or config.json — they are read-only (chmod 444)
 - If validation fails and you cannot fix it, exit without committing
 - Do NOT ask for human input — you are autonomous
 - Do NOT run the measurement script — the orchestrator handles that

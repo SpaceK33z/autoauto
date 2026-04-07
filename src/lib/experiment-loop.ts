@@ -72,12 +72,16 @@ async function readEvaluatorSnapshot(
   programDir: string,
   projectRoot: string,
 ): Promise<EvaluatorFileSnapshot[]> {
-  const paths = [join(programDir, "measure.sh"), join(programDir, "config.json")]
-  return Promise.all(paths.map(async (path) => ({
-    path,
-    label: relative(projectRoot, path),
-    content: await readFile(path, "utf-8"),
-  })))
+  const paths = [join(programDir, "measure.sh"), join(programDir, "config.json"), join(programDir, "build.sh")]
+  const results = await Promise.all(paths.map(async (path) => {
+    try {
+      const content = await readFile(path, "utf-8")
+      return { path, label: relative(projectRoot, path), content }
+    } catch {
+      return null // build.sh may not exist
+    }
+  }))
+  return results.filter((r): r is EvaluatorFileSnapshot => r !== null)
 }
 
 async function getEvaluatorViolations(snapshot: EvaluatorFileSnapshot[]): Promise<string[]> {
@@ -129,6 +133,7 @@ async function revertAndVerify(projectRoot: string, startSha: string, errorConte
 async function maybeRebaseline(
   consecutiveDiscards: number,
   measureShPath: string,
+  buildShPath: string,
   projectRoot: string,
   config: ProgramConfig,
   state: RunState,
@@ -141,7 +146,7 @@ async function maybeRebaseline(
   }
 
   callbacks.onPhaseChange("measuring", `re-baselining after ${consecutiveDiscards} consecutive discards`)
-  const driftCheck = await runMeasurementSeries(measureShPath, projectRoot, config, signal)
+  const driftCheck = await runMeasurementSeries(measureShPath, projectRoot, config, signal, buildShPath)
 
   if (!driftCheck.success) return state
 
@@ -177,6 +182,7 @@ async function runMeasurementAndDecide(
   projectRoot: string,
   runDir: string,
   measureShPath: string,
+  buildShPath: string,
   config: ProgramConfig,
   state: RunState,
   startSha: string,
@@ -191,10 +197,11 @@ async function runMeasurementAndDecide(
   let currentState: RunState = { ...state, phase: "measuring", updated_at: now() }
   await writeState(runDir, currentState)
 
-  const series = await runMeasurementSeries(measureShPath, projectRoot, config, signal)
+  const series = await runMeasurementSeries(measureShPath, projectRoot, config, signal, buildShPath)
 
   // 2. Handle measurement failure
   if (!series.success) {
+    const failureReason = series.failure_reason ?? "unknown measurement error"
     callbacks.onPhaseChange("reverting", "measurement failed")
     currentState = { ...currentState, phase: "reverting", updated_at: now() }
     await writeState(runDir, currentState)
@@ -207,7 +214,7 @@ async function runMeasurementAndDecide(
       metric_value: 0,
       secondary_values: "",
       status: "measurement_failure",
-      description: `measurement failed: ${description}`,
+      description: `measurement failed (${failureReason}): ${description}`,
     }
     await appendResult(runDir, result)
     callbacks.onExperimentEnd(result)
@@ -282,7 +289,7 @@ async function runMeasurementAndDecide(
 
     // Re-baseline: fresh measurement on the kept code
     callbacks.onPhaseChange("measuring", "re-baselining after keep")
-    const rebaseline = await runMeasurementSeries(measureShPath, projectRoot, config, signal)
+    const rebaseline = await runMeasurementSeries(measureShPath, projectRoot, config, signal, buildShPath)
     const newBaseline = rebaseline.success ? rebaseline.median_metric : series.median_metric
 
     if (rebaseline.success && newBaseline !== series.median_metric) {
@@ -354,6 +361,7 @@ export async function runExperimentLoop(
 ): Promise<RunState> {
   const programDir = getProgramDir(projectRoot, programSlug)
   const measureShPath = join(programDir, "measure.sh")
+  const buildShPath = join(programDir, "build.sh")
   let state = await readState(runDir)
   let consecutiveDiscards = 0
 
@@ -518,7 +526,7 @@ export async function runExperimentLoop(
       await writeState(runDir, state)
       wrappedCallbacks.onStateUpdate(state)
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
       continue
     }
 
@@ -568,7 +576,7 @@ export async function runExperimentLoop(
       await writeState(runDir, state)
       wrappedCallbacks.onStateUpdate(state)
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
       continue
     }
 
@@ -580,7 +588,7 @@ export async function runExperimentLoop(
 
     // --- Hand off to measurement ---
     const measurementResult = await runMeasurementAndDecide(
-      projectRoot, runDir, measureShPath,
+      projectRoot, runDir, measureShPath, buildShPath,
       config, state, startSha, candidateSha, outcome.description,
       wrappedCallbacks, options.signal,
     )
@@ -597,7 +605,7 @@ export async function runExperimentLoop(
       consecutiveDiscards = 0
     } else {
       consecutiveDiscards++
-      state = await maybeRebaseline(consecutiveDiscards, measureShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
+      state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, projectRoot, config, state, runDir, wrappedCallbacks, options.signal)
     }
 
     wrappedCallbacks.onStateUpdate(state)

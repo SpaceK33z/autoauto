@@ -5,6 +5,7 @@ interface ResultsTableProps {
   results: ExperimentResult[]
   metricField: string
   width: number
+  experimentNumber?: number
 }
 
 function statusColor(status: ExperimentStatus): string {
@@ -42,7 +43,7 @@ const FIXED_COLS_WIDTH = 4 + 9 + 12 + 12 // #, commit, metric, status
 // outer border (2) + paddingX (2)
 const CHROME_WIDTH = 4
 
-export function ResultsTable({ results, metricField, width }: ResultsTableProps) {
+export function ResultsTable({ results, metricField, width, experimentNumber }: ResultsTableProps) {
   // Skip the baseline row (#0) — it's in the stats header
   const experiments = results.filter(r => r.experiment_number > 0)
   const descWidth = Math.max(width - CHROME_WIDTH - FIXED_COLS_WIDTH, 10)
@@ -50,14 +51,18 @@ export function ResultsTable({ results, metricField, width }: ResultsTableProps)
   return (
     <box flexDirection="column" flexGrow={1}>
       <box paddingX={1}>
-        <text fg="#888888">
+        <text fg="#a9b1d6">
           {padRight("#", 4)}{padRight("commit", 9)}{padRight(metricField, 12)}{padRight("status", 12)}{padRight("description", descWidth)}
         </text>
       </box>
       <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
         {experiments.length === 0 ? (
           <box paddingX={1}>
-            <text fg="#565f89">No experiments yet...</text>
+            <text fg="#a9b1d6">
+              {experimentNumber != null && experimentNumber > 0
+                ? `Running experiment #${experimentNumber}...`
+                : "Running baseline measurement..."}
+            </text>
           </box>
         ) : (
           experiments.map((r) => (

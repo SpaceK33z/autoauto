@@ -36,9 +36,9 @@ function Divider({ width, label }: { width: number; label?: string }) {
   if (label) {
     const labelStr = `─ ${label} `
     const rest = "─".repeat(Math.max(innerWidth - labelStr.length, 0))
-    return <text fg="#414868">{labelStr}{rest}</text>
+    return <text fg="#565f89">{labelStr}{rest}</text>
   }
-  return <text fg="#414868">{"─".repeat(innerWidth)}</text>
+  return <text fg="#565f89">{"─".repeat(innerWidth)}</text>
 }
 
 export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, navigate, maxExperiments }: ExecutionScreenProps) {
@@ -243,6 +243,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             results={results}
             metricField={programConfig?.metric_field ?? "metric"}
             width={termWidth}
+            experimentNumber={experimentNumber}
           />
 
           <Divider width={termWidth} label="Agent" />
@@ -308,7 +309,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             ) : (
               <text fg="#888888">No changes to squash (0 keeps)</text>
             )}
-            <text fg="#565f89">Summary saved to run directory. Press Escape to go back.</text>
+            <text fg="#a9b1d6">Summary saved to run directory. Press Escape to go back.</text>
           </box>
           <scrollbox flexGrow={1} focused>
             <box paddingX={1} flexDirection="column">

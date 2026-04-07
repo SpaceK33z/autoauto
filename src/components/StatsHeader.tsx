@@ -55,20 +55,20 @@ export function StatsHeader(props: StatsHeaderProps) {
             {"  "}
             <span fg="#ff5555">✗ {props.totalDiscards}</span>
             {"  "}
-            <span fg="#565f89">⚡ {props.totalCrashes}</span>
+            <span fg="#a9b1d6">⚡ {props.totalCrashes}</span>
             {"    "}
-            <span fg="#565f89">$</span>
-            <span fg="#888888">{props.totalCostUsd.toFixed(2)}</span>
+            <span fg="#a9b1d6">$</span>
+            <span fg="#c0caf5">{props.totalCostUsd.toFixed(2)}</span>
             {"    "}
-            <span fg="#565f89">#{props.experimentNumber}</span>
+            <span fg="#a9b1d6">#{props.experimentNumber}</span>
           </text>
         </box>
         <box>
           <text>
-            <span fg="#565f89">baseline </span>
+            <span fg="#a9b1d6">baseline </span>
             <span fg="#7aa2f7">{props.currentBaseline}</span>
             {"   "}
-            <span fg="#565f89">{"best "}</span>
+            <span fg="#a9b1d6">{"best "}</span>
             <span fg="#9ece6a">{props.bestMetric}</span>
             {improvementStr ? (
               <>
@@ -86,8 +86,8 @@ export function StatsHeader(props: StatsHeaderProps) {
         </box>
         <box>
           <text>
-            <span fg="#565f89">{"› "}</span>
-            <span fg="#888888">{props.currentPhaseLabel}</span>
+            <span fg="#a9b1d6">{"› "}</span>
+            <span fg="#c0caf5">{props.currentPhaseLabel}</span>
           </text>
         </box>
       </box>

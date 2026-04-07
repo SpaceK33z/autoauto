@@ -70,15 +70,17 @@ export function generateRunId(): string {
 
 // --- Evaluator Locking ---
 
-/** Makes measure.sh and config.json read-only (chmod 444). #1 safeguard against metric gaming. */
+/** Makes measure.sh, build.sh, and config.json read-only (chmod 444). #1 safeguard against metric gaming. */
 export async function lockEvaluator(programDir: string): Promise<void> {
   await chmod(join(programDir, "measure.sh"), 0o444)
   await chmod(join(programDir, "config.json"), 0o444)
+  await chmod(join(programDir, "build.sh"), 0o444).catch(() => {})
 }
 
 export async function unlockEvaluator(programDir: string): Promise<void> {
   await chmod(join(programDir, "measure.sh"), 0o644)
   await chmod(join(programDir, "config.json"), 0o644)
+  await chmod(join(programDir, "build.sh"), 0o644).catch(() => {})
 }
 
 // --- Run Directory ---
@@ -280,6 +282,7 @@ export async function startRun(
 ): Promise<{ runId: string; runDir: string; state: RunState; originalBranch: string }> {
   const programDir = getProgramDir(projectRoot, programSlug)
   const measureShPath = join(programDir, "measure.sh")
+  const buildShPath = join(programDir, "build.sh")
 
   const config = await loadProgramConfig(programDir)
 
@@ -301,12 +304,16 @@ export async function startRun(
     await checkoutBranch(projectRoot, originalBranchName).catch(() => {})
   }
 
-  const baseline = await runMeasurementSeries(measureShPath, projectRoot, config)
+  const baseline = await runMeasurementSeries(measureShPath, projectRoot, config, undefined, buildShPath)
 
   if (!baseline.success) {
     await cleanup()
+    const failureDetails = [
+      baseline.failure_reason,
+      ...baseline.individual_runs.map((r) => (r.success ? null : r.error)),
+    ].filter((detail): detail is string => Boolean(detail))
     throw new Error(
-      `Baseline measurement failed: ${baseline.individual_runs.map((r) => (r.success ? "ok" : r.error)).join(", ")}`,
+      `Baseline measurement failed: ${failureDetails.join(", ") || "unknown error"}`,
     )
   }
 

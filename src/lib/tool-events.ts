@@ -37,6 +37,15 @@ export function formatToolEvent(
     case "Bash": {
       const command = input.command
       if (typeof command === "string") {
+        if (command.includes("validate-measurement")) {
+          return "Validating measurement stability — this may take a minute"
+        }
+        if (command.includes("build.sh")) {
+          return "Running build step"
+        }
+        if (command.includes("measure.sh")) {
+          return "Running measurement"
+        }
         const truncated =
           command.length > 60 ? `${command.slice(0, 57)}...` : command
         return `Running: ${truncated}`

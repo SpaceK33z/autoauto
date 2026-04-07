@@ -56,6 +56,7 @@ All state lives inside the target repo, gitignored (`.autoauto/` is added to `.g
   programs/
     homepage-lcp/
       program.md                 # agent instructions + scope constraints (structured)
+      build.sh                   # optional one-time build/compile step before measurement
       measure.sh                 # generated measurement script
       config.json                # metric field, direction, noise threshold, repeats, quality gates
       runs/
@@ -214,7 +215,7 @@ The orchestrator loop. AutoAuto controls the loop, the agent is stateless betwee
 6. Re-measure baseline after keeps (code changed) and after consecutive discards (check for environment drift)
 7. Loop until manually stopped or max experiment count reached
 
-**Locked evaluator:** `measure.sh` and `config.json` are made read-only (`chmod 444`) before the experiment loop starts. The Experiment Agent must never modify the measurement script or metric config — this is the #1 safeguard against metric gaming. If the agent attempts to edit these files, the orchestrator treats it as a discard.
+**Locked evaluator:** `measure.sh`, optional `build.sh`, and `config.json` are made read-only (`chmod 444`) before the experiment loop starts. The Experiment Agent must never modify the measurement/build scripts or metric config — this is the #1 safeguard against metric gaming. If the agent attempts to edit these files, the orchestrator treats it as a discard.
 
 **Agent tools:** Read, Write, Edit, Bash, Glob, Grep. No directory scoping — trust the system prompt and scope constraints in program.md. Failures are safely reverted.
 

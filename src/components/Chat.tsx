@@ -227,6 +227,7 @@ export function Chat({
   useKeyboard((key) => {
     const textarea = textareaRef.current
     if (!textarea || isStreaming) return
+    if (textarea.focused) return
     // Only intercept printable single-character keys (no ctrl/meta combos)
     if (key.ctrl || key.meta || key.name.length !== 1) return
     textarea.focus()

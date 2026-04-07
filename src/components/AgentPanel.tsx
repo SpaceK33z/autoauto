@@ -11,13 +11,13 @@ export function AgentPanel({ streamingText, toolStatus, isRunning }: AgentPanelP
     <box flexDirection="column" flexGrow={1}>
       {toolStatus && isRunning && (
         <box paddingX={1}>
-          <text fg="#565f89">⟳ {toolStatus}</text>
+          <text fg="#a9b1d6">⟳ {toolStatus}</text>
         </box>
       )}
       <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
         {!streamingText && !toolStatus && isRunning && (
           <box paddingX={1}>
-            <text fg="#565f89">Waiting for agent...</text>
+            <text fg="#a9b1d6">Waiting for agent...</text>
           </box>
         )}
         {streamingText && (
