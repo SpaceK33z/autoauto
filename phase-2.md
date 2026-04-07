@@ -11,11 +11,11 @@ High-level tasks to complete the orchestrator loop described in [IDEA.md](./IDEA
 
 ## 2b. Experiment Loop
 
-- [ ] Build context packet for each iteration (baseline, recent results.tsv rows, git log, last outcome summary, discarded diffs)
-- [ ] Spawn fresh Experiment Agent with context packet + `program.md` instructions
-- [ ] Agent tools: read files, edit files, bash (git commit, builds, web search)
-- [ ] Enforce single-commit-per-experiment discipline
-- [ ] Detect and reject agent attempts to modify locked `measure.sh` / `config.json`
+- [x] Build context packet for each iteration (baseline, recent results.tsv rows, git log, last outcome summary, discarded diffs)
+- [x] Spawn fresh Experiment Agent with context packet + `program.md` instructions
+- [x] Agent tools: read files, edit files, bash (git commit, builds, web search)
+- [x] Enforce single-commit-per-experiment discipline
+- [x] Detect and reject agent attempts to modify locked `measure.sh` / `config.json`
 
 ## 2c. Measurement & Decision
 
