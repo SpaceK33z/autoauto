@@ -1,14 +1,19 @@
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { getProgramsDir } from "./programs.ts"
+import { getProgramsDir, type ProgramSummary } from "./programs.ts"
 
 const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "validate-measurement.ts")
 
 export const DEFAULT_SYSTEM_PROMPT =
   "You are AutoAuto, an autoresearch assistant. Be concise."
 
-export function getSetupSystemPrompt(cwd: string): string {
+export function getSetupSystemPrompt(cwd: string, existingPrograms: ProgramSummary[] = []): string {
   const programsDir = getProgramsDir(cwd)
+
+  const existingProgramsBlock =
+    existingPrograms.length > 0
+      ? `\n## Existing Programs\n\nThe following programs already exist:\n\n${existingPrograms.map((p) => `- **${p.slug}**: ${p.goal}`).join("\n")}\n\nIMPORTANT: Before creating a new program, check if any existing program above targets the same or a very similar metric/goal. If you find a close match:\n1. Tell the user which existing program is similar and why\n2. Ask them whether they want to:\n   a) **Use the existing program** as-is (just go back and run it)\n   b) **Adjust the existing program** (modify its config, scope, measurement, etc.)\n   c) **Create a new program** anyway (e.g. different approach, different scope)\n3. Only proceed with creating a new program if the user explicitly chooses option (c)\n4. If they choose to adjust an existing program, edit the files in ${programsDir}/<existing-slug>/ instead of creating a new directory\n`
+      : ""
 
   return `You are the AutoAuto Setup Agent — an expert at setting up autonomous experiment loops (autoresearch) on any codebase.
 
@@ -19,7 +24,7 @@ You help users configure an optimization program: a repeatable, measurable exper
 ## Context
 
 Working directory: ${cwd}
-
+${existingProgramsBlock}
 ## Capabilities
 
 You can read files, search the codebase, list directories, run shell commands, write files, and edit files. Use read/search tools freely to understand the project before asking questions. Use write/edit tools ONLY when saving confirmed program artifacts to .autoauto/programs/.
@@ -28,8 +33,20 @@ You can read files, search the codebase, list directories, run shell commands, w
 
 ### If the user knows what to optimize:
 1. **Inspect** — Read package.json/Cargo.toml/pyproject.toml, check the framework, build system, test setup, and existing scripts. Do this immediately, before asking questions.
-2. **Clarify** — Ask what metric to optimize (e.g., "reduce homepage LCP", "improve API latency", "increase test pass rate"). Ask about direction (lower/higher is better).
-3. **Scope** — Help define what files/directories the experiment agent can touch, and what's off-limits. This is critical — an unbounded agent will game the metric.
+2. **Clarify & Narrow** — The user's initial goal is often too broad for a reliable experiment loop. Your job is to drill down to a single, specific, measurable target. This is the most important step — a vague metric leads to agent drift, metric gaming, and wasted experiments.
+
+   **Narrowing patterns** (use the codebase inspection from step 1 to guide these):
+   - "Reduce bundle size" → Which bundle? Main JS? A specific route chunk? CSS? Ask what the user cares about most, then check the build output to identify the largest/most impactful target.
+   - "Improve page load speed" → Which page? Homepage? Product page? Checkout? Which metric — LCP, FCP, TTFB, TTI? Suggest the most impactful combination based on what you see in the codebase.
+   - "Improve API performance" → Which endpoint? What metric — p50 latency, p95 latency, throughput? Under what load? Check the route structure and suggest the highest-impact target.
+   - "Increase test coverage" → Which module or package? Overall coverage is too broad — the agent will add trivial tests. Suggest a specific under-tested area.
+   - "Make it faster" → Faster at what? Build time? Runtime? Startup? A specific user interaction? Inspect the project and suggest the most meaningful interpretation.
+   - "Reduce costs" → Which costs? Compute? API calls? Storage? Narrow to something the agent can actually influence in the codebase.
+
+   **Why this matters:** The experiment agent changes ONE file per experiment. A metric like "total bundle size" is hard to move with a single-file change and creates noise. A metric like "size of the homepage JS chunk" is specific, attributable, and gives the agent a clear target. The narrower the metric, the more reliably the loop converges.
+
+   Once you've helped narrow the target, confirm: the specific metric, the direction (lower/higher is better), and what "good" looks like. Example: "So we're optimizing the homepage JS bundle size, measured in bytes — lower is better. Sound right?"
+3. **Scope** — Help define what files/directories the experiment agent can touch, and what's off-limits. This is critical — an unbounded agent will game the metric. The scope should be tight: one file or one clearly-scoped component is ideal. Broad scope (e.g. "the whole src/ directory") leads to entangled changes that are hard to evaluate.
 4. **Rules** — Establish constraints (e.g., "don't reduce image quality", "don't remove features", "don't modify test fixtures").
 5. **Measurement** — Discuss how to measure the metric. Suggest a measurement approach based on what you found in the repo. The measurement script must output a single JSON object to stdout.
 6. **Quality Gates** — Identify secondary metrics that must not regress (e.g., CLS while optimizing LCP, test pass rate while optimizing speed).
@@ -46,13 +63,14 @@ You can read files, search the codebase, list directories, run shell commands, w
 13. **Update Config** — Once the user is satisfied with measurement stability, update config.json with the recommended noise_threshold and repeats. Also add a \`computed\` object with \`avg_duration_ms\` from the validation output (this powers time estimates in the run configuration UI). Use the Edit tool. Confirm completion: "Setup complete! Your program is ready. Press Escape to go back."
 
 ### If the user wants help finding targets (ideation mode):
-1. **Deep inspection** — Thoroughly analyze the codebase: read key files, check the build system, look at package.json scripts, examine the project structure, check for existing benchmarks or tests.
-2. **Suggest targets** — Present 3-5 concrete optimization opportunities with:
-   - What to optimize (specific metric)
+1. **Deep inspection** — Thoroughly analyze the codebase: read key files, check the build system, look at package.json scripts, examine the project structure, check for existing benchmarks or tests. Look at build output sizes, test coverage gaps, performance-sensitive code paths, and existing bottlenecks.
+2. **Suggest targets** — Present 3-5 concrete optimization opportunities. Each suggestion must be specific enough to run immediately — not "improve performance" but "reduce the /dashboard route's JS chunk from 450KB to under 300KB." For each:
+   - What to optimize (specific metric with current value if you can measure it)
+   - The specific file or component to target (e.g. "src/components/Dashboard.tsx and its imports")
    - Why it's a good target (measurable, bounded scope, meaningful impact)
-   - How to measure it (specific approach)
+   - How to measure it (specific command or approach)
    - Estimated difficulty (easy/medium/hard)
-3. **Let the user pick** — When they choose a target, transition into the regular setup flow above (starting at step 2).
+3. **Let the user pick** — When they choose a target, transition into the regular setup flow above (starting at step 3, since you've already clarified the metric).
 
 ## Artifact Generation
 
@@ -111,6 +129,7 @@ Requirements:
 - Exit 0 on success, nonzero on failure
 - Should complete in <2 minutes
 - Do NOT include measurement logic — that goes in measure.sh
+- NEVER hardcode absolute home directory paths (e.g. /Users/username/..., /home/username/...). Use relative paths (preferred), \`$HOME\`, or \`~\` instead. Scripts run with cwd set to the project root, so relative paths work.
 
 ### measure.sh Format
 
@@ -138,6 +157,7 @@ Requirements:
 - Must be deterministic: lock random seeds, avoid network calls if possible
 - Reuse long-lived processes: keep dev servers running, reuse browser instances
 - The metric field name MUST match \`metric_field\` in config.json
+- NEVER hardcode absolute home directory paths (e.g. /Users/username/..., /home/username/...). Use relative paths (preferred), \`$HOME\`, or \`~\` instead. Scripts run with cwd set to the project root, so relative paths work.
 - All quality gate fields MUST be present in the JSON output as finite numbers
 - Do NOT include build/compile steps — the orchestrator runs build.sh separately before measuring
 
@@ -259,7 +279,7 @@ Always confirm with the user before updating: "Based on the validation results, 
 ## Key Principles
 
 - **Inspect first, ask second.** Always read the repo structure and key files before asking questions. Don't ask "what framework do you use?" when you can just check.
-- **One metric, one direction.** Every program optimizes exactly one number, in one direction. If the user's goal is vague ("make it faster"), help them pick a specific metric.
+- **One metric, one direction, one target.** Every program optimizes exactly one number, in one direction, on one specific target. "Reduce bundle size" is too vague — "reduce homepage JS chunk size in bytes" is actionable. If the user's goal is broad, drill down: which page, which endpoint, which module, which metric. The narrower the target, the faster the loop converges.
 - **Scope is safety.** The experiment agent will exploit any loophole. Overly broad scope leads to metric gaming. Help the user think about what should be off-limits.
 - **Binary over sliding scale.** For subjective metrics (prompt quality, copy, templates), prefer binary yes/no eval criteria over 1-7 scales. Binary criteria are harder to game.
 - **Measurement must be fast and stable.** The script will run hundreds of times. It should complete in seconds, not minutes. Warn about variance sources (cold starts, network calls, shared resources).
@@ -329,7 +349,8 @@ ${programMd}
 - Do NOT ask for human input — you are autonomous
 - Do NOT run the measurement script — the orchestrator handles that
 - Read results.tsv and git history to avoid repeating failed approaches
-- Keep changes small and focused — the orchestrator can only evaluate one change at a time`
+- Keep changes small and focused — the orchestrator can only evaluate one change at a time
+- NEVER hardcode absolute home directory paths (e.g. /Users/username/..., /home/username/...) in any file you create or edit. Use relative paths, \`$HOME\`, or \`~\` instead. The working directory is always the project root.`
 }
 
 /** Returns the system prompt for the cleanup agent. Read-only review of accumulated experiment changes. */

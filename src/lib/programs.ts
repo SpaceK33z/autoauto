@@ -166,6 +166,38 @@ export async function loadProgramConfig(programDir: string): Promise<ProgramConf
   return validateProgramConfig(JSON.parse(raw))
 }
 
+/** Summary of an existing program for duplicate detection during setup. */
+export interface ProgramSummary {
+  slug: string
+  goal: string
+}
+
+/** Loads summaries (slug + goal line from program.md) for all existing programs. */
+export async function loadProgramSummaries(cwd: string): Promise<ProgramSummary[]> {
+  const root = await getProjectRoot(cwd)
+  const programsDir = join(root, AUTOAUTO_DIR, "programs")
+  let entries: import("node:fs").Dirent[]
+  try {
+    entries = (await readdir(programsDir, { withFileTypes: true })).filter((e) => e.isDirectory())
+  } catch {
+    return []
+  }
+  const summaries = await Promise.all(
+    entries.map(async (e) => {
+      try {
+        const md = await readFile(join(programsDir, e.name, "program.md"), "utf-8")
+        // Extract the Goal section content
+        const goalMatch = md.match(/## Goal\n+([\s\S]*?)(?:\n##|\n*$)/)
+        const goal = goalMatch ? goalMatch[1].trim() : "(no goal defined)"
+        return { slug: e.name, goal }
+      } catch {
+        return { slug: e.name, goal: "(could not read program.md)" }
+      }
+    }),
+  )
+  return summaries
+}
+
 export async function ensureAutoAutoDir(cwd: string): Promise<void> {
   const root = await getProjectRoot(cwd)
   const dir = join(root, AUTOAUTO_DIR)

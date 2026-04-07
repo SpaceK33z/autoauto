@@ -1,9 +1,9 @@
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { TextareaOptions } from "@opentui/core"
 import { Chat } from "../components/Chat.tsx"
 import { getSetupSystemPrompt } from "../lib/system-prompts.ts"
-import type { Screen } from "../lib/programs.ts"
+import { loadProgramSummaries, type Screen, type ProgramSummary } from "../lib/programs.ts"
 import type { ModelSlot } from "../lib/config.ts"
 
 type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
@@ -33,7 +33,13 @@ interface SetupScreenProps {
 }
 
 export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
-  const systemPrompt = useMemo(() => getSetupSystemPrompt(cwd), [cwd])
+  const [existingPrograms, setExistingPrograms] = useState<ProgramSummary[]>([])
+
+  useEffect(() => {
+    loadProgramSummaries(cwd).then(setExistingPrograms).catch(() => {})
+  }, [cwd])
+
+  const systemPrompt = useMemo(() => getSetupSystemPrompt(cwd, existingPrograms), [cwd, existingPrograms])
   const [mode, setMode] = useState<SetupMode>("choose")
   const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined)
 
