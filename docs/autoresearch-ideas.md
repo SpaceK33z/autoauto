@@ -4,6 +4,20 @@ AutoAuto is **not for model training** — no training loops, datasets, or GPUs 
 
 Below is a list of ideas extracted from real-world experience across the [reference articles](../references/articles/INDEX.md).
 
+## Target Categories Ranked by Speed of Results
+
+From Saladi's Builder's Playbook — ranked by how quickly you'll see value:
+
+1. **Claude Skills / SKILL.md files** — "the killer app." Pure text, single file, measurable output, small changes compound fast. ~$0.10/cycle.
+2. **System prompts** — written once, rarely tested. Optimize for specificity, formatting compliance, error handling, consistency.
+3. **Content templates** — newsletters, emails, landing pages, social posts. Scored against binary rubrics.
+4. **Agent workflows** — multi-step tool-calling configs. Optimize tool sequences, error recovery, output quality.
+5. **Eval criteria themselves** — "the meta play." A second loop optimizes the scoring rubric used by the first loop.
+
+**Selection heuristic:** Start with whatever frustrates you most — the prompt you re-run 3 times, the skill that fails on edge cases, the workflow that goes off the rails.
+
+---
+
 ## Software Performance
 
 - **JSON serialization throughput.** pi-autoresearch improved jsonista (Clojure JSON lib) by 56% ops/sec — found PersistentArrayMap for small maps, string key specialization, and unrolled duplicate key checks via switch/case for map sizes 3-4.
@@ -12,6 +26,7 @@ Below is a list of ideas extracted from real-world experience across the [refere
 - **Frontend bundle size.** Works well for constrained targets — fewer knobs, clear metric (bytes), hard to game.
 - **Binary size / compile time.** Any build artifact with a numeric size or speed metric as the fitness function.
 - **Hotspot function latency.** Constrained loops around a benchmarked function: p50/p95 latency, throughput, memory allocations, or compression ratio. Strong fit when the agent can only edit the hot path and a verification suite catches semantic regressions.
+- **GPU kernel / training optimization.** Karpathy's original run found 20 improvements including a genuine attention implementation bug. The 11% speedup transferred to larger models — not just an eval artifact. ~125 experiments over two overnight sessions, ~12 experiments/hour.
 - **Self-improving coding agents.** Agent iteratively edits its own source code to improve benchmark performance.
 
 ## Test Stability
@@ -83,4 +98,6 @@ Below is a list of ideas extracted from real-world experience across the [refere
 - **Co-optimization over sequential tuning.** If two components shape each other's distribution, tune them in one loop. Sequential rounds can overfit the first component and leave the second unable to improve without undoing earlier gains.
 - **Safety penalties in the score.** For latency, cost, or conversion loops, include hard penalties for broken correctness, compliance, safety, spend, or data quality. Otherwise agents learn to win by deleting safeguards.
 - **Ideas backlog as institutional memory.** Every failed experiment forces the agent to document what it tried, preventing repeated mistakes across sessions and crash recovery.
-- **Human-in-the-loop acceleration.** Agent explores → hits ceiling → human nudges direction → agent continues. Repeatably outperforms pure manual or pure autonomous iteration.
+- **Single-context-window constraint.** The 630-line editable file is deliberate (paddo): keeping the entire codebase in one context window prevents hallucinated imports and fragmentation. When expanding to larger targets, consider splitting into independently measurable components rather than one large file.
+- **Human-in-the-loop acceleration.** Agent explores → hits ceiling → human nudges direction → agent continues. Repeatably outperforms pure manual or pure autonomous iteration. Barazany's 165-experiment run used this pattern repeatedly: rubber duck debugging at experiment 30, research sub-agent spawning mid-run, targeted direction suggestions at each plateau.
+- **Three prerequisites filter.** All three must be present: (1) a clear numerical metric, (2) an unattended evaluation tool, and (3) a single editable file. Missing any one breaks the loop. "All three true? The loop works. Any one missing? It won't." (Aakash, Saladi)

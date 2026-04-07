@@ -83,6 +83,18 @@ All state lives inside the target repo, gitignored (`.autoauto/` is added to `.g
 }
 ```
 
+Strict contract:
+
+- stdout must contain valid JSON and nothing else
+- output must be a JSON object, not an array or scalar
+- `metric_field` must exist and be a finite number (`NaN`, `Infinity`, `null`, strings = invalid)
+- every configured quality gate field must exist and be a finite number
+- nonzero exit code = crash
+- timeout = crash
+- invalid JSON, invalid metric shape, or missing/non-finite quality gate field = measurement failure
+- finite quality gate value outside its configured threshold = discard
+- repeated measurements apply to all fields, not just the primary metric; the orchestrator compares median primary metric and median quality gate values
+
 ### Program Config
 
 `config.json` declares the primary metric, direction, and quality gates:
@@ -135,7 +147,9 @@ Each experiment is logged as a row:
 experiment#	commit	metric_value	secondary_values	status	description
 ```
 
-- `status`: keep or discard
+- `status`: `keep`, `discard`, `measurement_failure`, or `crash`
+- `measurement_failure`: command exited successfully but output violated the measurement contract (invalid JSON, missing/non-finite primary metric, missing/non-finite quality gate field)
+- `crash`: nonzero exit, timeout, OOM, killed process, or other command-level failure
 - `description`: from the agent's commit message
 
 ## Measurement Templates
