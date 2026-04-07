@@ -1,7 +1,7 @@
 import { join } from "node:path"
 import type { RunState } from "./run.ts"
 import type { ModelSlot } from "./config.ts"
-import { formatRecentResults, parseLastResult, parseLastKeepResult, parseDiscardedShas } from "./run.ts"
+import { formatRecentResults, parseLastResult, parseLastKeepResult, parseDiscardedShas, parseSecondaryValues } from "./run.ts"
 import {
   getFullSha,
   getRecentLog,
@@ -36,7 +36,7 @@ export interface ContextPacket {
   last_outcome: string
   discarded_diffs: string
   ideas_backlog: string
-  secondary_metrics?: Record<string, { direction: "lower" | "higher"; current_value?: number }>
+  secondary_metrics?: Record<string, { direction: "lower" | "higher"; last_kept_value?: number }>
 }
 
 /** Cost and usage data from an agent session. */
@@ -112,16 +112,13 @@ export async function buildContextPacket(
   if (config.secondary_metrics && Object.keys(config.secondary_metrics).length > 0) {
     secondaryMetrics = {}
     const lastKeep = parseLastKeepResult(resultsRaw)
-    let lastKeepSecondary: Record<string, unknown> | null = null
-    if (lastKeep?.secondary_values) {
-      try { lastKeepSecondary = JSON.parse(lastKeep.secondary_values) as Record<string, unknown> } catch { /* ignore */ }
-    }
+    const lastKeepValues = parseSecondaryValues(lastKeep?.secondary_values)
 
     for (const [field, metric] of Object.entries(config.secondary_metrics)) {
-      const currentValue = lastKeepSecondary?.[field]
+      const currentValue = lastKeepValues.secondary_metrics[field]
       secondaryMetrics[field] = {
         direction: metric.direction,
-        current_value: typeof currentValue === "number" ? currentValue : undefined,
+        last_kept_value: typeof currentValue === "number" ? currentValue : undefined,
       }
     }
   }
@@ -151,8 +148,8 @@ export function buildExperimentPrompt(packet: ContextPacket): string {
   let secondarySection = ""
   if (packet.secondary_metrics && Object.keys(packet.secondary_metrics).length > 0) {
     const lines = Object.entries(packet.secondary_metrics).map(([field, m]) => {
-      const val = m.current_value !== undefined ? String(m.current_value) : "unknown"
-      return `- ${field}: ${val} (${m.direction} is better)`
+      const val = m.last_kept_value !== undefined ? String(m.last_kept_value) : "unknown"
+      return `- ${field}: ${val} (${m.direction} is better, last kept measurement)`
     })
     secondarySection = `
 ## Secondary Metrics (advisory — do NOT optimize at the expense of the primary metric)

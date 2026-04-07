@@ -1,5 +1,6 @@
-import { rename, mkdir, chmod, readdir, appendFile } from "node:fs/promises"
+import { rename, mkdir, chmod, readdir, appendFile, rm } from "node:fs/promises"
 import { join } from "node:path"
+import { $ } from "bun"
 import { getProgramDir, loadProgramConfig, type ProgramConfig } from "./programs.ts"
 import type { ModelSlot } from "./config.ts"
 import { runMeasurementSeries } from "./measure.ts"
@@ -27,7 +28,7 @@ export type RunPhase =
   | "stopping"
   | "complete"
   | "crashed"
-  | "cleaning_up"
+  | "finalizing"
 
 /** Termination reason for a completed run */
 export type TerminationReason = "aborted" | "max_experiments" | "stopped"
@@ -81,6 +82,45 @@ export interface ExperimentResult {
   description: string
   /** Total wall time for the measurement series (all repeats), in ms */
   measurement_duration_ms: number
+}
+
+/** Structured secondary values stored in results.tsv */
+export interface SecondaryValuesBlob {
+  quality_gates: Record<string, number>
+  secondary_metrics: Record<string, number>
+}
+
+/** Serializes quality gate and secondary metric medians into the structured JSON format. */
+export function serializeSecondaryValues(
+  qualityGates: Record<string, number>,
+  secondaryMetrics: Record<string, number>,
+): string {
+  return JSON.stringify({ quality_gates: qualityGates, secondary_metrics: secondaryMetrics })
+}
+
+/**
+ * Parses secondary_values JSON with backward compatibility.
+ * New format: { quality_gates: {...}, secondary_metrics: {...} }
+ * Old format: flat { field: value, ... } — all values placed under quality_gates.
+ */
+export function parseSecondaryValues(raw: string | undefined): SecondaryValuesBlob {
+  const empty: SecondaryValuesBlob = { quality_gates: {}, secondary_metrics: {} }
+  if (!raw) return empty
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed !== "object" || parsed === null) return empty
+    // Detect new structured format
+    if ("quality_gates" in parsed || "secondary_metrics" in parsed) {
+      return {
+        quality_gates: (parsed as Record<string, unknown>).quality_gates as Record<string, number> ?? {},
+        secondary_metrics: (parsed as Record<string, unknown>).secondary_metrics as Record<string, number> ?? {},
+      }
+    }
+    // Old flat format — treat all values as quality gates
+    return { quality_gates: parsed as Record<string, number>, secondary_metrics: {} }
+  } catch {
+    return empty
+  }
 }
 
 // --- Run ID ---
@@ -322,6 +362,30 @@ export function isRunActive(r: RunInfo): boolean {
   return phase != null && phase !== "complete" && phase !== "crashed"
 }
 
+// --- Run Deletion ---
+
+/** Deletes a completed/crashed run: removes run directory, worktree, and git branch. */
+export async function deleteRun(projectRoot: string, run: RunInfo): Promise<void> {
+  if (isRunActive(run)) {
+    throw new Error("Cannot delete an active run")
+  }
+
+  const state = run.state
+
+  // Remove worktree if it exists
+  if (state?.worktree_path) {
+    await $`git worktree remove --force ${state.worktree_path}`.cwd(projectRoot).nothrow().quiet()
+  }
+
+  // Delete the experiment branch
+  if (state?.branch_name) {
+    await $`git branch -D ${state.branch_name}`.cwd(projectRoot).nothrow().quiet()
+  }
+
+  // Remove the run directory
+  await rm(run.run_dir, { recursive: true, force: true })
+}
+
 // --- High-Level Orchestration ---
 
 export async function startRun(
@@ -377,7 +441,7 @@ export async function startRun(
     experiment_number: 0,
     commit: fullSha.slice(0, 7),
     metric_value: baseline.median_metric,
-    secondary_values: JSON.stringify({ ...baseline.median_quality_gates, ...baseline.median_secondary_metrics }),
+    secondary_values: serializeSecondaryValues(baseline.median_quality_gates, baseline.median_secondary_metrics),
     status: "keep",
     description: "baseline",
     measurement_duration_ms: baseline.duration_ms,

@@ -12,7 +12,7 @@ import { join } from "node:path"
 import { setProvider } from "./lib/agent/index.ts"
 import { ClaudeProvider } from "./lib/agent/claude-provider.ts"
 import { loadProgramConfig } from "./lib/programs.ts"
-import { readState, writeState, lockMeasurement, unlockMeasurement, appendResult } from "./lib/run.ts"
+import { readState, writeState, lockMeasurement, unlockMeasurement, appendResult, serializeSecondaryValues } from "./lib/run.ts"
 import type { RunState } from "./lib/run.ts"
 import { runExperimentLoop } from "./lib/experiment-loop.ts"
 import { runMeasurementSeries } from "./lib/measure.ts"
@@ -188,7 +188,7 @@ async function main() {
         experiment_number: 0,
         commit: fullSha.slice(0, 7),
         metric_value: baseline.median_metric,
-        secondary_values: JSON.stringify({ ...baseline.median_quality_gates, ...baseline.median_secondary_metrics }),
+        secondary_values: serializeSecondaryValues(baseline.median_quality_gates, baseline.median_secondary_metrics),
         status: "keep",
         description: "baseline",
         measurement_duration_ms: baseline.duration_ms,

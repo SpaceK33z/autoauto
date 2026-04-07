@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import type { ExperimentResult } from "../lib/run.ts"
+import { parseSecondaryValues } from "../lib/run.ts"
 import type { SecondaryMetric } from "../lib/programs.ts"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
 import { statusColor } from "./ResultsTable.tsx"
@@ -11,38 +12,16 @@ interface AgentPanelProps {
   selectedResult?: ExperimentResult | null
   phaseLabel?: string | null
   experimentNumber?: number
-  qualityGateFields?: string[]
   secondaryMetrics?: Record<string, SecondaryMetric>
 }
 
-function parseJson(raw: string | undefined): Record<string, unknown> | null {
-  if (!raw) return null
-  try { return JSON.parse(raw) as Record<string, unknown> } catch { return null }
-}
-
-function ExperimentDetail({ result, qualityGateFields, secondaryMetrics }: {
+function ExperimentDetail({ result, secondaryMetrics }: {
   result: ExperimentResult
-  qualityGateFields?: string[]
   secondaryMetrics?: Record<string, SecondaryMetric>
 }) {
-  const allValues = parseJson(result.secondary_values)
-  const gateFields = new Set(qualityGateFields ?? [])
-  const secondaryFields = new Set(secondaryMetrics ? Object.keys(secondaryMetrics) : [])
-
-  const gateEntries: [string, unknown][] = []
-  const secondaryEntries: [string, unknown][] = []
-  if (allValues) {
-    for (const [key, val] of Object.entries(allValues)) {
-      if (gateFields.has(key)) {
-        gateEntries.push([key, val])
-      } else if (secondaryFields.has(key)) {
-        secondaryEntries.push([key, val])
-      } else {
-        // Unknown field — show under quality gates for backward compat
-        gateEntries.push([key, val])
-      }
-    }
-  }
+  const { quality_gates: gateValues, secondary_metrics: secondaryValues } = parseSecondaryValues(result.secondary_values)
+  const gateEntries = Object.entries(gateValues)
+  const secondaryEntries = Object.entries(secondaryValues)
 
   return (
     <box flexDirection="column" paddingX={1} gap={1}>
@@ -150,7 +129,7 @@ function formatTimestamp(epoch: number): string {
   return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()} ${time}`
 }
 
-export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResult, phaseLabel, experimentNumber, qualityGateFields, secondaryMetrics }: AgentPanelProps) {
+export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResult, phaseLabel, experimentNumber, secondaryMetrics }: AgentPanelProps) {
   const { segments, hasMarkers, lastTextIdx } = useMemo(() => {
     const segs = parseStreamSegments(streamingText)
     return {
@@ -164,7 +143,7 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
     return (
       <box flexDirection="column" flexGrow={1}>
         <scrollbox flexGrow={1}>
-          <ExperimentDetail result={selectedResult} qualityGateFields={qualityGateFields} secondaryMetrics={secondaryMetrics} />
+          <ExperimentDetail result={selectedResult} secondaryMetrics={secondaryMetrics} />
         </scrollbox>
         <box paddingX={1}>
           <text fg="#565f89">Esc to return to live view</text>

@@ -6,7 +6,7 @@ import type { ModelSlot } from "../lib/config.ts"
 import type { RunState, ExperimentResult, TerminationReason } from "../lib/run.ts"
 import { getRunStats } from "../lib/run.ts"
 import { removeWorktree } from "../lib/worktree.ts"
-import { runCleanup, type CleanupResult } from "../lib/cleanup.ts"
+import { runFinalize, type FinalizeResult } from "../lib/finalize.ts"
 import {
   spawnDaemon,
   watchRunDir,
@@ -26,7 +26,7 @@ import { ResultsTable } from "../components/ResultsTable.tsx"
 import { AgentPanel } from "../components/AgentPanel.tsx"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
 
-type ExecutionPhase = "starting" | "running" | "complete" | "cleaning_up" | "cleanup_complete" | "error"
+type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error"
 
 function truncateStreamText(prev: string, text: string): string {
   const next = prev + text
@@ -55,7 +55,7 @@ const PHASE_LABELS: Record<string, string> = {
   idle: "Running experiments...",
   stopping: "Stopping...",
   complete: "Complete",
-  cleaning_up: "Reviewing changes...",
+  finalizing: "Finalizing...",
 }
 
 function getPhaseLabel(phase: RunState["phase"], error?: string | null, isStopping = false): string {
@@ -91,7 +91,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [totalCostUsd, setTotalCostUsd] = useState(0)
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
   const [runDir, setRunDir] = useState<string | null>(null)
-  const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null)
+  const [finalizeResult, setFinalizeResult] = useState<FinalizeResult | null>(null)
   const [tableFocused, setTableFocused] = useState(false)
   const [selectedResult, setSelectedResult] = useState<ExperimentResult | null>(null)
   const [showStopConfirm, setShowStopConfirm] = useState(false)
@@ -101,7 +101,6 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const maxExpTextRef = useRef(maxExpText)
   const [settingsError, setSettingsError] = useState<string | null>(null)
 
-  const qualityGateFields = useMemo(() => programConfig ? Object.keys(programConfig.quality_gates) : [], [programConfig])
   const secondaryMetricsConfig = useMemo(() => programConfig?.secondary_metrics, [programConfig])
 
   const watcherRef = useRef<DaemonWatcher | null>(null)
@@ -285,19 +284,19 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     navigate("home")
   }, [cwd, runState, navigate])
 
-  const handleCleanup = useCallback(async () => {
+  const handleFinalize = useCallback(async () => {
     if (!runState || !runDir || !programConfig) return
 
-    const cleanupAbort = new AbortController()
-    abortControllerRef.current = cleanupAbort
+    const finalizeAbort = new AbortController()
+    abortControllerRef.current = finalizeAbort
 
-    setPhase("cleaning_up")
+    setPhase("finalizing")
     setAgentStreamText("")
     setToolStatus(null)
-    setCurrentPhaseLabel("Reviewing changes...")
+    setCurrentPhaseLabel("Finalizing...")
 
     try {
-      const result = await runCleanup(
+      const result = await runFinalize(
         cwd,
         programSlug,
         runDir,
@@ -308,12 +307,12 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           onStreamText: (text) => setAgentStreamText(prev => truncateStreamText(prev, text)),
           onToolStatus: (status) => setToolStatus(status),
         },
-        cleanupAbort.signal,
+        finalizeAbort.signal,
         runState.worktree_path, // Use worktree as git cwd
       )
-      setCleanupResult(result)
+      setFinalizeResult(result)
       setTotalCostUsd(prev => prev + (result.cost?.total_cost_usd ?? 0))
-      setPhase("cleanup_complete")
+      setPhase("finalize_complete")
     } catch (err: unknown) {
       setLastError(err instanceof Error ? err.message : String(err))
       setPhase("error")
@@ -321,7 +320,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   }, [cwd, programSlug, runDir, runState, programConfig, supportModelConfig])
 
   useKeyboard((key) => {
-    if (phase === "cleanup_complete" || phase === "error") {
+    if (phase === "finalize_complete" || phase === "error") {
       if (key.name === "escape") {
         navigate("home")
       }
@@ -434,8 +433,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       }
     }
 
-    // During cleanup: Ctrl+C to abort cleanup
-    if (phase === "cleaning_up" && (key.ctrl && key.name === "c")) {
+    // During finalize: Ctrl+C to abort
+    if (phase === "finalizing" && (key.ctrl && key.name === "c")) {
       abortControllerRef.current.abort()
     }
   })
@@ -492,6 +491,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 <ResultsTable
                   results={results}
                   metricField={programConfig?.metric_field ?? "metric"}
+                  secondaryMetrics={secondaryMetricsConfig}
                   width={termWidth}
                   experimentNumber={experimentNumber}
                   focused={tableFocused}
@@ -506,7 +506,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   selectedResult={selectedResult}
                   phaseLabel={currentPhaseLabel}
                   experimentNumber={experimentNumber}
-                  qualityGateFields={qualityGateFields}
+
                   secondaryMetrics={secondaryMetricsConfig}
                 />
               )}
@@ -518,6 +518,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               <ResultsTable
                 results={results}
                 metricField={programConfig?.metric_field ?? "metric"}
+                secondaryMetrics={secondaryMetricsConfig}
                 width={termWidth}
                 experimentNumber={experimentNumber}
                 focused={tableFocused}
@@ -532,7 +533,6 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 toolStatus={toolStatus}
                 isRunning={phase === "running"}
                 selectedResult={selectedResult}
-                qualityGateFields={qualityGateFields}
                 secondaryMetrics={secondaryMetricsConfig}
               />
             </>
@@ -587,6 +587,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           <ResultsTable
             results={results}
             metricField={programConfig?.metric_field ?? "metric"}
+            secondaryMetrics={secondaryMetricsConfig}
             width={termWidth}
             experimentNumber={experimentNumber}
             focused={tableFocused}
@@ -599,7 +600,6 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             toolStatus={toolStatus}
             isRunning={false}
             selectedResult={selectedResult}
-            qualityGateFields={qualityGateFields}
             secondaryMetrics={secondaryMetricsConfig}
           />
           <box paddingX={1}>
@@ -614,13 +614,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           direction={programConfig?.direction ?? "higher"}
           terminationReason={terminationReason}
           error={null}
-          onCleanup={handleCleanup}
+          onFinalize={handleFinalize}
           onAbandon={handleAbandon}
         />
       )}
 
-      {phase === "cleaning_up" && (
-        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Cleanup">
+      {phase === "finalizing" && (
+        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Finalize">
           <StatsHeader
             experimentNumber={experimentNumber}
             totalKeeps={runState?.total_keeps ?? 0}
@@ -647,19 +647,31 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         </box>
       )}
 
-      {phase === "cleanup_complete" && cleanupResult && (
-        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Cleanup Complete">
+      {phase === "finalize_complete" && finalizeResult && (
+        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Finalize Complete">
           <box flexDirection="column" paddingX={1}>
-            {cleanupResult.squashedSha ? (
-              <text fg="#9ece6a" selectable>Commits squashed into {cleanupResult.squashedSha.slice(0, 7)}</text>
+            {finalizeResult.mode === "grouped" && finalizeResult.groups.length > 0 ? (
+              <>
+                <text fg="#9ece6a" selectable>Created {finalizeResult.groups.length} branch{finalizeResult.groups.length > 1 ? "es" : ""}:</text>
+                <box height={1} />
+                {finalizeResult.groups.map((g) => (
+                  <box key={g.name} flexDirection="column">
+                    <text fg="#9ece6a" selectable>  {g.branchName}</text>
+                    <text fg="#565f89" selectable>    {g.files.length} file{g.files.length > 1 ? "s" : ""}: {g.files.map((f) => f.split("/").pop()).join(", ")}</text>
+                  </box>
+                ))}
+              </>
+            ) : finalizeResult.squashedSha ? (
+              <text fg="#9ece6a" selectable>Commits squashed into {finalizeResult.squashedSha.slice(0, 7)}</text>
             ) : (
               <text fg="#888888" selectable>No changes to squash (0 keeps)</text>
             )}
+            <box height={1} />
             <text fg="#a9b1d6">Summary saved to run directory. Press Escape to go back.</text>
           </box>
           <scrollbox flexGrow={1} focused>
             <box paddingX={1} flexDirection="column">
-              <markdown content={cleanupResult.summary} syntaxStyle={syntaxStyle} />
+              <markdown content={finalizeResult.summary} syntaxStyle={syntaxStyle} />
             </box>
           </scrollbox>
         </box>
