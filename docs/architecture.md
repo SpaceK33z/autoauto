@@ -50,6 +50,25 @@ src/
     system-prompts.ts    # Agent system prompts (setup, ideation)
 ```
 
+## Agent Architecture
+
+AutoAuto uses the Claude Agent SDK's `query()` function with built-in tools. The host
+application (AutoAuto TUI) manages the conversation UI while the SDK handles the agent
+loop, tool execution, and context management.
+
+### Setup Agent (`src/lib/system-prompts.ts`)
+
+- **Purpose:** Inspect repo, suggest targets, define scope and constraints
+- **Tools:** Read, Bash, Glob, Grep (inspection only — no Write/Edit)
+- **Permission mode:** `bypassPermissions` (AutoAuto manages UI, not the SDK)
+- **Working directory:** Target project root
+- **System prompt:** Encodes autoresearch expertise — guides user through repo inspection,
+  target identification, scope definition, measurement approach
+- **maxTurns:** 20 (conversation turns)
+
+The setup agent does NOT write files. It gathers information through conversation and
+tool use, preparing everything needed for program generation (1c).
+
 ## Current State
 
 Phase 1 (Setup) is in progress. The TUI shell, screen navigation, program listing, and multi-turn Claude Agent SDK chat are wired up. The chat foundation supports full conversation history with auto-scrolling and streaming. The setup agent has a system prompt for guided repo inspection, scope definition, and ideation mode, with Read/Bash/Glob/Grep tools auto-allowed for repo analysis. Program artifact generation (program.md, measure.sh, config.json) is not yet implemented.

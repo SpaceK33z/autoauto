@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { query } from "@anthropic-ai/claude-agent-sdk"
 import { createPushStream, type PushStream } from "../lib/push-stream.ts"
+import { DEFAULT_SYSTEM_PROMPT } from "../lib/system-prompts.ts"
+import { formatToolEvent } from "../lib/tool-events.ts"
 
 interface ChatMessage {
   id: string
@@ -23,13 +25,13 @@ interface ChatProps {
   tools?: string[]
   /** Tools to auto-allow without permission prompts */
   allowedTools?: string[]
-  /** Max agentic turns (tool-use round-trips) */
+  /** Max conversation turns (user message + assistant response pairs) */
   maxTurns?: number
 }
 
 export function Chat({
   cwd,
-  systemPrompt = "You are AutoAuto, an autoresearch assistant. Be concise.",
+  systemPrompt = DEFAULT_SYSTEM_PROMPT,
   tools,
   allowedTools,
   maxTurns,
@@ -37,6 +39,7 @@ export function Chat({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streamingText, setStreamingText] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
+  const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const inputStreamRef = useRef<PushStream<SDKUserMessage> | null>(null)
   const [inputKey, setInputKey] = useState(0)
@@ -57,10 +60,12 @@ export function Chat({
           prompt: inputStream,
           options: {
             systemPrompt: config.systemPrompt,
-            ...(config.tools ? { tools: config.tools } : { tools: [] as string[] }),
-            ...(config.allowedTools ? { allowedTools: config.allowedTools } : {}),
-            ...(config.maxTurns ? { maxTurns: config.maxTurns } : {}),
-            ...(config.cwd ? { cwd: config.cwd } : {}),
+            tools: config.tools ?? [],
+            allowedTools: config.allowedTools,
+            maxTurns: config.maxTurns,
+            cwd: config.cwd,
+            permissionMode: "bypassPermissions",
+            allowDangerouslySkipPermissions: true,
             includePartialMessages: true,
             abortController,
             persistSession: false,
@@ -81,6 +86,18 @@ export function Chat({
               setStreamingText(
                 (prev) => prev + (event.delta as { text: string }).text
               )
+              setToolStatus(null)
+            }
+
+            if (
+              event.type === "content_block_start" &&
+              "content_block" in event &&
+              (event.content_block as any).type === "tool_use"
+            ) {
+              const block = event.content_block as any
+              setToolStatus(
+                formatToolEvent(block.name ?? "", block.input ?? {})
+              )
             }
           } else if (message.type === "assistant") {
             const fullText = (message as any).message.content
@@ -98,6 +115,7 @@ export function Chat({
             ])
             setStreamingText("")
             setIsStreaming(false)
+            setToolStatus(null)
           } else if (message.type === "result") {
             if ((message as any).subtype !== "success") {
               setError(
@@ -188,6 +206,10 @@ export function Chat({
                 </text>
                 <text fg="#888888">Thinking...</text>
               </box>
+            )}
+
+            {toolStatus && isStreaming && (
+              <text fg="#888888">⟳ {toolStatus}</text>
             )}
 
             {error && <text fg="#ff5555">Error: {error}</text>}

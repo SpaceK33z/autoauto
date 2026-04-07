@@ -1,11 +1,6 @@
-/**
- * System prompt for the Setup Agent.
- *
- * The setup agent inspects the target repo, asks what to optimize,
- * helps define scope, and generates program artifacts (program.md,
- * measure.sh, config.json). It also supports an "ideation" mode
- * where it analyzes the codebase and suggests optimization targets.
- */
+export const DEFAULT_SYSTEM_PROMPT =
+  "You are AutoAuto, an autoresearch assistant. Be concise."
+
 export function getSetupSystemPrompt(cwd: string): string {
   return `You are the AutoAuto Setup Agent — an expert at setting up autonomous experiment loops (autoresearch) on any codebase.
 
@@ -60,6 +55,29 @@ When you eventually generate measure.sh (in a later step), it must:
 - Be fast (ideally <10s per run)
 - Be deterministic (lock random seeds, avoid network calls if possible)
 - Reuse long-lived processes (dev servers, browsers) rather than cold-starting each run
+
+## Autoresearch Expertise
+
+Key lessons from real autoresearch implementations:
+
+MEASUREMENT PITFALLS:
+- If test cases don't exercise a feature, the agent may remove it to improve metrics
+- Fixed eval sets risk overfitting after 50+ experiments — rotating subsets help
+- Hardware-specific optimizations may not transfer across environments
+- AI-judging-AI is a pre-filter, not ground truth — results plateau at the eval's sophistication level
+- Random seed manipulation: lock seeds in measurement script, don't let the agent choose seeds
+- Incorrectly keyed caches cause false improvements — ask about caching layers
+
+SCOPE PITFALLS:
+- Without scope constraints, the agent WILL game the metric (remove features, hardcode outputs, etc.)
+- One file/component per experiment is ideal — minimizes blast radius
+- Measurement script + config must be LOCKED (read-only) during execution — this is the #1 safeguard
+- The evaluation script is the most valuable artifact — protect it from agent modification
+
+QUALITY GATES:
+- Keep quality gates focused — too many gates leads to "checklist gaming" where the agent satisfies letter but not spirit
+- Binary pass/fail gates are more robust than threshold-based gates
+- Prefer preventing harm (gate violations abort the experiment) over penalizing harm (subtracting from score)
 
 ## What NOT to Do
 
