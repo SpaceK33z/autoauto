@@ -55,6 +55,7 @@ Two article-backed patterns for multi-metric evaluation:
 - **Document target hardware and environment.** Performance wins can be hardware-specific; paddo reports optimizations that helped on one GPU and hurt on another. Validate on the deployment machine before treating a performance metric as portable.
 - **Seed sensitivity.** Agents will change random seeds for tiny gains; paddo observed a change from 42 to 137. If the metric is seed-dependent, either fix the seed in the locked evaluator or measure across multiple seeds.
 - **NaN/crash detection.** Detect measurement failures such as NaN loss, OOM, process crashes, timeouts, and invalid generated code. Treat them as discards or remediation events, not as numeric results. (Goyal, PatentLLM, L.J., DataCamp)
+- **Data pipeline quality can outweigh algorithmic improvements.** Liu et al. (Omni-SimpleMem) found that a simple BM25 tokenization fix (stripping punctuation: "sushi." → "sushi") yielded +0.018 F1 — more impact than 10 rounds of prompt engineering. Similarly, correcting 4,277 corrupted timestamps (+7% F1) and fixing a missing `response_format` parameter (+175% F1) were the pipeline's highest-impact discoveries. Data quality issues are invisible to traditional AutoML but findable by code-comprehending agents.
 
 ## Measurement Stability Validation
 
@@ -65,6 +66,14 @@ AutoAuto setup heuristic, derived from the flaky-test, cache, sample-size, and e
 - **Flag high-variance measurements.** Common causes: cold starts, flaky infrastructure, nondeterministic APIs, stale caches, background process interference, insufficient sample size, or live-traffic seasonality.
 - **Stabilize before optimizing.** Add warm-up runs, increase sample size, pin or average random seeds, isolate test state, cache deterministic API calls, or move from live traffic to a proxy harness.
 - **Set the improvement threshold from observed noise.** A 2% improvement means little if repeated measurements vary by 5%.
+
+## Subset-First Iteration Strategy
+
+When full evaluation is expensive, iterate on a representative subset and validate on the full benchmark only at convergence. Liu et al. (Omni-SimpleMem) used a small subset of conversations for LoCoMo development (each experiment under 2 hours) and a small dataset subset for Mem-Gallery (each experiment completing in minutes), enabling dozens of hypotheses within days. The final configuration was evaluated on the complete benchmark only after the optimization trajectory converged, ensuring generalization.
+
+**Why it works:** Most ideas fail. Running 39 experiments on the full benchmark would take weeks; running them on a subset takes hours. The subset acts as a cheap filter — only the converged result needs the expensive full evaluation.
+
+**Risk:** The subset must be representative. If it doesn't cover the distribution of the full benchmark, improvements may not transfer. Liu et al. confirmed generalization by evaluating on the complete benchmark at the end.
 
 ## Sample Size & Live Metrics
 
@@ -100,6 +109,7 @@ The locked evaluator is both the central safeguard and the central blind spot. W
 - **Zero-improvement rounds can be useful.** Hoberman's second round ran 16 iterations with no improvements and still delivered a clear finding: the component had little headroom under the frozen ranking setup.
 - **Late-session micro-adjustments signal exhaustion.** paddo observed random seed changes and micro-tweaks after ideas ran out; DataCamp describes the ratchet's creativity ceiling. Consider stopping, rotating eval sets, or asking for a human/meta-agent nudge.
 - **High revert rates are normal near the ceiling.** Hoberman kept 3 of 44 experiments, a 93% revert rate. That is not automatically waste; it can mean the loop is mapping the ceiling. It becomes waste when proposal quality is poor or eval cycles are expensive.
+- **Confirm ceilings with independent runs.** Liu et al. (Omni-SimpleMem) ran 4 independent runs at convergence, all yielding F1 in [0.791, 0.797]. The tight clustering proved the ceiling was real (~0.795, variance from random noise) rather than a failure of exploration. This is stronger evidence than consecutive failures alone — it proves the system is at its structural limit.
 
 ## Cost of Measurement
 

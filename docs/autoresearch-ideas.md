@@ -46,6 +46,13 @@ From Saladi's Builder's Playbook — ranked by how quickly you'll see value:
 - **Agent workflow tuning.** Optimize multi-step agent pipeline instructions against a measurable quality metric.
 - **Meta-optimization of eval criteria.** Use one autoresearch loop to improve the scoring rubric used by another loop.
 
+## Multi-Component AI Systems
+
+- **Multimodal memory frameworks.** Liu et al. used autoresearch to build OMNI-SIMPLEMEM — a multimodal memory system for AI agents. ~50 experiments, +411% F1 on LoCoMo, +214% on Mem-Gallery. The pipeline found bug fixes (+175%), architectural changes (+44%), and prompt engineering (+188%) — each individually exceeding all hyperparameter tuning combined.
+- **Retrieval pipeline optimization.** Dense/sparse search fusion, pyramid retrieval depth, knowledge graph expansion parameters, embedding model selection — all measurable via retrieval benchmarks (F1, MRR, Precision@k).
+- **Agent tool configurations.** Multi-step agent systems with measurable success rates: tool selection prompts, context window management, memory retrieval strategies.
+- **Why AI systems suit autoresearch.** Liu et al. identify four properties: (1) immediate scalar evaluation metrics enabling tight loops, (2) modular architecture allowing isolated component modification, (3) fast iteration cycles (1–2 hours/experiment), and (4) version-controlled code allowing clean reverts. Any AI system with these four properties is a good autoresearch target.
+
 ## Search & Ranking
 
 - **Hybrid search ranking weights.** 60 iterations on production Cohere embeddings + keyword re-ranking (Django/PostgreSQL). Composite metric: 80% Precision@12 + 20% MRR. Baseline 0.6933 → 0.7200. Agent found query-type-specific weights (location 5x, activity 3x, general 2x) and exponential scoring formulas.
@@ -101,3 +108,5 @@ From Saladi's Builder's Playbook — ranked by how quickly you'll see value:
 - **Single-context-window constraint.** The 630-line editable file is deliberate (paddo): keeping the entire codebase in one context window prevents hallucinated imports and fragmentation. When expanding to larger targets, consider splitting into independently measurable components rather than one large file.
 - **Human-in-the-loop acceleration.** Agent explores → hits ceiling → human nudges direction → agent continues. Repeatably outperforms pure manual or pure autonomous iteration. Barazany's 165-experiment run used this pattern repeatedly: rubber duck debugging at experiment 30, research sub-agent spawning mid-run, targeted direction suggestions at each plateau.
 - **Three prerequisites filter.** All three must be present: (1) a clear numerical metric, (2) an unattended evaluation tool, and (3) a single editable file. Missing any one breaks the loop. "All three true? The loop works. Any one missing? It won't." (Aakash, Saladi)
+- **Bug fixes outperform hyperparameter tuning.** Liu et al. (Omni-SimpleMem) categorized ~50 experiments by discovery type: bug fixes (+175%), architecture (+44%), prompt engineering (+188%) each individually exceeded *all* hyperparameter tuning combined. This validates code-comprehending autoresearch over traditional AutoML — the biggest wins come from fixing things AutoML can't even see.
+- **Subset-first iteration.** Iterate on a small representative subset of the evaluation data, then validate on the full benchmark only at convergence. Liu et al. ran experiments in minutes on subsets vs. hours on full benchmarks, enabling dozens of hypotheses within days.

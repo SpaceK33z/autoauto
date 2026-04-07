@@ -122,6 +122,20 @@ False signals from infrastructure issues that make the agent think it improved s
 **Root cause:** Overnight agents are expected to run unattended, but the surrounding process may fail: crashes, bad generated code, timeouts, or machine interruptions.
 **Safeguard:** Persist every iteration's score, commit, failure reason, and next-idea notes before starting the next run. Support resume from disk. Add consecutive-failure failsafes that stop or reset to a known baseline.
 
+### 4e. Data pipeline bugs masquerading as algorithm limitations
+
+**What happened:** Liu et al.'s autonomous pipeline (Omni-SimpleMem) discovered three data pipeline bugs that individually outperformed all hyperparameter tuning combined: (1) a missing `response_format` parameter causing 9x verbosity (+175% F1 when fixed), (2) all 4,277 MAU timestamps corrupted to the ingestion date (+7% F1 when corrected), and (3) BM25 tokenization not stripping punctuation ("sushi." matched differently from "sushi", +0.018 F1). None of these were algorithm or hyperparameter issues — they were invisible data quality problems.
+**Source:** Liu et al. (Omni-SimpleMem, ~50 experiments)
+**Root cause:** Data pipeline code is rarely validated end-to-end. Bugs are silent — they don't crash, they just degrade quality. Traditional AutoML cannot detect them because it doesn't read code.
+**Safeguard:** Awareness only. This is actually a *strength* of autoresearch: code-comprehending agents can find and fix data pipeline bugs that no amount of hyperparameter search would surface. The setup agent should encourage users to include data pipeline code in the editable scope when the metric depends on data processing quality.
+
+### 4f. Counter-intuitive conventional wisdom
+
+**What happened:** The Omni-SimpleMem pipeline discovered that returning full original dialogue text instead of LLM-generated summaries improved F1 by +53% on Mem-Gallery. Summaries are conventionally preferred for efficiency, but the evaluation metric (token-level F1) rewards exact word overlap — and summaries paraphrase away the exact words the metric needs.
+**Source:** Liu et al. (Omni-SimpleMem, Mem-Gallery Phase 2)
+**Root cause:** Conventional wisdom about "best practices" bakes in assumptions about the evaluation metric. When the metric rewards different properties than expected, standard approaches underperform.
+**Safeguard:** Let the agent challenge assumptions. Avoid over-constraining program.md with "best practices" that the agent should be free to test. The loop exists precisely to find counter-intuitive improvements that human intuition misses.
+
 ---
 
 ## 5. Agent Amnesia & Repetition

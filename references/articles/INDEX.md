@@ -9,6 +9,9 @@
 - [piana-autoresearch-flaky-tests.md](piana-autoresearch-flaky-tests.md) — Gianfranco Piana — Used autoresearch to fix 13 flaky tests at Gumroad, 206 commits, ideas backlog pattern
 - [langfuse-autoresearch-ai-skill.md](langfuse-autoresearch-ai-skill.md) — Lotte (Langfuse) — Applied autoresearch to optimize prompt migration skill, Goodhart's Law at machine speed, harness vs real-world gaps
 
+## Research Papers
+- [liu-omni-simplemem-autoresearch-memory.md](liu-omni-simplemem-autoresearch-memory.md) — Liu et al. (UNC/UCSC/Cisco) — AUTORESEARCHCLAW discovers OMNI-SIMPLEMEM multimodal memory framework, ~50 experiments in 72h, +411% F1; bug fixes & architecture > hyperparameter tuning
+
 ## Technical Deep-dive
 - [patentllm-autoresearch-local-llm-karpathy.md](patentllm-autoresearch-local-llm-karpathy.md) — soy-tuber — Community fork running autoresearch with Qwen 3.5 9B locally via ollama, zero API cost, single-GPU setup
 - [paddo-700-experiments-while-you-sleep.md](paddo-700-experiments-while-you-sleep.md) — paddo — What the agent actually found, Goodhart's Law, portability issues, Lutke experiment

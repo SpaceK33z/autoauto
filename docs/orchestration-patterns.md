@@ -53,6 +53,9 @@ The core keep/discard loop. Simple immediate accept/revert is more effective tha
 4. If metric didn't improve or a gate failed → **discard** (`git reset --hard` to baseline)
 5. Loop
 
+**Three-way decision variant (AUTORESEARCHCLAW):**
+Liu et al.'s 23-stage pipeline uses a richer decision at each iteration: **proceed** (metric improved ≥0.5%), **iterate** (ambiguous result — refine the current hypothesis), or **pivot** (two consecutive degradations — revert and try a new direction). The "iterate" option lets the pipeline refine a promising idea that didn't work on the first attempt, rather than discarding it outright. This produced ~50 experiments in ~72 hours across two benchmarks.
+
 **Design principles:**
 - **Immediate accept/revert.** No probabilistic acceptance, no batching, no "maybe later." The codebase can only move forward, never backward, accumulating validated improvements one at a time (DataCamp).
 - **Fixed evaluation budget.** Every experiment gets the same measurement budget (e.g. 5-minute wall clock, or N measurement repeats), making results directly comparable. A faster change and a better change are evaluated on equal footing.
@@ -94,6 +97,10 @@ After ~50-80 experiments, agents degrade to random seed changes, tiny parameter 
 
 Hoberman's production search: Round 1 got 3 improvements in 44 iterations (93% revert rate). Round 2 got 0 improvements in 16 iterations. The finding: "You can stop tuning this." Knowing a component has no headroom left is a real deliverable — it tells you to invest engineering effort elsewhere.
 
+### Ceiling Confirmation via Independent Runs
+
+Liu et al. (Omni-SimpleMem) confirmed the performance ceiling on Mem-Gallery by running 4 independent runs that yielded F1 in [0.791, 0.797]. The tight clustering confirmed the ceiling was real (~0.795 due to random noise), not a failure of exploration, and triggered the pipeline's decision to stop. This is stronger than consecutive-failure detection alone — it proves the ceiling rather than inferring it from lack of progress.
+
 ### Practical Stopping Strategies
 
 | Strategy | When to use |
@@ -130,6 +137,8 @@ Experiments will crash. The loop must recover automatically so overnight runs ar
 2. **Reset the experiment.** `git reset --hard` to the last known-good SHA. Safe because experiments are single commits on a dedicated branch — blast radius is always one commit.
 3. **Log the failure.** Record what crashed and why in results.tsv (status: "crashed"). This prevents the next agent from retrying the exact same approach.
 4. **Continue the loop.** Move to the next experiment. No human intervention needed.
+
+**Self-healing execution (AUTORESEARCHCLAW):** Liu et al.'s pipeline classifies errors into types (API error, dependency error, runtime exception, output format mismatch) and generates targeted fixes. When the embedding service returned 403 errors from an expired API key, the module detected the authentication failure pattern and switched to a local sentence-transformer backend — no human intervention. This is more sophisticated than crash-and-revert; it repairs the execution environment itself.
 
 **Time limits:** Kill experiments that exceed the time budget. The program.md should instruct the agent on failure handling: fix typos and re-run, skip ideas that are broken at the root, kill anything that runs past a limit (DataCamp).
 
@@ -176,6 +185,21 @@ What to expect from real autoresearch runs.
 
 A 5-25% keep rate is normal. High revert rates aren't waste — they're the cost of finding the ceiling (Hoberman). But bad proposal quality makes them wasteful (Cerebras).
 
+### Discovery Type Taxonomy
+
+Liu et al. (Omni-SimpleMem, ~50 experiments) categorized every discovery by type and found that **bug fixes and architectural changes dominate hyperparameter tuning**:
+
+| Discovery Type | Example | Impact |
+|---------------|---------|--------|
+| Bug fix | Missing `response_format` parameter (one-line fix) | +175% F1 |
+| Architecture | BM25 hybrid search with set-union merging | +44% F1 |
+| Prompt engineering | Constraint positioning (before vs. after question) | +188% on specific categories |
+| Data repair | Timestamp corruption recovery (99.98% corrected) | +7% F1 |
+| Format alignment | Evaluation output format matching | +5% F1 |
+| Hyperparameter tuning | top-k, token budget adjustments | Smallest cumulative impact |
+
+Key insight: bug fixes, architecture, and prompt engineering *each individually* exceeded the cumulative contribution of all hyperparameter tuning. This is why autoresearch with code-comprehending agents exceeds what traditional AutoML can achieve — AutoML can only search the hyperparameter space.
+
 ### Detailed Progression: Barazany's CRM AUC Run
 
 Shows how human nudges + sub-agent research break through plateaus across 165 experiments:
@@ -219,6 +243,8 @@ Eval caching can drastically cut per-iteration time: Hoberman reduced eval from 
 | Karpathy | nanoGPT training speed | baseline | +11% | +11% | ~125 |
 | Shopify (Lutke) | Search quality | 1.6B manual | 0.8B +19% | smaller model wins | 37 |
 | Shopify | Liquid rendering | baseline | +53% speed | -61% allocations | 93 commits |
+| Liu et al. | LoCoMo F1 (memory QA) | 0.117 | 0.598 | +411% | ~50 (9 kept) |
+| Liu et al. | Mem-Gallery F1 (multimodal) | 0.254 | 0.797 | +214% | ~50 (39 exps, 7 phases) |
 | Aakash | Landing page skill | 41% | 92% | +124% | 4 rounds |
 
 ### Transferability of Findings
