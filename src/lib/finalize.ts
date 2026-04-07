@@ -16,7 +16,7 @@ import {
 } from "./git.ts"
 import { getProvider } from "./agent/index.ts"
 import { formatToolEvent } from "./tool-events.ts"
-import { getFinalizeSystemPrompt } from "./system-prompts.ts"
+import { getFinalizeSystemPrompt } from "./system-prompts/index.ts"
 
 // --- Types ---
 

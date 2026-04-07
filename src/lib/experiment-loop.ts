@@ -31,7 +31,7 @@ import {
 } from "./experiment.ts"
 import { appendIdeasBacklog, type ExperimentNotes } from "./ideas-backlog.ts"
 import { readRunConfig } from "./daemon-lifecycle.ts"
-import { getExperimentSystemPrompt } from "./system-prompts.ts"
+import { getExperimentSystemPrompt } from "./system-prompts/index.ts"
 
 /** Re-measure baseline after this many consecutive discards to check for environment drift. */
 const REBASELINE_AFTER_DISCARDS = 5

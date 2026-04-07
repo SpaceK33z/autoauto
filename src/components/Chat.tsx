@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { TextareaRenderable } from "@opentui/core"
-import { DEFAULT_SYSTEM_PROMPT } from "../lib/system-prompts.ts"
+import { DEFAULT_SYSTEM_PROMPT } from "../lib/system-prompts/index.ts"
 import type { EffortLevel } from "../lib/config.ts"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
 import { getProvider, type AgentProviderID, type AgentSession } from "../lib/agent/index.ts"

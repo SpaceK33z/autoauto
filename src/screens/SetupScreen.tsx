@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { TextareaOptions } from "@opentui/core"
 import { Chat } from "../components/Chat.tsx"
-import { getSetupSystemPrompt } from "../lib/system-prompts.ts"
+import { getSetupSystemPrompt } from "../lib/system-prompts/index.ts"
 import { loadProgramSummaries, type Screen, type ProgramSummary } from "../lib/programs.ts"
 import type { ModelSlot } from "../lib/config.ts"
 
