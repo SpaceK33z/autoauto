@@ -6,253 +6,41 @@ While autoresearch originated in ML model training, AutoAuto focuses on the broa
 
 AutoAuto encodes autoresearch expertise into a guided workflow so users don't need to learn the pitfalls (metric gaming, scope violations, false improvements, variance) from scratch. See `docs/failure-patterns.md` for documented failure modes, `docs/measurement-patterns.md` for metric design patterns, and `docs/orchestration-patterns.md` for loop design and context packet patterns — all extracted from real implementations.
 
-## Stack
-
-- **Runtime:** Bun
-- **Language:** TypeScript
-- **TUI:** OpenTUI (Zig core + TypeScript bindings)
-- **Agent:** Claude Agent SDK
-- **Install:** Global CLI (`autoauto`)
-
-## Architecture
+## How It Works
 
 App controls flow, agents provide intelligence. AutoAuto has hardcoded workflow logic — it knows the steps, renders the TUI, and calls the Claude Agent SDK at specific points where it needs AI reasoning. The agent is a tool, not the driver.
 
-Multiple agent roles, all via Claude Agent SDK with different system prompts:
+### 1. Setup
 
-| Role | Purpose | Lifecycle |
-|------|---------|-----------|
-| **Setup Agent** | Inspects repo, asks questions, generates measurement scripts, writes `program.md` | Interactive, during setup |
-| **Experiment Agent** | Reads codebase, makes one optimization, commits | Short-lived, one per iteration |
-| **Cleanup Agent** | Reviews accumulated diff, flags risks, produces summary | Once per run |
+Interactive, agent-guided chat to configure an optimization program. The Setup Agent inspects the repo, asks what to optimize (or suggests targets), helps define scope constraints, generates and validates a measurement script, and writes a structured `program.md` with agent instructions.
 
-Two model configuration slots:
-- **Execution model** — used for experiment agents (e.g. Sonnet at high effort)
-- **Support model** — used for setup and cleanup agents (e.g. Opus at low effort)
+### 2. Execution
 
-Each slot configures model choice (Sonnet or Opus) and effort level (low/medium/high, plus max for Opus) via Claude Agent SDK's `effort` option.
+The orchestrator loop. Establishes a baseline, then spawns a fresh Experiment Agent per iteration with a compact context packet (baseline, recent results, discarded diffs). Agent makes one change and commits. AutoAuto measures (median of N runs), keeps improvements beyond noise threshold (with quality gates), discards failures via `git reset --hard`, and loops. Runs in a background daemon inside an AutoAuto-owned git worktree, surviving terminal close.
 
-## Auth
+### 3. Cleanup (planned)
 
-On first run, verify authentication via the SDK's `accountInfo()` call. This supports all SDK auth methods: API key (`ANTHROPIC_API_KEY`), OAuth, and cloud providers. If authentication fails, show an error screen with setup instructions (e.g. `claude setup-token`).
+Review and package results: run a Cleanup Agent over the accumulated diff, squash into clean commits, generate a summary report, flag risky changes.
 
-## Data Model
+## Key Safeguards
 
-Three-level hierarchy: **Project** > **Program** > **Run**.
+- **Locked evaluator** — `measure.sh` + `config.json` are `chmod 444` before the loop starts. The agent cannot modify the measurement.
+- **Scope constraints** — `program.md` defines what's in scope and off-limits, preventing metric gaming and drift.
+- **One experiment per agent** — fresh context each iteration prevents narrative momentum and enables clean recovery.
+- **Re-baselining** — fresh baseline after keeps and after consecutive discards to detect environment drift.
 
-- **Project** — the target codebase (e.g. "my Next.js app")
-- **Program** — a reusable optimization target with a metric, measurement script, agent instructions, and scope constraints (e.g. "homepage LCP", "API /users latency")
-- **Run** — one execution session of a program in an AutoAuto-owned worktree on a dedicated branch, producing a results.tsv and experiment history
+See `docs/failure-patterns.md` for the full catalog of failure modes and mitigations.
 
-### File Structure
+## Documentation
 
-All state lives inside the target repo, gitignored (`.autoauto/` is added to `.gitignore` automatically on first run):
-
-```
-.autoauto/
-  config.json                    # project-level config (default models, etc.)
-  worktrees/
-    20260407-143022/             # AutoAuto-owned git worktree for an active/completed run
-  programs/
-    homepage-lcp/
-      program.md                 # agent instructions + scope constraints (structured)
-      build.sh                   # optional one-time build/compile step before measurement
-      measure.sh                 # generated measurement script
-      config.json                # metric field, direction, noise threshold, repeats, quality gates
-      runs/
-        20260407-143022/
-          daemon.json            # daemon identity, PID, start time, heartbeat, worktree path
-          state.json             # atomic checkpoint: experiment #, phase, baseline, SHAs
-          control.json           # TUI stop/abort requests
-          results.tsv            # durable experiment outcomes (append-only)
-          stream.log             # raw agent streaming text (append-only, truncated per experiment)
-          daemon.log             # daemon stderr/stdout (not surfaced in TUI)
-          summary.md
-    api-latency/
-      program.md
-      measure.sh
-      config.json
-      runs/
-        ...
-```
-
-### Measurement Output
-
-`measure.sh` outputs a **single JSON object** to stdout containing multiple fields. The orchestrator extracts what it needs based on `config.json`:
-
-```json
-{
-  "lcp_ms": 1230,
-  "cls": 0.05,
-  "tbt_ms": 180,
-  "fcp_ms": 890
-}
-```
-
-Strict contract:
-
-- stdout must contain valid JSON and nothing else
-- output must be a JSON object, not an array or scalar
-- `metric_field` must exist and be a finite number (`NaN`, `Infinity`, `null`, strings = invalid)
-- every configured quality gate field must exist and be a finite number
-- nonzero exit code = crash
-- timeout = crash
-- invalid JSON, invalid metric shape, or missing/non-finite quality gate field = measurement failure
-- finite quality gate value outside its configured threshold = discard
-- repeated measurements apply to all fields, not just the primary metric; the orchestrator compares median primary metric and median quality gate values
-
-### Program Config
-
-`config.json` declares the primary metric, direction, and quality gates:
-
-```json
-{
-  "metric_field": "lcp_ms",
-  "direction": "lower",
-  "noise_threshold": 0.02,
-  "repeats": 3,
-  "quality_gates": {
-    "cls": { "max": 0.1 },
-    "tbt_ms": { "max": 300 }
-  }
-}
-```
-
-For non-ML use cases where the metric is subjective (prompt quality, copy, templates), the setup agent should prefer binary yes/no eval criteria over sliding scales — see `docs/failure-patterns.md` section 1d for rationale.
-
-### program.md Structure
-
-The setup agent generates a structured `program.md` with required sections:
-
-```markdown
-# Program: Homepage LCP
-
-## Goal
-Reduce Largest Contentful Paint on the homepage.
-
-## Scope
-- Files: src/app/page.tsx, src/components/Hero/**
-- Off-limits: third-party scripts, CDN config, image quality
-
-## Rules
-- Do not add lazy loading to above-the-fold content
-- Do not reduce image quality below current settings
-
-## Steps
-1. ANALYZE: Read profiling data and results.tsv...
-2. PLAN: Identify one specific optimization...
-3. IMPLEMENT: Make the change...
-4. COMMIT: git add -A && git commit -m "perf(scope): description"
-```
-
-### Results TSV
-
-Each experiment is logged as a row:
-
-```
-experiment#	commit	metric_value	secondary_values	status	description
-```
-
-- `status`: `keep`, `discard`, `measurement_failure`, or `crash`
-- `measurement_failure`: command exited successfully but output violated the measurement contract (invalid JSON, missing/non-finite primary metric, missing/non-finite quality gate field)
-- `crash`: nonzero exit, timeout, OOM, killed process, or other command-level failure
-- `description`: from the agent's commit message
-
-## Measurement Templates
-
-AutoAuto ships with built-in **measurement skills** — opinionated knowledge about how to measure specific things (Lighthouse, wall-clock time, HTTP latency, test pass rate, etc.). These aren't hardcoded templates or a menu — they're skill-provided examples the agent uses as inspiration when generating a measurement script adapted to the specific repo.
-
-The setup agent:
-1. Inspects the repo (framework, language, build system)
-2. Recommends a measurement approach based on built-in skills
-3. Generates a measurement script tailored to the project
-4. Runs it multiple times to validate stability
-5. Detects variance and warns if measurements are unreliable
-6. Iterates until the measurement is stable
-
-Measurement scripts should assume they'll run hundreds of times — keep servers/browsers warm, use incremental builds, avoid cold starts. The setup agent should generate scripts that reuse long-lived processes (e.g. keep the dev server running, reuse the browser instance across Lighthouse runs) rather than starting from scratch each iteration. See `docs/measurement-patterns.md` for variance handling, stability validation, and scoring approach guidance.
-
-When creating a second program that reuses the same measurement type (e.g. Lighthouse for a different page), the agent recognizes the existing setup and adapts it.
-
-## TUI Navigation
-
-Keyboard-first, mouse-clickable. All screens use OpenTUI.
-
-1. **Home** — list of programs (or empty state prompting setup), `n` to create new program (flows directly into setup), `s` for settings
-2. **Setup** — chat-style conversation with setup agent. Agent inspects repo, asks questions, generates program.md + measure.sh, validates measurement stability, presents for review. User can iterate. Supports ideation mode ("help me find targets"). Explicit confirm to save.
-3. **Settings** — model configuration for execution and support slots (model choice + effort level)
-4. **Execution** — live dashboard (see below) with stats header, results table, and agent output panel. Handles run-in-progress and run-complete states (prompt to run cleanup or abandon).
-
-## Phases
-
-### Phase 1: Setup (MVP)
-
-Interactive, agent-guided chat to configure an autoresearch program:
-
-- Inspect the repository (language, framework, build system, existing scripts)
-- Ask the user what to optimize (or suggest targets via ideation — agent analyzes codebase and suggests optimization opportunities, then flows into setup when user picks one)
-- Help define what's **out of scope** — critical for preventing the agent from gaming the metric
-- Generate and validate the measurement script (run multiple times, check variance, iterate until stable)
-- Guide the user on noise threshold and measurement repeats based on observed variance
-- Write the structured `program.md` with clear instructions, constraints, and scope boundaries
-- Configure quality gates (e.g. "CLS must stay below 0.1" while optimizing LCP)
-- Configure model tier and throughput for execution
-
-### Phase 2: Execution (MVP)
-
-The orchestrator loop. AutoAuto controls the loop, the agent is stateless between iterations:
-
-1. Establish baseline (run measurement on unmodified code)
-2. Spawn a fresh **Experiment Agent** with a compact context packet:
-   - Current baseline metric
-   - Recent results.tsv rows
-   - Recent git log
-   - One-line summary of last outcome (including *why* it was discarded, not just that it was)
-   - Recent discarded commit messages + diffs (so the agent avoids retrying failed approaches)
-3. Agent makes one change, commits
-4. AutoAuto builds and measures (median of N runs, configurable per program)
-5. **Keep** (improvement beyond noise threshold, all quality gates pass) or **Discard** (`git reset --hard` to last known-good SHA)
-6. Re-measure baseline after keeps (code changed) and after consecutive discards (check for environment drift)
-7. Loop until manually stopped or max experiment count reached
-
-**Locked evaluator:** `measure.sh`, optional `build.sh`, and `config.json` are made read-only (`chmod 444`) before the experiment loop starts. The Experiment Agent must never modify the measurement/build scripts or metric config — this is the #1 safeguard against metric gaming. If the agent attempts to edit these files, the orchestrator treats it as a discard.
-
-**Agent tools:** Read, Write, Edit, Bash, Glob, Grep. No directory scoping — trust the system prompt and scope constraints in program.md. Failures are safely reset.
-
-**Run termination:** Manual stop kills the current experiment immediately. Max experiment count stops after the current experiment finishes. Both prompt: run cleanup or abandon.
-
-**TUI Dashboard during execution:**
-- Current experiment # / total keeps / discards
-- Current baseline metric value
-- Best metric achieved + improvement % from original baseline
-- Live results table
-- Streaming agent thinking text in a styled panel (view-only)
-- Sparkline or bar chart of metric over time
-
-### Phase 3: Cleanup
-
-Review and package the results:
-
-- Run a **Cleanup Agent** (support model) over the accumulated diff from baseline to branch tip
-- Preserve the raw experiment branch as the audit trail (`results.tsv` + git history remain intact)
-- Create a separate PR branch from the run baseline and apply the selected net diff there
-- Squash/package the PR branch into clean commit(s) ready for review
-- Generate a markdown summary report per run with:
-  - Total experiments, keeps, discards
-  - Metric improvement timeline
-  - Description of each kept change
-  - Callouts for risky or user-facing changes
-- Flag changes that warrant manual review
-
-## Constraints
-
-- **Locked evaluator** — see Phase 2 for details
-- One run at a time per program (multiple programs can run concurrently)
-- No Fix Agent for MVP — measurement failure or quality gate failure → discard and move on
-
-### Phase 4: Background Daemon
-
-Decouple the orchestrator from the TUI so runs survive terminal close/quit. Client-server split: daemon runs the experiment loop in an AutoAuto-owned git worktree, TUI watches state files. Two-root path model separates `mainRoot` (`.autoauto/` state) from `worktreePath` (experiment cwd). Filesystem-based IPC via `state.json`, `results.tsv`, `stream.log`, `control.json`. Per-program locking, crash recovery from `state.json` phase, heartbeat-based liveness detection, stop/abort escalation ladder. See `docs/architecture.md` for implementation details.
+| Doc | Contents |
+|-----|----------|
+| `docs/architecture.md` | System architecture, data model, file structure, component details, daemon design |
+| `docs/orchestration-patterns.md` | Loop design, context packets, ratchet logic, stopping criteria, model choice tradeoffs |
+| `docs/measurement-patterns.md` | Metric design, scoring approaches, variance handling, gaming defenses |
+| `docs/failure-patterns.md` | Documented failure modes, anti-patterns, and safeguards from real implementations |
+| `docs/autoresearch-ideas.md` | Non-ML autoresearch ideas extracted from reference articles |
+| `docs/glossary.md` | Term definitions |
 
 ## Future Ideas
 
@@ -264,9 +52,8 @@ Decouple the orchestrator from the TUI so runs survive terminal close/quit. Clie
 - **Rich visualizations** — detailed charts and tables for completed runs
 - **Re-profiling** — separate profiling step (e.g. flame graphs, trace analysis) that feeds structured data to the experiment agent
 - **Learnings persistence** — explore a `learnings.md` that accumulates qualitative insights across iterations (why things failed, not just that they did), to complement the results.tsv + git history approach
-- **Creativity ceiling / local optima** — after ~50-80 experiments agents tend to get stuck in local search (random seed changes, micro-adjustments). Explore meta-prompt optimization: a second agent reviews results and rewrites `program.md` to push exploration in new directions. Also consider diversity directives that reward novelty alongside improvement, or periodic resets from earlier checkpoints.
-- Support Codex and OpenCode SDK (and make it so you can decide to use it for just execution phase or everything)
-- **Human Nudges** — during a run nudge the agent to explore something else
+- **Creativity ceiling / local optima** — after ~50-80 experiments agents tend to get stuck in local search. Explore meta-prompt optimization: a second agent reviews results and rewrites `program.md` to push exploration in new directions. Also consider diversity directives and periodic resets from earlier checkpoints.
+- **Human nudges** — during a run, nudge the agent to explore something else
 
 ## References
 

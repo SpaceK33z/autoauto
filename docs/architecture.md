@@ -71,7 +71,7 @@ src/
     experiment.ts          # Experiment agent spawning, context packets, lock detection
     experiment-loop.ts     # Main experiment loop orchestrator
     worktree.ts            # Git worktree create/remove for run isolation
-    daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (stream.log writes)
+    daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (per-experiment stream log writes)
     daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
     daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
 ```
@@ -247,14 +247,14 @@ Decouples the experiment loop from the TUI so runs survive terminal close/quit.
 | `run-config.json` | TUI (once) | Daemon (once) | Per-run model/effort/max overrides |
 | `state.json` | Daemon (atomic) | TUI | Run state source of truth |
 | `results.tsv` | Daemon (append) | TUI | Experiment outcomes |
-| `stream.log` | Daemon (append, truncate per experiment) | TUI | Agent streaming text |
+| `stream-NNN.log` | Daemon (append, one per experiment) | TUI | Agent streaming text |
 | `control.json` | TUI | Daemon (on SIGTERM) | Stop/abort commands |
 
-TUI watches the run directory via `fs.watch` (falls back to polling). Delta reads for `results.tsv` and `stream.log`.
+TUI watches the run directory via `fs.watch` (falls back to polling). Delta reads for `results.tsv` and per-experiment `stream-NNN.log` files.
 
 ### FileCallbacks (`src/lib/daemon-callbacks.ts`)
 
-Thin `LoopCallbacks` implementation — only writes `stream.log`. The loop already writes `state.json`/`results.tsv` directly.
+Thin `LoopCallbacks` implementation — only writes per-experiment stream logs (`stream-001.log`, etc.). The loop already writes `state.json`/`results.tsv` directly.
 
 ### Locking
 
@@ -263,6 +263,123 @@ Per-program lock at `.autoauto/programs/<slug>/run.lock` with `O_EXCL`. Stale de
 ### Worktree Lifecycle
 
 Created by TUI before daemon spawn. Kept after cleanup (user merges). Removed on abandon (with confirmation). Stale worktrees left in place.
+
+## Data Model
+
+Three-level hierarchy: **Project** > **Program** > **Run**.
+
+- **Project** — the target codebase (e.g. "my Next.js app")
+- **Program** — a reusable optimization target with a metric, measurement script, agent instructions, and scope constraints (e.g. "homepage LCP", "API /users latency")
+- **Run** — one execution session of a program in an AutoAuto-owned worktree on a dedicated branch, producing a results.tsv and experiment history
+
+### `.autoauto/` File Structure
+
+All state lives inside the target repo, gitignored (`.autoauto/` is added to `.gitignore` automatically on first run):
+
+```
+.autoauto/
+  config.json                    # project-level config (default models, etc.)
+  worktrees/
+    20260407-143022/             # AutoAuto-owned git worktree for an active/completed run
+  programs/
+    homepage-lcp/
+      program.md                 # agent instructions + scope constraints (structured)
+      build.sh                   # optional one-time build/compile step before measurement
+      measure.sh                 # generated measurement script
+      config.json                # metric field, direction, noise threshold, repeats, quality gates
+      runs/
+        20260407-143022/
+          daemon.json            # daemon identity, PID, start time, heartbeat, worktree path
+          state.json             # atomic checkpoint: experiment #, phase, baseline, SHAs
+          control.json           # TUI stop/abort requests
+          results.tsv            # durable experiment outcomes (append-only)
+          stream-001.log         # per-experiment agent streaming text (one file per experiment)
+          stream-002.log
+          daemon.log             # daemon stderr/stdout (not surfaced in TUI)
+          summary.md
+```
+
+### Measurement Output Contract
+
+`measure.sh` outputs a **single JSON object** to stdout containing multiple fields. The orchestrator extracts what it needs based on `config.json`:
+
+```json
+{
+  "lcp_ms": 1230,
+  "cls": 0.05,
+  "tbt_ms": 180,
+  "fcp_ms": 890
+}
+```
+
+Strict contract:
+
+- stdout must contain valid JSON and nothing else
+- output must be a JSON object, not an array or scalar
+- `metric_field` must exist and be a finite number (`NaN`, `Infinity`, `null`, strings = invalid)
+- every configured quality gate field must exist and be a finite number
+- nonzero exit code = crash
+- timeout = crash
+- invalid JSON, invalid metric shape, or missing/non-finite quality gate field = measurement failure
+- finite quality gate value outside its configured threshold = discard
+- repeated measurements apply to all fields, not just the primary metric; the orchestrator compares median primary metric and median quality gate values
+
+### Program Config
+
+`config.json` declares the primary metric, direction, and quality gates:
+
+```json
+{
+  "metric_field": "lcp_ms",
+  "direction": "lower",
+  "noise_threshold": 0.02,
+  "repeats": 3,
+  "quality_gates": {
+    "cls": { "max": 0.1 },
+    "tbt_ms": { "max": 300 }
+  }
+}
+```
+
+For non-ML use cases where the metric is subjective (prompt quality, copy, templates), the setup agent should prefer binary yes/no eval criteria over sliding scales — see `failure-patterns.md` section 1d for rationale.
+
+### program.md Structure
+
+The setup agent generates a structured `program.md` with required sections:
+
+```markdown
+# Program: Homepage LCP
+
+## Goal
+Reduce Largest Contentful Paint on the homepage.
+
+## Scope
+- Files: src/app/page.tsx, src/components/Hero/**
+- Off-limits: third-party scripts, CDN config, image quality
+
+## Rules
+- Do not add lazy loading to above-the-fold content
+- Do not reduce image quality below current settings
+
+## Steps
+1. ANALYZE: Read profiling data and results.tsv...
+2. PLAN: Identify one specific optimization...
+3. IMPLEMENT: Make the change...
+4. COMMIT: git add -A && git commit -m "perf(scope): description"
+```
+
+### Results TSV
+
+Each experiment is logged as a row:
+
+```
+experiment#	commit	metric_value	secondary_values	status	description
+```
+
+- `status`: `keep`, `discard`, `measurement_failure`, or `crash`
+- `measurement_failure`: command exited successfully but output violated the measurement contract (invalid JSON, missing/non-finite primary metric, missing/non-finite quality gate field)
+- `crash`: nonzero exit, timeout, OOM, killed process, or other command-level failure
+- `description`: from the agent's commit message
 
 ## Current State
 
