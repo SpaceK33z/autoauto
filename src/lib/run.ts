@@ -1,6 +1,7 @@
 import { readFile, writeFile, appendFile, rename, mkdir, chmod, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import { getProgramDir, loadProgramConfig, type ProgramConfig } from "./programs.ts"
+import type { ModelSlot } from "./config.ts"
 import { runMeasurementSeries } from "./measure.ts"
 import {
   getFullSha,
@@ -47,6 +48,12 @@ export interface RunState {
   candidate_sha: string | null
   started_at: string
   updated_at: string
+  /** Model alias used for this run (e.g. "sonnet", "opus") */
+  model?: string
+  /** Effort level used for this run */
+  effort?: string
+  /** Cumulative input+output tokens across all experiments */
+  total_tokens?: number
 }
 
 /** A single row in results.tsv */
@@ -68,16 +75,16 @@ export function generateRunId(): string {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
 }
 
-// --- Evaluator Locking ---
+// --- Measurement Locking ---
 
 /** Makes measure.sh, build.sh, and config.json read-only (chmod 444). #1 safeguard against metric gaming. */
-export async function lockEvaluator(programDir: string): Promise<void> {
+export async function lockMeasurement(programDir: string): Promise<void> {
   await chmod(join(programDir, "measure.sh"), 0o444)
   await chmod(join(programDir, "config.json"), 0o444)
   await chmod(join(programDir, "build.sh"), 0o444).catch(() => {})
 }
 
-export async function unlockEvaluator(programDir: string): Promise<void> {
+export async function unlockMeasurement(programDir: string): Promise<void> {
   await chmod(join(programDir, "measure.sh"), 0o644)
   await chmod(join(programDir, "config.json"), 0o644)
   await chmod(join(programDir, "build.sh"), 0o644).catch(() => {})
@@ -274,11 +281,42 @@ export async function getLatestRun(programDir: string): Promise<RunInfo | null> 
   return runs.length > 0 ? runs[0] : null
 }
 
+function isRunActive(r: RunInfo): boolean {
+  const phase = r.state?.phase
+  return phase != null && phase !== "complete" && phase !== "crashed"
+}
+
+/** Lists all runs across all programs, sorted with in-progress pinned to top, then newest first. Max 50. */
+export async function listAllRuns(projectRoot: string): Promise<RunInfo[]> {
+  const { listPrograms, getProgramDir: getProgDir } = await import("./programs.ts")
+  const programs = await listPrograms(projectRoot)
+
+  const allRuns: RunInfo[] = []
+  await Promise.all(
+    programs.map(async (p) => {
+      const programDir = getProgDir(projectRoot, p.name)
+      const runs = await listRuns(programDir)
+      allRuns.push(...runs)
+    }),
+  )
+
+  allRuns.sort((a, b) => {
+    const aActive = isRunActive(a)
+    const bActive = isRunActive(b)
+    if (aActive && !bActive) return -1
+    if (!aActive && bActive) return 1
+    return b.run_id.localeCompare(a.run_id)
+  })
+
+  return allRuns.slice(0, 50)
+}
+
 // --- High-Level Orchestration ---
 
 export async function startRun(
   projectRoot: string,
   programSlug: string,
+  modelConfig?: ModelSlot,
 ): Promise<{ runId: string; runDir: string; state: RunState; originalBranch: string }> {
   const programDir = getProgramDir(projectRoot, programSlug)
   const measureShPath = join(programDir, "measure.sh")
@@ -297,10 +335,10 @@ export async function startRun(
 
   const runDir = await initRunDir(programDir, runId)
 
-  await lockEvaluator(programDir)
+  await lockMeasurement(programDir)
 
   const cleanup = async () => {
-    await unlockEvaluator(programDir)
+    await unlockMeasurement(programDir)
     await checkoutBranch(projectRoot, originalBranchName).catch(() => {})
   }
 
@@ -352,6 +390,9 @@ export async function startRun(
     candidate_sha: null,
     started_at: now,
     updated_at: now,
+    model: modelConfig?.model,
+    effort: modelConfig?.effort,
+    total_tokens: 0,
   }
 
   await writeState(runDir, state)

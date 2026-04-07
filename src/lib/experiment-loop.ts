@@ -8,7 +8,7 @@ import {
   readState,
   writeState,
   appendResult,
-  unlockEvaluator,
+  unlockMeasurement,
 } from "./run.ts"
 import {
   getFullSha,
@@ -62,16 +62,16 @@ export interface LoopOptions {
 
 const now = () => new Date().toISOString()
 
-interface EvaluatorFileSnapshot {
+interface MeasurementFileSnapshot {
   path: string
   label: string
   content: string
 }
 
-async function readEvaluatorSnapshot(
+async function readMeasurementSnapshot(
   programDir: string,
   projectRoot: string,
-): Promise<EvaluatorFileSnapshot[]> {
+): Promise<MeasurementFileSnapshot[]> {
   const paths = [join(programDir, "measure.sh"), join(programDir, "config.json"), join(programDir, "build.sh")]
   const results = await Promise.all(paths.map(async (path) => {
     try {
@@ -81,10 +81,10 @@ async function readEvaluatorSnapshot(
       return null // build.sh may not exist
     }
   }))
-  return results.filter((r): r is EvaluatorFileSnapshot => r !== null)
+  return results.filter((r): r is MeasurementFileSnapshot => r !== null)
 }
 
-async function getEvaluatorViolations(snapshot: EvaluatorFileSnapshot[]): Promise<string[]> {
+async function getMeasurementViolations(snapshot: MeasurementFileSnapshot[]): Promise<string[]> {
   const checks = await Promise.all(snapshot.map(async (file) => {
     try {
       const [current, info] = await Promise.all([readFile(file.path, "utf-8"), stat(file.path)])
@@ -100,7 +100,7 @@ async function getEvaluatorViolations(snapshot: EvaluatorFileSnapshot[]): Promis
   return checks.filter((file): file is string => file !== null)
 }
 
-async function restoreEvaluatorSnapshot(snapshot: EvaluatorFileSnapshot[]): Promise<void> {
+async function restoreMeasurementSnapshot(snapshot: MeasurementFileSnapshot[]): Promise<void> {
   await Promise.all(snapshot.map(async (file) => {
     await chmod(file.path, 0o644).catch(() => {})
     await writeFile(file.path, file.content)
@@ -113,7 +113,7 @@ async function revertToStart(projectRoot: string, startSha: string, candidateSha
   if (!reverted) await resetHard(projectRoot, startSha)
 
   if (!(await isWorkingTreeClean(projectRoot))) {
-    throw new Error("Working tree still dirty after reverting failed experiment; stopping to avoid contaminating the next iteration.")
+    throw new Error("Working tree still dirty after reverting failed experiment; stopping to avoid contaminating the next experiment.")
   }
 }
 
@@ -126,7 +126,7 @@ async function revertAndVerify(projectRoot: string, startSha: string, errorConte
     await resetHard(projectRoot, startSha)
   }
   if (!(await isWorkingTreeClean(projectRoot))) {
-    throw new Error(`Working tree still dirty after ${errorContext}; stopping to avoid contaminating the next iteration.`)
+    throw new Error(`Working tree still dirty after ${errorContext}; stopping to avoid contaminating the next experiment.`)
   }
 }
 
@@ -268,9 +268,9 @@ async function runMeasurementAndDecide(
     config.direction,
   )
 
-  if (verdict === "improved") {
+  if (verdict === "keep") {
     // KEEP
-    callbacks.onPhaseChange("kept", `improved: ${state.current_baseline} → ${series.median_metric}`)
+    callbacks.onPhaseChange("kept", `keep: ${state.current_baseline} → ${series.median_metric}`)
 
     const isBest = config.direction === "lower"
       ? series.median_metric < state.best_metric
@@ -441,7 +441,7 @@ export async function runExperimentLoop(
 
     // --- Spawn experiment agent ---
     const startSha = await getFullSha(projectRoot)
-    const evaluatorSnapshot = await readEvaluatorSnapshot(programDir, projectRoot)
+    const measurementSnapshot = await readMeasurementSnapshot(programDir, projectRoot)
 
     const outcome = await runExperimentAgent(
       projectRoot,
@@ -454,17 +454,22 @@ export async function runExperimentLoop(
       options.signal,
     )
 
-    // Log cost data if available
+    // Log cost data if available + accumulate tokens on run state
     if (outcome.cost) {
       void eventLogger.logExperimentCost(outcome.cost)
       callbacks.onExperimentCost?.(outcome.cost)
+      state = {
+        ...state,
+        total_tokens: (state.total_tokens ?? 0) + outcome.cost.input_tokens + outcome.cost.output_tokens,
+      }
+      await writeState(runDir, state)
     }
 
     // --- Abort detection + cleanup ---
     if (options.signal?.aborted) {
       wrappedCallbacks.onPhaseChange("stopping", "aborted by user")
 
-      await restoreEvaluatorSnapshot(evaluatorSnapshot)
+      await restoreMeasurementSnapshot(measurementSnapshot)
       await revertAndVerify(projectRoot, startSha, "abort cleanup")
 
       const abortResult: ExperimentResult = {
@@ -491,16 +496,16 @@ export async function runExperimentLoop(
 
     // --- Handle no-commit or error (no code change) ---
     if (outcome.type === "no_commit" || outcome.type === "agent_error") {
-      const evaluatorViolations = await getEvaluatorViolations(evaluatorSnapshot)
-      if (evaluatorViolations.length > 0) {
-        await restoreEvaluatorSnapshot(evaluatorSnapshot)
+      const measurementViolations = await getMeasurementViolations(measurementSnapshot)
+      if (measurementViolations.length > 0) {
+        await restoreMeasurementSnapshot(measurementSnapshot)
       }
 
       await revertAndVerify(projectRoot, startSha, "failed experiment cleanup")
 
-      const isLockViolation = evaluatorViolations.length > 0
+      const isLockViolation = measurementViolations.length > 0
       const crashDesc = isLockViolation
-        ? `lock violation: modified ${evaluatorViolations.join(", ")}`
+        ? `lock violation: modified ${measurementViolations.join(", ")}`
         : outcome.type === "no_commit"
           ? "no commit produced"
           : `agent error: ${outcome.error}`
@@ -538,9 +543,9 @@ export async function runExperimentLoop(
     if (!(await isWorkingTreeClean(projectRoot))) {
       await resetHard(projectRoot, candidateSha)
       if (!(await isWorkingTreeClean(projectRoot))) {
-        const evaluatorViolations = await getEvaluatorViolations(evaluatorSnapshot)
-        if (evaluatorViolations.length > 0) {
-          await restoreEvaluatorSnapshot(evaluatorSnapshot)
+        const measurementViolations = await getMeasurementViolations(measurementSnapshot)
+        if (measurementViolations.length > 0) {
+          await restoreMeasurementSnapshot(measurementSnapshot)
         }
         throw new Error("Agent left uncommitted files after committing; stopping to avoid measuring a dirty worktree.")
       }
@@ -548,16 +553,16 @@ export async function runExperimentLoop(
 
     // --- Check lock violation ---
     const lockCheck = checkLockViolation(outcome.files_changed)
-    const evaluatorViolations = await getEvaluatorViolations(evaluatorSnapshot)
-    const lockViolationFiles = [...new Set([...lockCheck.files, ...evaluatorViolations])]
+    const measurementViolations = await getMeasurementViolations(measurementSnapshot)
+    const lockViolationFiles = [...new Set([...lockCheck.files, ...measurementViolations])]
     if (lockViolationFiles.length > 0) {
       wrappedCallbacks.onPhaseChange("reverting", `lock violation: ${lockViolationFiles.join(", ")}`)
 
       state = { ...state, phase: "reverting", updated_at: now() }
       await writeState(runDir, state)
 
-      if (evaluatorViolations.length > 0) {
-        await restoreEvaluatorSnapshot(evaluatorSnapshot)
+      if (measurementViolations.length > 0) {
+        await restoreMeasurementSnapshot(measurementSnapshot)
       }
       await revertToStart(projectRoot, startSha, candidateSha)
 
@@ -611,7 +616,7 @@ export async function runExperimentLoop(
     wrappedCallbacks.onStateUpdate(state)
   }
   } finally {
-    await unlockEvaluator(programDir)
+    await unlockMeasurement(programDir)
   }
 
   // --- Finalize ---

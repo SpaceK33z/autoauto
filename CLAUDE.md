@@ -57,8 +57,8 @@ src/
     Chat.tsx             # Multi-turn chat with Claude Agent SDK streaming
     RunCompletePrompt.tsx # Post-run prompt (cleanup or abandon)
     StatsHeader.tsx      # Run stats + metric sparkline
-    ResultsTable.tsx     # Color-coded experiment results table
-    AgentPanel.tsx       # Live agent streaming output panel
+    ResultsTable.tsx     # Navigable experiment results table (Tab to focus, j/k/arrows to browse, Enter to inspect)
+    AgentPanel.tsx       # Live agent streaming output OR experiment detail view
   screens/
     HomeScreen.tsx       # Program list
     SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
@@ -101,13 +101,13 @@ src/
 - Shared types (`ProgramConfig`, `QualityGate`) live in `src/lib/programs.ts` — import from there, not from `validate-measurement.ts`
 - Run state persisted atomically via temp-file + rename (`writeState()` in `src/lib/run.ts`)
 - Results.tsv is append-only — use `appendResult()`, never rewrite
-- Evaluator locking (`chmod 444`) is the #1 safeguard — always lock before experiment loop, unlock on completion
+- Measurement locking (`chmod 444`) is the #1 safeguard — always lock before experiment loop, unlock on completion
 - Git operations in `src/lib/git.ts` — prefer `git revert` over `git reset` to preserve history
 - Measurement series returns median of N runs — use `runMeasurementSeries()` for all metric comparisons
 - `compareMetric()` uses relative change as a decimal fraction compared against `noise_threshold`
 - Experiment Agent is one-shot: single user message → autonomous run → commit or exit
 - Experiment Agent system prompt = program.md wrapped with framing instructions (`getExperimentSystemPrompt()`)
-- Context packet = per-iteration user message with baseline, recent results, git log, discarded diffs
+- Context packet = per-experiment user message with baseline, recent results, git log, discarded diffs
 - Experiment Agent tools: Read, Write, Edit, Bash, Glob, Grep — same as setup, auto-approved
 - Lock violation detection: after agent commits, check `git diff` for any `.autoauto/` modifications → immediate discard
 - Loop callbacks (`LoopCallbacks`) are the interface between orchestrator and TUI — no events/observables needed
@@ -119,7 +119,7 @@ src/
 - Events logging: `events.ndjson` is an append-only event log in each run directory; structural events only (no streaming text)
 - `createEventLogger()` wraps `LoopCallbacks` to emit events alongside in-memory callbacks
 - Cost tracking: `ExperimentCost` on `ExperimentOutcome` captures SDK cost/usage data per experiment
-- Dashboard components are pure rendering — all state lives in ExecutionScreen
+- Dashboard components are mostly pure rendering — all primary state lives in ExecutionScreen (ResultsTable has local highlight index for keyboard nav)
 - `onExperimentCost` callback on `LoopCallbacks` provides per-experiment cost data to the TUI
 - Agent streaming text resets on each `onExperimentStart` — never accumulates across experiments
 - Sparkline uses keep-only metric values via `getMetricHistory()` pattern

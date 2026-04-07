@@ -370,13 +370,13 @@ export function compareMetric(
   measured: number,
   noiseThreshold: number,
   direction: "lower" | "higher",
-): "improved" | "regressed" | "noise" {
+): "keep" | "regressed" | "noise" {
   const relativeChange =
     direction === "lower"
       ? (baseline - measured) / baseline // positive = improvement for "lower"
       : (measured - baseline) / baseline // positive = improvement for "higher"
 
-  if (relativeChange > noiseThreshold) return "improved"
+  if (relativeChange > noiseThreshold) return "keep"
   if (relativeChange < -noiseThreshold) return "regressed"
   return "noise"
 }

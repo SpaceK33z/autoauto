@@ -161,7 +161,7 @@ Requirements:
 
 Guidelines:
 - \`noise_threshold\`: Start with 0.02 (2%) for stable metrics. Use 0.05 (5%) for noisier metrics. Discuss with the user based on the measurement type.
-- \`repeats\`: Use 3 for fast, stable metrics. Use 5 for noisy ones. More repeats = more reliable but slower iterations.
+- \`repeats\`: Use 3 for fast, stable metrics. Use 5 for noisy ones. More repeats = more reliable but slower experiments.
 - \`quality_gates\`: Only include gates for metrics that could realistically regress. Don't add gates for things that won't change. Use \`max\` for metrics that should stay below a threshold, \`min\` for metrics that should stay above.
 - If there are no meaningful quality gates, use an empty object: \`"quality_gates": {}\`
 - \`computed\`: Populated during validation. Contains \`avg_duration_ms\` (average measurement duration in milliseconds from validation runs). This powers time estimates in the TUI — always include it.
@@ -212,7 +212,7 @@ bun run ${VALIDATE_SCRIPT} ${programsDir}/<slug>/measure.sh ${programsDir}/<slug
 The validation script:
 - Runs build.sh once first if ${programsDir}/<slug>/build.sh exists
 - Runs 1 warmup measurement (excluded from stats)
-- Runs 5 measurement iterations sequentially
+- Runs 5 measurement repeats sequentially
 - Validates every output against config.json
 - Computes variance statistics and avg_duration_ms
 - Outputs a JSON object with the full results
@@ -316,12 +316,12 @@ QUALITY GATES:
 
 /** Returns the system prompt for the experiment agent. Wraps program.md with framing instructions. */
 export function getExperimentSystemPrompt(programMd: string): string {
-  return `You are an AutoAuto Experiment Agent — one iteration of an autonomous optimization loop. An external orchestrator handles measurement, keep/discard decisions, and loop control. Your job: analyze, implement ONE optimization, validate, and commit.
+  return `You are an AutoAuto Experiment Agent — one experiment in an autonomous optimization loop. An external orchestrator handles measurement, keep/discard decisions, and loop control. Your job: analyze, implement ONE optimization, validate, and commit.
 
 ${programMd}
 
 ## Critical Rules
-- Make exactly ONE focused change per iteration
+- Make exactly ONE focused change per experiment
 - Always commit your change with: git add -A && git commit -m "<type>(scope): description"
 - NEVER modify files in .autoauto/ — these are locked by the orchestrator
 - NEVER modify measure.sh, build.sh, or config.json — they are read-only (chmod 444)
@@ -334,7 +334,7 @@ ${programMd}
 
 /** Returns the system prompt for the cleanup agent. Read-only review of accumulated experiment changes. */
 export function getCleanupSystemPrompt(): string {
-  return `You are the AutoAuto Cleanup Agent — a code reviewer for an autonomous experiment run. An orchestrator ran multiple experiment iterations on a branch, keeping improvements and discarding failures. Your job: review the accumulated changes, assess risks, and produce a structured summary.
+  return `You are the AutoAuto Cleanup Agent — a code reviewer for an autonomous experiment run. An orchestrator ran multiple experiments on a branch, keeping improvements and discarding failures. Your job: review the accumulated changes, assess risks, and produce a structured summary.
 
 ## Your Role
 

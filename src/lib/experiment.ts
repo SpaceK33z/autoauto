@@ -18,8 +18,8 @@ import { type SDKUserMessage, getTextDelta, getToolStatus, extractCost } from ".
 
 /** Everything the experiment agent needs to know */
 export interface ContextPacket {
-  iteration: number
-  baseline_metric: number
+  experiment: number
+  current_baseline: number
   original_baseline: number
   best_metric: number
   best_experiment: number
@@ -58,7 +58,7 @@ export interface LockViolation {
 
 // --- Context Packet ---
 
-/** Assembles the context packet from disk for a single iteration. */
+/** Assembles the context packet from disk for a single experiment. */
 export async function buildContextPacket(
   projectRoot: string,
   programDir: string,
@@ -107,8 +107,8 @@ export async function buildContextPacket(
   }
 
   return {
-    iteration: state.experiment_number,
-    baseline_metric: state.current_baseline,
+    experiment: state.experiment_number,
+    current_baseline: state.current_baseline,
     original_baseline: state.original_baseline,
     best_metric: state.best_metric,
     best_experiment: state.best_experiment,
@@ -126,10 +126,10 @@ export async function buildContextPacket(
 
 /** Formats the context packet as the user message string for the agent. */
 export function buildExperimentPrompt(packet: ContextPacket): string {
-  return `You are iteration ${packet.iteration} of an autoresearch experiment loop.
+  return `You are experiment ${packet.experiment} of an autoresearch loop.
 
 ## Current State
-- Baseline ${packet.metric_field}: ${packet.baseline_metric} (${packet.direction} is better)
+- Baseline ${packet.metric_field}: ${packet.current_baseline} (${packet.direction} is better)
 - Original baseline: ${packet.original_baseline}
 - Best achieved: ${packet.best_metric} (experiment #${packet.best_experiment})
 - Total: ${packet.total_keeps} keeps, ${packet.total_discards} discards
@@ -168,7 +168,7 @@ export function checkLockViolation(filesChanged: string[]): LockViolation {
 // --- Experiment Agent ---
 
 /**
- * Spawns a fresh Claude Agent SDK session for one experiment iteration.
+ * Spawns a fresh Claude Agent SDK session for one experiment.
  * One-shot: push one user message, iterate to result, return outcome.
  */
 export async function runExperimentAgent(
