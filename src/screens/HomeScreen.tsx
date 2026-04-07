@@ -209,7 +209,6 @@ export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) 
         runs={data?.allRuns ?? []}
         programConfigs={data?.programConfigs ?? {}}
         width={runsTableWidth}
-        focused={runsFocused}
       />
     </box>
   )

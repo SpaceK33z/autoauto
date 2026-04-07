@@ -1,5 +1,6 @@
 import type { ExperimentResult } from "../lib/run.ts"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
+import { statusColor } from "./ResultsTable.tsx"
 
 interface AgentPanelProps {
   streamingText: string
@@ -8,12 +9,13 @@ interface AgentPanelProps {
   selectedResult?: ExperimentResult | null
 }
 
-import { statusColor } from "./ResultsTable.tsx"
+function parseJson(raw: string | undefined): Record<string, unknown> | null {
+  if (!raw) return null
+  try { return JSON.parse(raw) as Record<string, unknown> } catch { return null }
+}
 
 function ExperimentDetail({ result }: { result: ExperimentResult }) {
-  const secondaryValues = result.secondary_values ? (() => {
-    try { return JSON.parse(result.secondary_values) as Record<string, unknown> } catch { return null }
-  })() : null
+  const secondaryValues = parseJson(result.secondary_values)
 
   return (
     <box flexDirection="column" paddingX={1} gap={1}>

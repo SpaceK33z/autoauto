@@ -54,7 +54,7 @@ export function ResultsTable({ results, metricField, width, experimentNumber, fo
     if (focused && experiments.length > 0) {
       setHighlightIndex(experiments.length - 1)
     }
-  }, [focused])
+  }, [focused, experiments.length])
 
   useKeyboard((key) => {
     if (!focused || experiments.length === 0) return

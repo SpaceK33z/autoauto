@@ -68,6 +68,8 @@ class ClaudeSession implements AgentSession {
   private inputStream = createPushStream<SDKUserMessage>()
   private abortController = new AbortController()
   private queryIterable: Query
+  private externalSignal?: AbortSignal
+  private signalHandler?: () => void
 
   constructor(config: AgentSessionConfig) {
     // Link external signal to our abort controller
@@ -75,7 +77,9 @@ class ClaudeSession implements AgentSession {
       if (config.signal.aborted) {
         this.abortController.abort()
       } else {
-        config.signal.addEventListener("abort", () => this.abortController.abort(), { once: true })
+        this.externalSignal = config.signal
+        this.signalHandler = () => this.abortController.abort()
+        config.signal.addEventListener("abort", this.signalHandler, { once: true })
       }
     }
 
@@ -111,6 +115,9 @@ class ClaudeSession implements AgentSession {
   }
 
   close(): void {
+    if (this.externalSignal && this.signalHandler) {
+      this.externalSignal.removeEventListener("abort", this.signalHandler)
+    }
     this.abortController.abort()
     this.inputStream.end()
   }

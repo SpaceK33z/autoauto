@@ -8,7 +8,6 @@ export interface RunsTableProps {
   /** Map from program_slug → ProgramConfig for computing gains */
   programConfigs: Record<string, ProgramConfig>
   width: number
-  focused?: boolean
 }
 
 function phaseColor(state: RunState | null): string {
@@ -135,7 +134,7 @@ const RunRow = memo(function RunRow({
   )
 })
 
-export function RunsTable({ runs, programConfigs, width, focused: _focused }: RunsTableProps) {
+export function RunsTable({ runs, programConfigs, width }: RunsTableProps) {
   const innerWidth = Math.max(width - CHROME, 0)
   const fixedWidth = COL_STATUS + COL_PROGRAM + COL_EXP + COL_MODEL + COL_TOKENS + COL_TIME
   const gainsWidth = Math.max(innerWidth - fixedWidth, COL_GAINS_MIN)

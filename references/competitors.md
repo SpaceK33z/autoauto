@@ -1,6 +1,6 @@
 # Competitors / Alternatives
 
-TODO add strengths etc
+TODO: for each, analyze the approach they take (what form), how much overlap there is with our product.
 
 https://github.com/davebcn87/pi-autoresearch
 
@@ -14,3 +14,5 @@ TODO compare codebase / idea against auto-agent, see what we can salvage
 https://github.com/gianfrancopiana/openclaw-autoresearch
 
 https://github.com/uditgoenka/autoresearch
+
+https://github.com/kevinrgu/autoagent
