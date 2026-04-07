@@ -31,7 +31,7 @@ High-level tasks to complete the interactive setup flow described in [IDEA.md](.
 
 ## 1e. Model Configuration
 
-- [ ] Configure execution model slot (Sonnet/Opus + throughput tier)
-- [ ] Configure support model slot (Sonnet/Opus + throughput tier)
-- [ ] Auth (slightly unrelated but basic): Check for `ANTHROPIC_API_KEY` on startup
-- [ ] Auth: Prompt user to run `claude setup-token` if missing (but only if not authenticated! for me i didnt appear to have to set ANTHROPIC_API_KEY manually)
+- [x] Configure execution model slot (Sonnet/Opus + throughput tier)
+- [x] Configure support model slot (Sonnet/Opus + throughput tier)
+- [x] Auth (slightly unrelated but basic): Check for `ANTHROPIC_API_KEY` on startup
+- [x] Auth: Prompt user to run `claude setup-token` if missing (but only if not authenticated! for me i didnt appear to have to set ANTHROPIC_API_KEY manually)
