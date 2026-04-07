@@ -27,6 +27,7 @@ import {
   type ExperimentCost,
 } from "./experiment.ts"
 import { appendIdeasBacklog, type ExperimentNotes } from "./ideas-backlog.ts"
+import { readRunConfig } from "./daemon-lifecycle.ts"
 import { getExperimentSystemPrompt } from "./system-prompts.ts"
 
 /** Re-measure baseline after this many consecutive discards to check for environment drift. */
@@ -373,8 +374,14 @@ export async function runExperimentLoop(
   const ideasBacklogEnabled = options.ideasBacklogEnabled ?? true
 
 
+  // Re-read from run-config.json each iteration to support mid-run TUI changes
+  let effectiveMaxExperiments = options.maxExperiments
+
   try {
   while (true) {
+    const runConfig = await readRunConfig(runDir)
+    if (runConfig) effectiveMaxExperiments = runConfig.max_experiments
+
     // --- Check stop conditions ---
     if (options.signal?.aborted) {
       state = { ...state, phase: "stopping", updated_at: now() }
@@ -395,10 +402,10 @@ export async function runExperimentLoop(
       callbacks.onError(`Warning: ${consecutiveDiscards} consecutive discards. Agent may be stuck — consider stopping and reviewing results.`)
     }
 
-    if (options.maxExperiments && state.experiment_number >= options.maxExperiments) {
+    if (effectiveMaxExperiments && state.experiment_number >= effectiveMaxExperiments) {
       state = { ...state, phase: "complete", updated_at: now() }
       await writeState(runDir, state)
-      callbacks.onPhaseChange("complete", `reached max experiments (${options.maxExperiments})`)
+      callbacks.onPhaseChange("complete", `reached max experiments (${effectiveMaxExperiments})`)
       break
     }
 
@@ -611,7 +618,7 @@ export async function runExperimentLoop(
   // Determine termination reason
   const reason: TerminationReason = options.signal?.aborted
     ? "aborted"
-    : state.experiment_number >= (options.maxExperiments ?? Infinity)
+    : state.experiment_number >= (effectiveMaxExperiments ?? Infinity)
       ? "max_experiments"
       : "stopped"
 

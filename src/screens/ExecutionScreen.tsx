@@ -15,9 +15,12 @@ import {
   forceKillDaemon,
   reconstructState,
   getDaemonStatus,
+  updateMaxExperiments,
+  getMaxExperiments,
   type DaemonWatcher,
 } from "../lib/daemon-client.ts"
 import { RunCompletePrompt } from "../components/RunCompletePrompt.tsx"
+import { RunSettingsOverlay } from "../components/RunSettingsOverlay.tsx"
 import { StatsHeader } from "../components/StatsHeader.tsx"
 import { ResultsTable } from "../components/ResultsTable.tsx"
 import { AgentPanel } from "../components/AgentPanel.tsx"
@@ -93,6 +96,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [selectedResult, setSelectedResult] = useState<ExperimentResult | null>(null)
   const [showStopConfirm, setShowStopConfirm] = useState(false)
   const [stopping, setStopping] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [maxExpText, setMaxExpText] = useState(maxExperiments != null ? String(maxExperiments) : "")
+  const maxExpTextRef = useRef(maxExpText)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
 
   const watcherRef = useRef<DaemonWatcher | null>(null)
   const abortControllerRef = useRef<AbortController>(new AbortController())
@@ -159,6 +166,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             setExperimentNumber(reconstructed.state.experiment_number)
             setAgentStreamText(reconstructed.streamText)
             setPhase("running")
+            // Sync maxExpText from run-config for settings panel
+            const currentMax = await getMaxExperiments(activeRunDir)
+            if (!cancelled) {
+              const text = currentMax != null ? String(currentMax) : ""
+              setMaxExpText(text)
+              maxExpTextRef.current = text
+            }
           }
         } else {
           // Spawn mode: create worktree, spawn daemon
@@ -319,6 +333,33 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       return
     }
 
+    // Settings overlay
+    if (showSettings) {
+      if (key.name === "escape") {
+        setShowSettings(false)
+        return
+      }
+      if (key.name === "backspace" || /^\d$/.test(key.name)) {
+        const prev = maxExpTextRef.current
+        const next = key.name === "backspace" ? prev.slice(0, -1) : prev + key.name
+        maxExpTextRef.current = next
+        setMaxExpText(next)
+
+        // Validate and auto-save
+        const parsed = parseInt(next, 10)
+        if (next === "") {
+          setSettingsError(null)
+          if (runDir) updateMaxExperiments(runDir, undefined)
+        } else if (!isNaN(parsed) && parsed > 0 && parsed >= experimentNumber) {
+          setSettingsError(null)
+          if (runDir) updateMaxExperiments(runDir, parsed)
+        } else if (!isNaN(parsed) && parsed > 0 && parsed < experimentNumber) {
+          setSettingsError(`Must be at least ${experimentNumber} (experiments already done)`)
+        }
+      }
+      return
+    }
+
     // Stop confirmation dialog
     if (showStopConfirm) {
       if (key.name === "y") {
@@ -353,6 +394,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
     // Stop/abort during execution
     if (phase === "starting" || phase === "running") {
+      if (key.name === "s") {
+        setShowSettings(true)
+        return
+      }
+
       if (key.name === "q") {
         // Show stop confirmation
         setShowStopConfirm(true)
@@ -474,6 +520,14 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 selectedResult={selectedResult}
               />
             </>
+          )}
+
+          {showSettings && (
+            <RunSettingsOverlay
+              maxExpText={maxExpText}
+              experimentNumber={experimentNumber}
+              validationError={settingsError}
+            />
           )}
 
           {showStopConfirm && (

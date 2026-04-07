@@ -1,9 +1,6 @@
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
+import { $ } from "bun"
 import { join } from "node:path"
 import { mkdir } from "node:fs/promises"
-
-const execFileAsync = promisify(execFile)
 
 /**
  * Creates a git worktree for a run. The worktree is created inside
@@ -22,11 +19,7 @@ export async function createWorktree(
   const worktreePath = join(worktreesDir, runId)
   const branchName = `autoauto-${programSlug}-${runId}`
 
-  await execFileAsync(
-    "git",
-    ["worktree", "add", "-b", branchName, worktreePath],
-    { cwd: mainRoot },
-  )
+  await $`git worktree add -b ${branchName} ${worktreePath}`.cwd(mainRoot).quiet()
 
   return worktreePath
 }
@@ -38,13 +31,5 @@ export async function removeWorktree(
   mainRoot: string,
   worktreePath: string,
 ): Promise<void> {
-  try {
-    await execFileAsync(
-      "git",
-      ["worktree", "remove", "--force", worktreePath],
-      { cwd: mainRoot },
-    )
-  } catch {
-    // Worktree may already be removed or not exist
-  }
+  await $`git worktree remove --force ${worktreePath}`.cwd(mainRoot).nothrow().quiet()
 }

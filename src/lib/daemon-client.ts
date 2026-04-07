@@ -14,6 +14,7 @@ import { isWorkingTreeClean } from "./git.ts"
 import { createWorktree } from "./worktree.ts"
 import {
   readDaemonJson,
+  readRunConfig,
   writeRunConfig,
   writeControl,
   acquireLock,
@@ -405,6 +406,27 @@ export async function forceKillDaemon(runDir: string): Promise<void> {
   } catch {
     // Process may already be dead
   }
+}
+
+// --- Run Config Updates ---
+
+/**
+ * Updates max_experiments in run-config.json. The daemon re-reads this file
+ * at each iteration boundary, so the change takes effect after the current experiment.
+ * Pass undefined to remove the limit (unlimited).
+ */
+export async function updateMaxExperiments(runDir: string, maxExperiments: number | undefined): Promise<void> {
+  const config = await readRunConfig(runDir)
+  if (!config || config.max_experiments === maxExperiments) return
+  await writeRunConfig(runDir, { ...config, max_experiments: maxExperiments })
+}
+
+/**
+ * Reads the current max_experiments from run-config.json.
+ */
+export async function getMaxExperiments(runDir: string): Promise<number | undefined> {
+  const config = await readRunConfig(runDir)
+  return config?.max_experiments
 }
 
 // --- Active Run Detection ---

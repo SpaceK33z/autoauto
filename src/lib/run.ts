@@ -1,4 +1,4 @@
-import { readFile, writeFile, appendFile, rename, mkdir, chmod, readdir } from "node:fs/promises"
+import { rename, mkdir, chmod, readdir, appendFile } from "node:fs/promises"
 import { join } from "node:path"
 import { getProgramDir, loadProgramConfig, type ProgramConfig } from "./programs.ts"
 import type { ModelSlot } from "./config.ts"
@@ -113,7 +113,7 @@ export async function initRunDir(programDir: string, runId: string): Promise<str
   const runDir = join(programDir, "runs", runId)
   await mkdir(runDir, { recursive: true })
 
-  await writeFile(
+  await Bun.write(
     join(runDir, "results.tsv"),
     "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\n",
   )
@@ -126,13 +126,12 @@ export async function initRunDir(programDir: string, runId: string): Promise<str
 /** Atomically writes state.json via temp-file + rename. */
 export async function writeState(runDir: string, state: RunState): Promise<void> {
   const tmpPath = join(runDir, "state.json.tmp")
-  await writeFile(tmpPath, JSON.stringify(state, null, 2) + "\n")
+  await Bun.write(tmpPath, JSON.stringify(state, null, 2) + "\n")
   await rename(tmpPath, join(runDir, "state.json"))
 }
 
 export async function readState(runDir: string): Promise<RunState> {
-  const raw = await readFile(join(runDir, "state.json"), "utf-8")
-  return JSON.parse(raw) as RunState
+  return Bun.file(join(runDir, "state.json")).json() as Promise<RunState>
 }
 
 // --- Results ---
@@ -200,7 +199,7 @@ export function parseDiscardedShas(raw: string, count = 5): string[] {
 
 /** Parses the entire results.tsv into a typed array. */
 export async function readAllResults(runDir: string): Promise<ExperimentResult[]> {
-  const raw = await readFile(join(runDir, "results.tsv"), "utf-8")
+  const raw = await Bun.file(join(runDir, "results.tsv")).text()
   const lines = raw.trim().split("\n")
   if (lines.length <= 1) return [] // only header
 

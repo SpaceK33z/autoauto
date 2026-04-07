@@ -1,9 +1,6 @@
-import { readdir, mkdir, readFile, writeFile } from "node:fs/promises"
+import { readdir, mkdir } from "node:fs/promises"
 import { join } from "node:path"
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
-
-const execFileAsync = promisify(execFile)
+import { $ } from "bun"
 
 export interface Program {
   name: string
@@ -93,18 +90,13 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
 /** Returns the main git repo root, resolving through worktrees. */
 export async function getProjectRoot(cwd: string): Promise<string> {
   if (cachedRoot) return cachedRoot
-  try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "--show-superproject-working-tree"], { cwd })
-    const superproject = stdout.trim()
-    if (superproject) {
-      cachedRoot = superproject
-      return superproject
-    }
-  } catch {
-    // not in a worktree, fall through
+  const result = await $`git rev-parse --show-superproject-working-tree`.cwd(cwd).nothrow().quiet()
+  const superproject = result.stdout.toString().trim()
+  if (superproject) {
+    cachedRoot = superproject
+    return superproject
   }
-  const { stdout } = await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd })
-  cachedRoot = stdout.trim()
+  cachedRoot = (await $`git rev-parse --show-toplevel`.cwd(cwd).text()).trim()
   return cachedRoot
 }
 
@@ -149,8 +141,8 @@ export function getRunDir(cwd: string, slug: string, runId: string): string {
 
 /** Reads and validates config.json from a program directory. */
 export async function loadProgramConfig(programDir: string): Promise<ProgramConfig> {
-  const raw = await readFile(join(programDir, "config.json"), "utf-8")
-  return validateProgramConfig(JSON.parse(raw))
+  const raw = await Bun.file(join(programDir, "config.json")).json()
+  return validateProgramConfig(raw)
 }
 
 /** Summary of an existing program for duplicate detection during setup. */
@@ -172,8 +164,7 @@ export async function loadProgramSummaries(cwd: string): Promise<ProgramSummary[
   const summaries = await Promise.all(
     entries.map(async (e) => {
       try {
-        const md = await readFile(join(programsDir, e.name, "program.md"), "utf-8")
-        // Extract the Goal section content
+        const md = await Bun.file(join(programsDir, e.name, "program.md")).text()
         const goalMatch = md.match(/## Goal\n+([\s\S]*?)(?:\n##|\n*$)/)
         const goal = goalMatch ? goalMatch[1].trim() : "(no goal defined)"
         return { slug: e.name, goal }
@@ -191,13 +182,13 @@ export async function ensureAutoAutoDir(cwd: string): Promise<void> {
   await mkdir(dir, { recursive: true })
 
   const gitignorePath = join(root, ".gitignore")
-  try {
-    const existing = await readFile(gitignorePath, "utf-8")
+  const gitignoreFile = Bun.file(gitignorePath)
+  if (await gitignoreFile.exists()) {
+    const existing = await gitignoreFile.text()
     if (!existing.includes(AUTOAUTO_DIR)) {
-      await writeFile(gitignorePath, existing.trimEnd() + `\n${AUTOAUTO_DIR}/\n`)
+      await Bun.write(gitignorePath, existing.trimEnd() + `\n${AUTOAUTO_DIR}/\n`)
     }
-  } catch {
-    // No .gitignore — create one (getProjectRoot already confirmed this is a git repo)
-    await writeFile(gitignorePath, `${AUTOAUTO_DIR}/\n`)
+  } else {
+    await Bun.write(gitignorePath, `${AUTOAUTO_DIR}/\n`)
   }
 }

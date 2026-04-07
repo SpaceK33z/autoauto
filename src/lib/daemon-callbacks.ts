@@ -1,4 +1,3 @@
-import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { LoopCallbacks } from "./experiment-loop.ts"
 
@@ -10,30 +9,49 @@ export function streamLogName(experimentNumber: number): string {
 /**
  * FileCallbacks: a thin LoopCallbacks implementation for the daemon.
  *
- * Writes agent streaming text to per-experiment log files (stream-001.log, etc.).
+ * Writes agent streaming text to per-experiment log files (stream-001.log, etc.)
+ * using Bun's FileSink for buffered, high-throughput appending.
  * All other state persistence is handled by the loop itself (state.json, results.tsv).
  */
 export function createFileCallbacks(runDir: string): LoopCallbacks {
   let currentExperiment = 0
+  let writer: ReturnType<ReturnType<typeof Bun.file>["writer"]> | null = null
+
+  function getWriter(experimentNumber: number) {
+    if (experimentNumber !== currentExperiment || !writer) {
+      writer?.end()
+      currentExperiment = experimentNumber
+      writer = Bun.file(join(runDir, streamLogName(experimentNumber))).writer()
+    }
+    return writer
+  }
 
   return {
     onPhaseChange: () => {},
     onExperimentStart: (num: number) => {
-      currentExperiment = num
+      getWriter(num)
     },
-    onExperimentEnd: () => {},
+    onExperimentEnd: () => {
+      writer?.end()
+      writer = null
+    },
     onStateUpdate: () => {},
     onAgentStream: (text: string) => {
-      const path = join(runDir, streamLogName(currentExperiment))
-      writeFile(path, text, { flag: "a" }).catch(() => {})
+      const w = getWriter(currentExperiment)
+      w.write(text)
+      w.flush()
     },
     onAgentToolUse: (status: string) => {
-      const path = join(runDir, streamLogName(currentExperiment))
-      writeFile(path, `\n[tool] ${status}\n`, { flag: "a" }).catch(() => {})
+      const w = getWriter(currentExperiment)
+      w.write(`\n[tool] ${status}\n`)
+      w.flush()
     },
     onError: () => {},
     onExperimentCost: () => {},
     onRebaseline: () => {},
-    onLoopComplete: () => {},
+    onLoopComplete: () => {
+      writer?.end()
+      writer = null
+    },
   }
 }

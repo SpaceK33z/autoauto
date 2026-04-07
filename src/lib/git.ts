@@ -1,56 +1,37 @@
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
-
-const execFileAsync = promisify(execFile)
+import { $ } from "bun"
 
 export async function getFullSha(cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd })
-  return stdout.trim()
+  return (await $`git rev-parse HEAD`.cwd(cwd).text()).trim()
 }
 
 export async function getRecentLog(cwd: string, count?: number): Promise<string> {
-  const { stdout } = await execFileAsync(
-    "git",
-    ["log", "--oneline", "--decorate", "-n", String(count ?? 10)],
-    { cwd },
-  )
-  return stdout.trim()
+  return (await $`git log --oneline --decorate -n ${String(count ?? 10)}`.cwd(cwd).text()).trim()
 }
 
 /** Resets HEAD to the given SHA, discarding all changes. Primary discard mechanism for failed experiments. */
 export async function resetHard(cwd: string, sha: string): Promise<void> {
-  await execFileAsync("git", ["reset", "--hard", sha], { cwd })
+  await $`git reset --hard ${sha}`.cwd(cwd).quiet()
 }
 
 export async function getLatestCommitMessage(cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["log", "-1", "--format=%s"], { cwd })
-  return stdout.trim()
+  return (await $`git log -1 --format=%s`.cwd(cwd).text()).trim()
 }
 
 export async function getCommitDiff(cwd: string, sha: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["show", "--stat", sha], { cwd })
-  return stdout.trim()
+  return (await $`git show --stat ${sha}`.cwd(cwd).text()).trim()
 }
 
 export async function branchExists(cwd: string, branchName: string): Promise<boolean> {
-  try {
-    await execFileAsync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
-      cwd,
-    })
-    return true
-  } catch {
-    return false
-  }
+  const result = await $`git show-ref --verify --quiet refs/heads/${branchName}`.cwd(cwd).nothrow().quiet()
+  return result.exitCode === 0
 }
 
 export async function isWorkingTreeClean(cwd: string): Promise<boolean> {
-  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd })
-  return !stdout.trim()
+  return !(await $`git status --porcelain`.cwd(cwd).text()).trim()
 }
 
 export async function getCurrentBranch(cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })
-  return stdout.trim()
+  return (await $`git rev-parse --abbrev-ref HEAD`.cwd(cwd).text()).trim()
 }
 
 export async function createExperimentBranch(
@@ -60,13 +41,11 @@ export async function createExperimentBranch(
 ): Promise<string> {
   const branchName = `autoauto-${programSlug}-${runId}`
 
-  try {
-    await execFileAsync("git", ["checkout", "-b", branchName], { cwd })
-  } catch (err) {
+  const result = await $`git checkout -b ${branchName}`.cwd(cwd).nothrow().quiet()
+  if (result.exitCode !== 0) {
     throw new Error(
       `Failed to create branch "${branchName}" — was a previous run interrupted? ` +
         `Delete it with \`git branch -D ${branchName}\` to proceed.`,
-      { cause: err },
     )
   }
 
@@ -74,7 +53,7 @@ export async function createExperimentBranch(
 }
 
 export async function checkoutBranch(cwd: string, branchName: string): Promise<void> {
-  await execFileAsync("git", ["checkout", branchName], { cwd })
+  await $`git checkout ${branchName}`.cwd(cwd).quiet()
 }
 
 /** Returns files changed between two SHAs (relative paths). */
@@ -83,10 +62,10 @@ export async function getFilesChangedBetween(
   fromSha: string,
   toSha: string,
 ): Promise<string[]> {
-  const { stdout } = await execFileAsync(
-    "git", ["diff", "--name-only", fromSha, toSha], { cwd },
-  )
-  return stdout.trim().split("\n").filter(Boolean)
+  return (await $`git diff --name-only ${fromSha} ${toSha}`.cwd(cwd).text())
+    .trim()
+    .split("\n")
+    .filter(Boolean)
 }
 
 /** Returns the number of commits between two SHAs. */
@@ -95,16 +74,12 @@ export async function countCommitsBetween(
   fromSha: string,
   toSha: string,
 ): Promise<number> {
-  const { stdout } = await execFileAsync(
-    "git", ["rev-list", "--count", `${fromSha}..${toSha}`], { cwd },
-  )
-  return parseInt(stdout.trim(), 10)
+  return parseInt((await $`git rev-list --count ${fromSha}..${toSha}`.cwd(cwd).text()).trim(), 10)
 }
 
 /** Returns the full unified diff between two SHAs. */
 export async function getDiffBetween(cwd: string, fromSha: string, toSha: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["diff", fromSha, toSha], { cwd })
-  return stdout
+  return await $`git diff ${fromSha} ${toSha}`.cwd(cwd).text()
 }
 
 /** Squashes all commits between baselineSha and HEAD into a single commit.
@@ -116,13 +91,13 @@ export async function squashCommits(
 ): Promise<string> {
   const savedHead = await getFullSha(cwd)
 
-  await execFileAsync("git", ["reset", "--soft", baselineSha], { cwd })
+  await $`git reset --soft ${baselineSha}`.cwd(cwd).quiet()
 
   try {
-    await execFileAsync("git", ["commit", "-m", commitMessage], { cwd })
+    await $`git commit -m ${commitMessage}`.cwd(cwd).quiet()
   } catch (err) {
     // Rollback: restore HEAD to where it was before the reset
-    await execFileAsync("git", ["reset", "--soft", savedHead], { cwd })
+    await $`git reset --soft ${savedHead}`.cwd(cwd).quiet()
     throw err
   }
 
