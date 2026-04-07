@@ -16,11 +16,11 @@ High-level tasks to complete the interactive setup flow described in [IDEA.md](.
 
 ## 1c. Program Generation
 
-- [ ] Agent generates `program.md` (goal, scope, rules, steps)
-- [ ] Agent generates `measure.sh` (measurement script tailored to repo)
-- [ ] Agent generates `config.json` (metric field, direction, noise threshold, repeats, quality gates)
-- [ ] Save generated files to `.autoauto/programs/<name>/`
-- [ ] User review & confirm step before saving
+- [x] Agent generates `program.md` (goal, scope, rules, steps)
+- [x] Agent generates `measure.sh` (measurement script tailored to repo)
+- [x] Agent generates `config.json` (metric field, direction, noise threshold, repeats, quality gates)
+- [x] Save generated files to `.autoauto/programs/<name>/`
+- [x] User review & confirm step before saving
 
 ## 1d. Measurement Validation
 
