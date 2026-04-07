@@ -12,6 +12,11 @@ import {
 } from "./git.ts"
 import { getProvider, type AgentCost } from "./agent/index.ts"
 import { formatToolEvent } from "./tool-events.ts"
+import {
+  parseExperimentNotes,
+  readIdeasBacklogSummary,
+  type ExperimentNotes,
+} from "./ideas-backlog.ts"
 
 // --- Types ---
 
@@ -31,6 +36,7 @@ export interface ContextPacket {
   recent_git_log: string
   last_outcome: string
   discarded_diffs: string
+  ideas_backlog: string
 }
 
 /** Cost and usage data from an agent session. */
@@ -38,9 +44,9 @@ export type ExperimentCost = AgentCost
 
 /** Result of running one experiment agent session */
 export type ExperimentOutcome =
-  | { type: "committed"; sha: string; description: string; files_changed: string[]; cost?: ExperimentCost }
-  | { type: "no_commit"; cost?: ExperimentCost }
-  | { type: "agent_error"; error: string; cost?: ExperimentCost }
+  | { type: "committed"; sha: string; description: string; files_changed: string[]; cost?: ExperimentCost; notes?: ExperimentNotes }
+  | { type: "no_commit"; cost?: ExperimentCost; notes?: ExperimentNotes }
+  | { type: "agent_error"; error: string; cost?: ExperimentCost; notes?: ExperimentNotes }
 
 /** Result of checking whether locked files were modified */
 export interface LockViolation {
@@ -57,12 +63,16 @@ export async function buildContextPacket(
   runDir: string,
   state: RunState,
   config: { metric_field: string; direction: "lower" | "higher" },
+  options: { ideasBacklogEnabled?: boolean } = {},
 ): Promise<ContextPacket> {
   const [programMd, resultsRaw, recentGitLog] = await Promise.all([
     readFile(join(programDir, "program.md"), "utf-8"),
     readFile(join(runDir, "results.tsv"), "utf-8"),
     getRecentLog(cwd, 15),
   ])
+  const ideasBacklog = options.ideasBacklogEnabled === false
+    ? ""
+    : await readIdeasBacklogSummary(runDir)
 
   const recentResults = formatRecentResults(resultsRaw, 15)
 
@@ -113,6 +123,7 @@ export async function buildContextPacket(
     recent_git_log: recentGitLog,
     last_outcome: lastOutcome,
     discarded_diffs: discardedDiffs,
+    ideas_backlog: ideasBacklog,
   }
 }
 
@@ -141,8 +152,12 @@ ${packet.recent_git_log}
 
 ## Recently Discarded Experiments
 ${packet.discarded_diffs || "(none yet)"}
+${packet.ideas_backlog ? `
+## Ideas Backlog
+${packet.ideas_backlog}
+` : ""}
 
-Review the recently discarded experiments above. Focus on what was tried and why it failed.
+Review the recent results and discarded experiments${packet.ideas_backlog ? ", and ideas backlog" : ""} above. Focus on what was tried, why it failed, and what should be tried next.
 Implement ONE change, validate, and commit. Then stop.`
 }
 
@@ -173,11 +188,26 @@ export async function runExperimentAgent(
   onToolStatus?: (status: string) => void,
   signal?: AbortSignal,
 ): Promise<ExperimentOutcome> {
+  const raw = await runExperimentAgentRaw(cwd, systemPrompt, userPrompt, modelConfig, startSha, onStreamText, onToolStatus, signal)
+  return { ...raw.outcome, notes: parseExperimentNotes(raw.assistantText) }
+}
+
+async function runExperimentAgentRaw(
+  cwd: string,
+  systemPrompt: string,
+  userPrompt: string,
+  modelConfig: ModelSlot,
+  startSha: string,
+  onStreamText?: (text: string) => void,
+  onToolStatus?: (status: string) => void,
+  signal?: AbortSignal,
+): Promise<{ outcome: ExperimentOutcome; assistantText: string }> {
   if (signal?.aborted) {
-    return { type: "agent_error", error: "aborted before start" }
+    return { outcome: { type: "agent_error", error: "aborted before start" }, assistantText: "" }
   }
 
   let cost: ExperimentCost | undefined
+  let assistantText = ""
 
   try {
     const session = getProvider().runOnce(userPrompt, {
@@ -201,24 +231,26 @@ export async function runExperimentAgent(
         case "tool_use":
           onToolStatus?.(formatToolEvent(event.tool, event.input ?? {}))
           break
+        case "assistant_complete":
+          assistantText += `\n${event.text}`
+          break
         case "error":
-          return { type: "agent_error", error: event.error, cost }
+          return { outcome: { type: "agent_error", error: event.error, cost }, assistantText }
         case "result":
           cost = event.cost
           if (!event.success) {
-            return { type: "agent_error", error: event.error ?? "unknown", cost }
+            return { outcome: { type: "agent_error", error: event.error ?? "unknown", cost }, assistantText }
           }
           break
       }
     }
   } catch (err: unknown) {
     if (signal?.aborted) {
-      return { type: "agent_error", error: "aborted", cost }
+      return { outcome: { type: "agent_error", error: "aborted", cost }, assistantText }
     }
     return {
-      type: "agent_error",
-      error: err instanceof Error ? err.message : String(err),
-      cost,
+      outcome: { type: "agent_error", error: err instanceof Error ? err.message : String(err), cost },
+      assistantText,
     }
   }
 
@@ -226,17 +258,14 @@ export async function runExperimentAgent(
   const endSha = await getFullSha(cwd)
 
   if (endSha === startSha) {
-    return { type: "no_commit", cost }
+    return { outcome: { type: "no_commit", cost }, assistantText }
   }
 
   const description = await getLatestCommitMessage(cwd)
   const filesChanged = await getFilesChangedBetween(cwd, startSha, endSha)
 
   return {
-    type: "committed",
-    sha: endSha,
-    description,
-    files_changed: filesChanged,
-    cost,
+    outcome: { type: "committed", sha: endSha, description, files_changed: filesChanged, cost },
+    assistantText,
   }
 }

@@ -35,6 +35,7 @@ interface ExecutionScreenProps {
   programSlug: string
   modelConfig: ModelSlot
   supportModelConfig: ModelSlot
+  ideasBacklogEnabled: boolean
   navigate: (screen: Screen) => void
   maxExperiments?: number
   /** If set, attach to an existing run instead of starting a new one */
@@ -70,7 +71,7 @@ function Divider({ width, label }: { width: number; label?: string }) {
   return <text fg="#565f89">{"─".repeat(innerWidth)}</text>
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, navigate, maxExperiments, attachRunId, readOnly = false }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, attachRunId, readOnly = false }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
@@ -161,7 +162,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           }
         } else {
           // Spawn mode: create worktree, spawn daemon
-          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments)
+          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled)
           if (cancelled) return
 
           activeRunDir = result.runDir
@@ -253,7 +254,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       cancelled = true
       watcherRef.current?.stop()
     }
-  }, [cwd, programSlug, modelConfig, maxExperiments, attachRunId])
+  }, [cwd, programSlug, modelConfig, maxExperiments, attachRunId, ideasBacklogEnabled])
 
   const handleAbandon = useCallback(async () => {
     // Remove worktree if we have the path

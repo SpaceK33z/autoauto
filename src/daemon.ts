@@ -71,6 +71,7 @@ async function main() {
   const runConfig = await readRunConfig(runDir)
   const modelConfig = runConfig ? runConfigToModelSlot(runConfig) : { model: "sonnet", effort: "high" as const }
   const maxExperiments = runConfig?.max_experiments
+  const ideasBacklogEnabled = runConfig?.ideas_backlog_enabled ?? true
 
   // 3. Initialize stream.log
   await initStreamLog(runDir)
@@ -219,6 +220,7 @@ async function main() {
           maxExperiments,
           signal: abortController.signal,
           stopRequested: () => stopRequested,
+          ideasBacklogEnabled,
         },
       )
     } else {
@@ -236,6 +238,7 @@ async function main() {
           maxExperiments,
           signal: abortController.signal,
           stopRequested: () => stopRequested,
+          ideasBacklogEnabled,
         },
       )
     }

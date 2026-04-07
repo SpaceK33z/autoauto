@@ -26,6 +26,7 @@ import {
   checkLockViolation,
   type ExperimentCost,
 } from "./experiment.ts"
+import { appendIdeasBacklog, type ExperimentNotes } from "./ideas-backlog.ts"
 import { getExperimentSystemPrompt } from "./system-prompts.ts"
 
 /** Re-measure baseline after this many consecutive discards to check for environment drift. */
@@ -57,6 +58,8 @@ export interface LoopOptions {
   signal?: AbortSignal
   /** Soft stop — checked at iteration boundary, finishes current experiment normally */
   stopRequested?: () => boolean
+  /** Durable ideas.md experiment memory. Disable to use results.tsv/git history only. */
+  ideasBacklogEnabled?: boolean
 }
 
 // --- Helpers ---
@@ -113,6 +116,16 @@ async function resetAndVerify(cwd: string, startSha: string, errorContext: strin
   if (!(await isWorkingTreeClean(cwd))) {
     throw new Error(`Working tree still dirty after ${errorContext}; stopping to avoid contaminating the next experiment.`)
   }
+}
+
+async function recordIdeasBacklog(
+  enabled: boolean,
+  runDir: string,
+  result: ExperimentResult,
+  notes?: ExperimentNotes,
+): Promise<void> {
+  if (!enabled) return
+  await appendIdeasBacklog(runDir, result, notes).catch(() => {})
 }
 
 async function maybeRebaseline(
@@ -174,6 +187,7 @@ async function runMeasurementAndDecide(
   candidateSha: string,
   description: string,
   callbacks: LoopCallbacks,
+  recordBacklog: (result: ExperimentResult) => Promise<void>,
   signal?: AbortSignal,
 ): Promise<{ state: RunState; kept: boolean }> {
 
@@ -203,6 +217,7 @@ async function runMeasurementAndDecide(
       measurement_duration_ms: series.duration_ms,
     }
     await appendResult(runDir, result)
+    await recordBacklog(result)
     callbacks.onExperimentEnd(result)
 
     const finalState: RunState = {
@@ -234,6 +249,7 @@ async function runMeasurementAndDecide(
       measurement_duration_ms: series.duration_ms,
     }
     await appendResult(runDir, result)
+    await recordBacklog(result)
     callbacks.onExperimentEnd(result)
 
     const finalState: RunState = {
@@ -273,6 +289,7 @@ async function runMeasurementAndDecide(
       measurement_duration_ms: series.duration_ms,
     }
     await appendResult(runDir, result)
+    await recordBacklog(result)
     callbacks.onExperimentEnd(result)
 
     // Re-baseline: fresh measurement on the kept code
@@ -320,6 +337,7 @@ async function runMeasurementAndDecide(
     measurement_duration_ms: series.duration_ms,
   }
   await appendResult(runDir, result)
+  await recordBacklog(result)
   callbacks.onExperimentEnd(result)
 
   const finalState: RunState = {
@@ -352,6 +370,7 @@ export async function runExperimentLoop(
   const buildShPath = join(programDir, "build.sh")
   let state = await readState(runDir)
   let consecutiveDiscards = 0
+  const ideasBacklogEnabled = options.ideasBacklogEnabled ?? true
 
 
   try {
@@ -394,9 +413,9 @@ export async function runExperimentLoop(
 
     // --- Build context packet ---
     const packet = await buildContextPacket(
-      cwd, programDir, runDir, state, config,
+      cwd, programDir, runDir, state, config, { ideasBacklogEnabled },
     )
-    const systemPrompt = getExperimentSystemPrompt(packet.program_md)
+    const systemPrompt = getExperimentSystemPrompt(packet.program_md, { ideasBacklogEnabled })
     const userPrompt = buildExperimentPrompt(packet)
 
     // --- Spawn experiment agent ---
@@ -442,6 +461,7 @@ export async function runExperimentLoop(
         measurement_duration_ms: 0,
       }
       await appendResult(runDir, abortResult)
+      await recordIdeasBacklog(ideasBacklogEnabled, runDir, abortResult)
       callbacks.onExperimentEnd(abortResult)
 
       state = {
@@ -480,6 +500,7 @@ export async function runExperimentLoop(
         measurement_duration_ms: 0,
       }
       await appendResult(runDir, crashResult)
+      await recordIdeasBacklog(ideasBacklogEnabled, runDir, crashResult, outcome.notes)
       callbacks.onExperimentEnd(crashResult)
 
       state = {
@@ -538,6 +559,7 @@ export async function runExperimentLoop(
         measurement_duration_ms: 0,
       }
       await appendResult(runDir, lockResult)
+      await recordIdeasBacklog(ideasBacklogEnabled, runDir, lockResult, outcome.notes)
       callbacks.onExperimentEnd(lockResult)
 
       state = { ...state, total_discards: state.total_discards + 1, candidate_sha: null, phase: "idle", updated_at: now() }
@@ -558,7 +580,9 @@ export async function runExperimentLoop(
     const measurementResult = await runMeasurementAndDecide(
       cwd, runDir, measureShPath, buildShPath,
       config, state, startSha, candidateSha, outcome.description,
-      callbacks, options.signal,
+      callbacks,
+      (result) => recordIdeasBacklog(ideasBacklogEnabled, runDir, result, outcome.notes),
+      options.signal,
     )
 
     // Check if abort fired during measurement

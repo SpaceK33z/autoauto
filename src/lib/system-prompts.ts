@@ -374,7 +374,23 @@ LONG RUNS (50+ experiments):
 }
 
 /** Returns the system prompt for the experiment agent. Wraps program.md with framing instructions. */
-export function getExperimentSystemPrompt(programMd: string): string {
+export function getExperimentSystemPrompt(
+  programMd: string,
+  options: { ideasBacklogEnabled?: boolean } = {},
+): string {
+  const useIdeasBacklog = options.ideasBacklogEnabled !== false
+  const notesInstruction = useIdeasBacklog ? `
+### 6. Leave Experiment Notes
+At the end of your final response, include exactly one notes block for the orchestrator:
+
+<autoauto_notes>
+{"hypothesis":"one sentence describing what you tried and why it should affect the metric","why":"one sentence describing what happened or what failure mode to watch for","avoid":["specific approach to avoid repeating"],"next":["specific follow-up idea to try next"]}
+</autoauto_notes>
+
+Keep these notes factual and short. Do not edit any ideas backlog file yourself; the orchestrator persists these notes.
+` : ""
+  const exitSectionNumber = useIdeasBacklog ? "7" : "6"
+
   return `You are an AutoAuto Experiment Agent — one experiment in an autonomous optimization loop. An external orchestrator handles measurement, keep/discard decisions, and loop control. Your job: analyze, plan ONE targeted optimization, implement it, validate it, and commit.
 
 ${programMd}
@@ -415,8 +431,8 @@ ${programMd}
   - Good: "perf(parser): replace regex with indexOf for URL extraction — avoids backtracking on long strings"
   - Bad: "perf: improve performance"
 - The commit message is how future experiment agents learn from your work. Make it count.
-
-### 6. When to Exit Without Committing
+${notesInstruction}
+### ${exitSectionNumber}. When to Exit Without Committing
 - If you've analyzed the code and can't find a promising change within scope — exit. A no-commit is better than a low-quality experiment that wastes measurement time.
 - If validation fails and you cannot fix it — revert and exit.
 - If your proposed change is essentially the same as a recently discarded experiment — exit instead of wasting a cycle.

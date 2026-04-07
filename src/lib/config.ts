@@ -12,6 +12,7 @@ export interface ModelSlot {
 export interface ProjectConfig {
   executionModel: ModelSlot
   supportModel: ModelSlot
+  ideasBacklogEnabled: boolean
 }
 
 const CONFIG_FILE = "config.json"
@@ -19,6 +20,7 @@ const CONFIG_FILE = "config.json"
 export const DEFAULT_CONFIG: ProjectConfig = {
   executionModel: { model: "sonnet", effort: "high" },
   supportModel: { model: "sonnet", effort: "high" },
+  ideasBacklogEnabled: true,
 }
 
 /** Model choices the user can cycle through in the settings UI */
@@ -62,12 +64,12 @@ export async function loadProjectConfig(cwd: string): Promise<ProjectConfig> {
   try {
     const raw = await readFile(configPath, "utf-8")
     const parsed = JSON.parse(raw) as Partial<ProjectConfig>
+    const { executionModel, supportModel, ...rest } = parsed
     return {
-      executionModel: {
-        ...DEFAULT_CONFIG.executionModel,
-        ...parsed.executionModel,
-      },
-      supportModel: { ...DEFAULT_CONFIG.supportModel, ...parsed.supportModel },
+      ...DEFAULT_CONFIG,
+      ...rest,
+      executionModel: { ...DEFAULT_CONFIG.executionModel, ...executionModel },
+      supportModel: { ...DEFAULT_CONFIG.supportModel, ...supportModel },
     }
   } catch {
     return { ...DEFAULT_CONFIG }

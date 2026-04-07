@@ -31,6 +31,10 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
 
   function cycleValue(direction: -1 | 1) {
     updateConfig((prev) => {
+      if (selected === 4) {
+        return { ...prev, ideasBacklogEnabled: !prev.ideasBacklogEnabled }
+      }
+
       const slotKey = selected < 2 ? "executionModel" : "supportModel"
       const propKey = selected % 2 === 0 ? "model" : "effort"
       const slot = { ...prev[slotKey] }
@@ -55,7 +59,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
     if (key.name === "up" || key.name === "k")
       setSelected((s) => Math.max(0, s - 1))
     if (key.name === "down" || key.name === "j")
-      setSelected((s) => Math.min(3, s + 1))
+      setSelected((s) => Math.min(4, s + 1))
     if (key.name === "left" || key.name === "h") cycleValue(-1)
     if (key.name === "right" || key.name === "l") cycleValue(1)
   })
@@ -102,6 +106,19 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
         value={EFFORT_LABELS[supportSlot.effort]}
         description={EFFORT_DESCRIPTIONS[supportSlot.effort]}
         isFocused={selected === 3}
+      />
+      <box height={1} />
+      <box flexDirection="row">
+        <text><strong>{"  Experiment Memory "}</strong></text>
+        <text fg="#888888">{"(ideas backlog)"}</text>
+      </box>
+      <CycleField
+        label="Ideas Backlog"
+        value={config.ideasBacklogEnabled ? "On" : "Off"}
+        description={config.ideasBacklogEnabled
+          ? "Capture why experiments worked or failed and what to try next"
+          : "Use results.tsv-based experiment memory only"}
+        isFocused={selected === 4}
       />
     </box>
   )

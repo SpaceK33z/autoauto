@@ -159,6 +159,7 @@ export function App() {
           programSlug={selectedProgram}
           modelConfig={preRunOverrides?.modelConfig ?? projectConfig.executionModel}
           supportModelConfig={projectConfig.supportModel}
+          ideasBacklogEnabled={projectConfig.ideasBacklogEnabled}
           navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setScreen(s) }}
           maxExperiments={preRunOverrides?.maxExperiments}
           attachRunId={attachRunId ?? undefined}

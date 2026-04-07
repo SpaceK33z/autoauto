@@ -63,6 +63,7 @@ export async function spawnDaemon(
   programSlug: string,
   modelConfig: ModelSlot,
   maxExperiments?: number,
+  ideasBacklogEnabled = true,
 ): Promise<{ runId: string; runDir: string; worktreePath: string; pid: number }> {
   // 1. Check working tree
   if (!(await isWorkingTreeClean(mainRoot))) {
@@ -89,6 +90,7 @@ export async function spawnDaemon(
       model: modelConfig.model,
       effort: modelConfig.effort,
       max_experiments: maxExperiments,
+      ideas_backlog_enabled: ideasBacklogEnabled,
     }
     await writeRunConfig(runDir, runConfig)
 

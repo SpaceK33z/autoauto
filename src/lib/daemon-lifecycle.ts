@@ -24,6 +24,7 @@ export interface RunConfig {
   model: string
   effort: string
   max_experiments?: number
+  ideas_backlog_enabled?: boolean
 }
 
 export interface ControlAction {
