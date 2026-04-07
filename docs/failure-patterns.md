@@ -51,16 +51,23 @@ The agent optimizes the measurement instead of the real goal. This is the #1 fai
 The agent goes off-task, pursuing interesting side-quests instead of the defined objective.
 
 ### 2a. Overnight drift into unrelated research
-**What happened:** Agent tasked with optimizing inference memory usage spent 12 hours investigating minimum needed model weights instead. The finding (37% of experts cover 95% of use cases) was interesting but wasn't what was asked.
+**What happened:** Agent tasked with optimizing inference memory usage spent 12 hours investigating minimum needed model weights instead. Over 19 autonomous experiments, the agent shifted objectives without guidance — instead of maintaining memory constraints, it investigated its own research question ("how little of the model do you actually need?"). The finding (37% of experts cover 95% of use cases) was interesting but wasn't what was asked.
 **Source:** Cerebras (71 experiments)
-**Root cause:** Loose scope definition + no steering checkpoints. Agent's curiosity led it down a related but off-target path.
-**Safeguard:** Strict scope constraints in program.md. Frequent validation checkpoints (not just at the end). Clear the agent's context between experiments to prevent narrative momentum. Explicit "off-limits" section in program.md.
+**Root cause:** Loose scope definition + no steering checkpoints. Agent's curiosity led it down a related but off-target path. "The infrastructure and task framing determined whether the agent explored productively or spiraled."
+**Recovery:** Required "clearing the environment of distracting context, creating clean isolated directories, and actively re-steering the agent's focus." The same agents that drifted badly in loosely-scoped environments produced clean, convergent results under tight constraints.
+**Safeguard:** Strict scope constraints in program.md. One experiment per call with strict validation gates (not multi-experiment autonomous sessions). Clear the agent's context between experiments to prevent narrative momentum. Explicit "off-limits" section in program.md.
 
 ### 2b. Scope creep across files
 **What happened:** Architecture analyses warn that the pattern breaks down when agents modify multiple files or systems simultaneously. Changes become entangled and hard to evaluate or revert.
 **Source:** SoftmaxData (architecture analysis)
 **Root cause:** Multi-file changes create combinatorial interactions that single-metric evaluation can't capture.
 **Safeguard:** Restrict modifications to defined file scope in program.md. One file change per experiment is ideal. The orchestrator should flag commits that touch out-of-scope files.
+
+### 2c. Infrastructure friction consuming more time than experiments
+**What happened:** Cerebras reports "We spent more time debugging sandbox permissions than running actual experiments." GPU access restrictions, package manager failures, and environment variable handling created friction that blocked experiment progress.
+**Source:** Cerebras (71 experiments)
+**Root cause:** Sandboxed execution environments have constraints that agents cannot resolve autonomously — file permissions, network access, missing packages, GPU drivers.
+**Safeguard:** Validate the execution environment before starting the loop. The setup agent should run a smoke test (build + measure + revert) to surface infrastructure issues before committing to an overnight run. Document known sandbox constraints in program.md so the experiment agent doesn't waste cycles on approaches that hit permission walls.
 
 ---
 
