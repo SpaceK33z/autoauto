@@ -52,6 +52,7 @@ src/
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     system-prompts.ts    # Agent system prompts (setup, ideation)
+    validate-measurement.ts  # Standalone measurement validation script
 ```
 
 ## Agent Architecture
@@ -68,12 +69,28 @@ loop, tool execution, and context management.
 - **Working directory:** Target project root (resolved via `getProjectRoot()`)
 - **System prompt:** Encodes autoresearch expertise — guides user through repo inspection,
   target identification, scope definition, measurement approach, artifact generation
-- **maxTurns:** 30 (conversation turns, including review iterations)
+- **maxTurns:** 40 (conversation turns, including review iterations and measurement validation)
 - **Artifacts generated:**
   - `program.md` — Goal, scope, rules, steps for the experiment agent
   - `measure.sh` — Measurement script tailored to the repo (must output JSON to stdout)
   - `config.json` — Metric field, direction, noise threshold, repeats, quality gates
 - **Review flow:** Agent presents artifacts as code blocks for review before writing to disk
+- **Measurement validation:** After saving, the agent runs a standalone validation script
+  (`src/lib/validate-measurement.ts`) that executes measure.sh 5 times, computes variance
+  statistics (CV%), and recommends noise_threshold + repeats. If measurements are unstable,
+  the agent helps fix the script and re-validates.
+
+### Measurement Validation (`src/lib/validate-measurement.ts`)
+
+Standalone Bun script that validates measurement script stability:
+
+- **Input:** Paths to measure.sh + config.json, number of runs
+- **Execution:** Runs measure.sh N times sequentially, parses JSON output, validates fields
+- **Stats:** Computes median, mean, min, max, stdev, CV% for primary metric and quality gates
+- **Assessment:** excellent (<5% CV), acceptable (5-15%), noisy (15-30%), unstable (≥30%)
+- **Output:** Single JSON object to stdout with stats, assessment, and config recommendations
+- **Called by:** Setup agent via Bash tool
+- **Used for:** Pre-experiment validation during setup (Phase 1) — ensures measurement is stable before entering the optimization loop
 
 ## Current State
 
@@ -81,4 +98,5 @@ Phase 1 (Setup) is in progress. The TUI shell, screen navigation, program listin
 multi-turn Claude Agent SDK chat are wired up. The setup agent can inspect the target repo,
 suggest optimization targets, guide the user through scope and measurement design, generate
 program artifacts (program.md, measure.sh, config.json), and save them after user review.
-Measurement validation (running the generated script to check variance) is not yet implemented.
+Measurement validation runs the generated script multiple times to check variance and
+recommends noise/repeats configuration. Model configuration is not yet implemented.

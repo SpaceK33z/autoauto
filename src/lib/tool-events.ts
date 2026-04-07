@@ -1,19 +1,25 @@
 import { basename } from "node:path"
 
+function formatFileToolEvent(verb: string, input: Record<string, unknown>): string {
+  const filePath = input.file_path
+  if (typeof filePath === "string") {
+    return `${verb} ${basename(filePath)}`
+  }
+  return `${verb} file...`
+}
+
 /** Format a tool call into a brief human-readable status string */
 export function formatToolEvent(
   toolName: string,
   input: Record<string, unknown>
 ): string {
   switch (toolName) {
-    case "Read": {
-      const filePath = input.file_path
-      if (typeof filePath === "string") {
-        const fileName = basename(filePath)
-        return `Reading ${fileName}`
-      }
-      return "Reading file..."
-    }
+    case "Read":
+      return formatFileToolEvent("Reading", input)
+    case "Write":
+      return formatFileToolEvent("Writing", input)
+    case "Edit":
+      return formatFileToolEvent("Editing", input)
     case "Glob": {
       const pattern = input.pattern
       if (typeof pattern === "string") {
@@ -36,22 +42,6 @@ export function formatToolEvent(
         return `Running: ${truncated}`
       }
       return "Running command..."
-    }
-    case "Write": {
-      const filePath = input.file_path
-      if (typeof filePath === "string") {
-        const fileName = basename(filePath)
-        return `Writing ${fileName}`
-      }
-      return "Writing file..."
-    }
-    case "Edit": {
-      const filePath = input.file_path
-      if (typeof filePath === "string") {
-        const fileName = basename(filePath)
-        return `Editing ${fileName}`
-      }
-      return "Editing file..."
     }
     default:
       return `Using ${toolName}...`

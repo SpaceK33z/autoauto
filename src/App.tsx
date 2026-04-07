@@ -6,7 +6,7 @@ import {
 } from "@opentui/react"
 import { HomeScreen } from "./screens/HomeScreen.tsx"
 import { SetupScreen } from "./screens/SetupScreen.tsx"
-import { ensureAutoAutoDir, type Screen } from "./lib/programs.ts"
+import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.ts"
 
 const cwd = process.cwd()
 
@@ -14,8 +14,10 @@ export function App() {
   const renderer = useRenderer()
   const { width, height } = useTerminalDimensions()
   const [screen, setScreen] = useState<Screen>("home")
+  const [projectRoot, setProjectRoot] = useState(cwd)
 
   useEffect(() => {
+    getProjectRoot(cwd).then(setProjectRoot).catch(() => {})
     ensureAutoAutoDir(cwd).catch(() => {})
   }, [])
 
@@ -40,7 +42,7 @@ export function App() {
       </box>
 
       {screen === "home" && <HomeScreen cwd={cwd} navigate={setScreen} />}
-      {screen === "setup" && <SetupScreen cwd={cwd} navigate={setScreen} />}
+      {screen === "setup" && <SetupScreen cwd={projectRoot} navigate={setScreen} />}
 
       <text fg="#888888">
         {screen === "home"

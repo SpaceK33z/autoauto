@@ -29,7 +29,7 @@ Requires Claude CLI installed and authenticated, or `ANTHROPIC_API_KEY` set.
 
 AutoAuto encodes autoresearch expertise into a guided workflow:
 
-1. **Setup** — Inspect a repo, define what to optimize, generate a measurement script, set scope constraints
+1. **Setup** — Inspect a repo, define what to optimize, generate a measurement script, validate measurement stability, set scope constraints
 2. **Execute** — Run an autonomous loop: spawn an agent, make one change, measure, keep or discard, repeat
 3. **Cleanup** — Review accumulated changes, squash into clean commits, generate a summary report
 

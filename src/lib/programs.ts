@@ -50,29 +50,9 @@ export async function listPrograms(cwd: string): Promise<Program[]> {
   }
 }
 
-export interface QualityGate {
-  min?: number
-  max?: number
-}
-
-export interface ProgramConfig {
-  metric_field: string
-  direction: "lower" | "higher"
-  noise_threshold: number
-  repeats: number
-  quality_gates: Record<string, QualityGate>
-}
-
-const PROGRAMS_DIR = "programs"
-
 /** Returns the absolute path to the programs directory */
 export function getProgramsDir(cwd: string): string {
-  return join(cwd, AUTOAUTO_DIR, PROGRAMS_DIR)
-}
-
-/** Returns the absolute path to a specific program's directory */
-export function getProgramDir(cwd: string, slug: string): string {
-  return join(cwd, AUTOAUTO_DIR, PROGRAMS_DIR, slug)
+  return join(cwd, AUTOAUTO_DIR, "programs")
 }
 
 export async function ensureAutoAutoDir(cwd: string): Promise<void> {

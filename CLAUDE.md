@@ -63,6 +63,7 @@ src/
     push-stream.ts       # Push-based async iterable utility
     system-prompts.ts    # Agent system prompts (setup, ideation)
     tool-events.ts       # Tool event display formatting
+    validate-measurement.ts  # Standalone measurement validation script
 ```
 
 ## Agent Conventions
@@ -73,6 +74,10 @@ src/
 - System prompts live in `src/lib/system-prompts.ts`
 - Tool status is displayed in the chat UI as brief one-line indicators
 - Setup Agent writes program artifacts to `.autoauto/programs/<slug>/` only after user confirmation
+- Setup Agent validates measurement stability after saving program files
+- Measurement validation uses a standalone script (`src/lib/validate-measurement.ts`) called via Bash
+- The validation script runs measure.sh multiple times and computes variance statistics (CV%)
+- Config recommendations (noise_threshold, repeats) are based on observed CV%
 
 ## Testing the TUI Interactively
 
