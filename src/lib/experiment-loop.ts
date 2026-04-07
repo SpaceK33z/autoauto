@@ -12,7 +12,6 @@ import {
 } from "./run.ts"
 import {
   getFullSha,
-  revertCommits,
   resetHard,
   isWorkingTreeClean,
   countCommitsBetween,
@@ -108,23 +107,8 @@ async function restoreMeasurementSnapshot(snapshot: MeasurementFileSnapshot[]): 
   }))
 }
 
-async function revertToStart(projectRoot: string, startSha: string, candidateSha: string): Promise<void> {
-  const reverted = await revertCommits(projectRoot, startSha, candidateSha)
-  if (!reverted) await resetHard(projectRoot, startSha)
-
-  if (!(await isWorkingTreeClean(projectRoot))) {
-    throw new Error("Working tree still dirty after reverting failed experiment; stopping to avoid contaminating the next experiment.")
-  }
-}
-
-/** Revert any changes back to startSha and verify the working tree is clean. */
-async function revertAndVerify(projectRoot: string, startSha: string, errorContext: string): Promise<void> {
-  const currentSha = await getFullSha(projectRoot)
-  if (currentSha !== startSha) {
-    await revertToStart(projectRoot, startSha, currentSha)
-  } else if (!(await isWorkingTreeClean(projectRoot))) {
-    await resetHard(projectRoot, startSha)
-  }
+async function resetAndVerify(projectRoot: string, startSha: string, errorContext: string): Promise<void> {
+  await resetHard(projectRoot, startSha)
   if (!(await isWorkingTreeClean(projectRoot))) {
     throw new Error(`Working tree still dirty after ${errorContext}; stopping to avoid contaminating the next experiment.`)
   }
@@ -206,7 +190,7 @@ async function runMeasurementAndDecide(
     currentState = { ...currentState, phase: "reverting", updated_at: now() }
     await writeState(runDir, currentState)
 
-    await revertToStart(projectRoot, startSha, candidateSha)
+    await resetAndVerify(projectRoot, startSha, "measurement failure reset")
 
     const result: ExperimentResult = {
       experiment_number: state.experiment_number,
@@ -236,7 +220,7 @@ async function runMeasurementAndDecide(
     currentState = { ...currentState, phase: "reverting", updated_at: now() }
     await writeState(runDir, currentState)
 
-    await revertToStart(projectRoot, startSha, candidateSha)
+    await resetAndVerify(projectRoot, startSha, "quality gate failure reset")
 
     const result: ExperimentResult = {
       experiment_number: state.experiment_number,
@@ -318,7 +302,7 @@ async function runMeasurementAndDecide(
   currentState = { ...currentState, phase: "reverting", updated_at: now() }
   await writeState(runDir, currentState)
 
-  await revertToStart(projectRoot, startSha, candidateSha)
+  await resetAndVerify(projectRoot, startSha, "discard reset")
 
   const statusDesc = verdict === "regressed" ? description : `noise: ${description}`
 
@@ -470,7 +454,7 @@ export async function runExperimentLoop(
       wrappedCallbacks.onPhaseChange("stopping", "aborted by user")
 
       await restoreMeasurementSnapshot(measurementSnapshot)
-      await revertAndVerify(projectRoot, startSha, "abort cleanup")
+      await resetAndVerify(projectRoot, startSha, "abort cleanup")
 
       const abortResult: ExperimentResult = {
         experiment_number: experimentNumber,
@@ -501,7 +485,7 @@ export async function runExperimentLoop(
         await restoreMeasurementSnapshot(measurementSnapshot)
       }
 
-      await revertAndVerify(projectRoot, startSha, "failed experiment cleanup")
+      await resetAndVerify(projectRoot, startSha, "failed experiment cleanup")
 
       const isLockViolation = measurementViolations.length > 0
       const crashDesc = isLockViolation
@@ -564,7 +548,7 @@ export async function runExperimentLoop(
       if (measurementViolations.length > 0) {
         await restoreMeasurementSnapshot(measurementSnapshot)
       }
-      await revertToStart(projectRoot, startSha, candidateSha)
+      await resetAndVerify(projectRoot, startSha, "lock violation reset")
 
       const lockResult: ExperimentResult = {
         experiment_number: experimentNumber,

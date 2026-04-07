@@ -50,7 +50,7 @@ The core keep/discard loop. Simple immediate accept/revert is more effective tha
 1. Agent makes one change, commits
 2. Orchestrator measures (median of N runs)
 3. If metric improved beyond noise threshold AND all quality gates pass → **keep** (commit stays)
-4. If metric didn't improve or a gate failed → **discard** (`git revert`, preserving history)
+4. If metric didn't improve or a gate failed → **discard** (`git reset --hard` to baseline)
 5. Loop
 
 **Design principles:**
@@ -127,7 +127,7 @@ Experiments will crash. The loop must recover automatically so overnight runs ar
 
 **Recovery pattern:**
 1. **Detect the crash.** Process exits non-zero, times out, or produces invalid output.
-2. **Revert the experiment.** `git revert` the last commit (or `git reset --hard` to last known-good if uncommitted). Safe because experiments are single commits on a dedicated branch — blast radius is always one commit.
+2. **Reset the experiment.** `git reset --hard` to the last known-good SHA. Safe because experiments are single commits on a dedicated branch — blast radius is always one commit.
 3. **Log the failure.** Record what crashed and why in results.tsv (status: "crashed"). This prevents the next agent from retrying the exact same approach.
 4. **Continue the loop.** Move to the next experiment. No human intervention needed.
 

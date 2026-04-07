@@ -102,7 +102,7 @@ src/
 - Run state persisted atomically via temp-file + rename (`writeState()` in `src/lib/run.ts`)
 - Results.tsv is append-only — use `appendResult()`, never rewrite
 - Measurement locking (`chmod 444`) is the #1 safeguard — always lock before experiment loop, unlock on completion
-- Git operations in `src/lib/git.ts` — prefer `git revert` over `git reset` to preserve history
+- Git operations in `src/lib/git.ts` — use `git reset --hard` to discard failed experiments (standard autoresearch pattern)
 - Measurement series returns median of N runs — use `runMeasurementSeries()` for all metric comparisons
 - `compareMetric()` uses relative change as a decimal fraction compared against `noise_threshold`
 - Experiment Agent is one-shot: single user message → autonomous run → commit or exit

@@ -93,7 +93,7 @@ export async function buildContextPacket(
     try {
       discardedDiffs = await getDiscardedDiffs(projectRoot, discardedShas, 2000)
     } catch {
-      // Discarded commits may have been reverted — diffs unavailable
+      // Discarded commits may have been garbage-collected — diffs unavailable
       discardedDiffs = ""
     }
   }
@@ -142,7 +142,7 @@ ${packet.recent_git_log}
 ## Recently Discarded Experiments
 ${packet.discarded_diffs || "(none yet)"}
 
-Discarded experiments remain in git history. Inspect them with \`git show <sha>\` if needed.
+Review the recently discarded experiments above. Focus on what was tried and why it failed.
 Implement ONE change, validate, and commit. Then stop.`
 }
 

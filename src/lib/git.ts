@@ -17,32 +17,7 @@ export async function getRecentLog(cwd: string, count?: number): Promise<string>
   return stdout.trim()
 }
 
-/**
- * Reverts all commits between fromSha (exclusive) and toSha (inclusive).
- * Uses `git revert` to preserve history for agent learning.
- * Returns true if successful, false if revert conflicted (caller should use resetHard).
- */
-export async function revertCommits(cwd: string, fromSha: string, toSha: string): Promise<boolean> {
-  const { stdout } = await execFileAsync("git", ["rev-list", `${fromSha}..${toSha}`], { cwd })
-  const commits = stdout.trim().split("\n").filter(Boolean)
-
-  if (commits.length === 0) return true
-
-  try {
-    await execFileAsync("git", ["revert", "--no-edit", ...commits], { cwd })
-    return true
-  } catch {
-    // Conflict during revert — abort and signal caller to fall back to reset
-    try {
-      await execFileAsync("git", ["revert", "--abort"], { cwd })
-    } catch {
-      /* ignore abort failure */
-    }
-    return false
-  }
-}
-
-/** Only used as fallback when revert fails due to conflicts. */
+/** Resets HEAD to the given SHA, discarding all changes. Primary discard mechanism for failed experiments. */
 export async function resetHard(cwd: string, sha: string): Promise<void> {
   await execFileAsync("git", ["reset", "--hard", sha], { cwd })
 }

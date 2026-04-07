@@ -149,8 +149,7 @@ Handles measurement execution and decision logic:
 Thin wrappers around git commands for the orchestrator:
 
 - `createExperimentBranch()` is called from `run.ts`
-- `revertCommits()` uses `git revert --no-edit` (not reset) to preserve history for agent learning
-- `resetHard()` is the fallback for revert conflicts only
+- `resetHard()` uses `git reset --hard` to discard failed experiments (standard autoresearch ratchet pattern)
 
 ## Experiment Loop (`src/lib/experiment-loop.ts`)
 

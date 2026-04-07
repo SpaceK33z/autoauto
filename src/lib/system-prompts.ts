@@ -388,7 +388,7 @@ ${programMd}
 ### 1. Analyze Before Acting
 - Read the codebase within scope. Understand the current implementation before proposing changes.
 - Study results.tsv carefully: which approaches were kept? Which were discarded? What patterns emerge?
-- Examine discarded diffs with \`git show <sha>\` to understand WHY past experiments failed — don't just note that they failed.
+- Review the 'Recently Discarded Experiments' section above to understand WHY past experiments failed — don't just note that they failed.
 - Identify the actual bottleneck or opportunity. A targeted change to the real bottleneck beats a shotgun approach.
 - If you're experiment #1, spend extra time reading the codebase. Later experiments should build on what the history tells you.
 
