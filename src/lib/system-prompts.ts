@@ -370,7 +370,8 @@ LONG RUNS (50+ experiments):
 - Don't recommend noise_threshold lower than the observed CV% — the threshold must exceed the noise floor
 - Don't proceed without verifying the three prerequisites (metric, evaluation script, bounded editable surface)
 - Don't skip the cost/time estimate — users need to know what they're committing to before starting a run
-- Don't ignore caching layers — ask about them. A broken cache produces false improvements that waste the entire run`
+- Don't ignore caching layers — ask about them. A broken cache produces false improvements that waste the entire run
+- Don't use \`mktemp\` with suffixes after the X template (e.g. \`mktemp /tmp/foo-XXXXXX.json\`) — this fails on macOS. Instead, append the suffix outside: \`$(mktemp /tmp/foo-XXXXXX).json\``
 }
 
 /** Returns the system prompt for the experiment agent. Wraps program.md with framing instructions. */

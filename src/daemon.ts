@@ -9,6 +9,8 @@
  */
 
 import { join } from "node:path"
+import { setProvider } from "./lib/agent/index.ts"
+import { ClaudeProvider } from "./lib/agent/claude-provider.ts"
 import { loadProgramConfig } from "./lib/programs.ts"
 import { readState, writeState, lockMeasurement, unlockMeasurement, appendResult } from "./lib/run.ts"
 import type { RunState } from "./lib/run.ts"
@@ -57,6 +59,7 @@ function parseArgs(): { programSlug: string; runId: string; mainRoot: string; wo
 // --- Main ---
 
 async function main() {
+  setProvider(new ClaudeProvider())
   const { programSlug, runId, mainRoot, worktreePath, daemonId } = parseArgs()
   const programDir = join(mainRoot, ".autoauto", "programs", programSlug)
   const runDir = join(programDir, "runs", runId)

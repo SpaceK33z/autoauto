@@ -51,11 +51,11 @@ export function StatsHeader(props: StatsHeaderProps) {
       <box paddingX={1} flexDirection="column">
         <box>
           <text selectable>
-            <span fg="#9ece6a"><strong>✓ {props.totalKeeps}</strong></span>
-            {"  "}
-            <span fg="#ff5555">✗ {props.totalDiscards}</span>
-            {"  "}
-            <span fg="#a9b1d6">⚡ {props.totalCrashes}</span>
+            <span fg="#9ece6a"><strong>kept {props.totalKeeps}</strong></span>
+            {"    "}
+            <span fg="#ff5555">disc {props.totalDiscards}</span>
+            {"    "}
+            <span fg="#a9b1d6">crash {props.totalCrashes}</span>
             {"    "}
             <span fg="#a9b1d6">$</span>
             <span fg="#c0caf5">{props.totalCostUsd.toFixed(2)}</span>
@@ -67,18 +67,18 @@ export function StatsHeader(props: StatsHeaderProps) {
           <text selectable>
             <span fg="#a9b1d6">baseline </span>
             <span fg="#7aa2f7">{props.currentBaseline}</span>
-            {"   "}
+            {"    "}
             <span fg="#a9b1d6">{"best "}</span>
             <span fg="#9ece6a">{props.bestMetric}</span>
             {improvementStr ? (
               <>
-                {"  "}
+                {"    "}
                 <span fg="#e0af68">{improvementStr}</span>
               </>
             ) : null}
             {sparkline ? (
               <>
-                {"   "}
+                {"    "}
                 <span fg="#7aa2f7">{sparkline}</span>
               </>
             ) : null}
@@ -86,7 +86,7 @@ export function StatsHeader(props: StatsHeaderProps) {
         </box>
         <box>
           <text selectable>
-            <span fg="#a9b1d6">{"› "}</span>
+            <span fg="#a9b1d6">{"> "}</span>
             <span fg="#c0caf5">{props.currentPhaseLabel}</span>
           </text>
         </box>
