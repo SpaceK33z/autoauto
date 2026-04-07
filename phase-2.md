@@ -33,9 +33,9 @@ High-level tasks to complete the orchestrator loop described in [IDEA.md](./IDEA
 
 ## 2e. Run Termination
 
-- [ ] Manual stop: kill current experiment immediately, revert uncommitted changes
-- [ ] Max experiment count: stop after current experiment finishes
-- [ ] Prompt user: run cleanup or abandon
+- [x] Manual stop: kill current experiment immediately, revert uncommitted changes
+- [x] Max experiment count: stop after current experiment finishes
+- [x] Prompt user: run cleanup or abandon
 
 ## 2f. Execution Dashboard (TUI)
 
