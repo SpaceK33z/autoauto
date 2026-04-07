@@ -12,7 +12,6 @@ export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) 
   const [programs, setPrograms] = useState<Program[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
-  const [selected, setSelected] = useState(0)
 
   useEffect(() => {
     listPrograms(cwd)
@@ -28,14 +27,6 @@ export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) 
       navigate("setup")
     } else if (key.name === "s") {
       navigate("settings")
-    } else if (programs.length > 0) {
-      if (key.name === "up" || key.name === "k") {
-        setSelected((s) => Math.max(0, s - 1))
-      } else if (key.name === "down" || key.name === "j") {
-        setSelected((s) => Math.min(programs.length - 1, s + 1))
-      } else if (key.name === "return") {
-        onSelectProgram(programs[selected].name)
-      }
     }
   })
 
@@ -67,15 +58,16 @@ export function HomeScreen({ cwd, navigate, onSelectProgram }: HomeScreenProps) 
   }
 
   return (
-    <scrollbox focused flexGrow={1} border borderStyle="rounded" title="Programs">
-      {programs.map((program, i) => (
-        <box key={program.name} height={1}>
-          <text fg={i === selected ? "#ffffff" : "#888888"}>
-            {i === selected ? " ▸ " : "   "}
-            {program.name}
-          </text>
-        </box>
-      ))}
-    </scrollbox>
+    <box flexGrow={1} border borderStyle="rounded" title="Programs">
+      <select
+        focused
+        options={programs.map((p) => ({ name: p.name, description: "", value: p.name }))}
+        onSelect={(_index, option) => {
+          if (option) onSelectProgram(option.value as string)
+        }}
+        selectedBackgroundColor="#333333"
+        selectedTextColor="#ffffff"
+      />
+    </box>
   )
 }
