@@ -2,9 +2,6 @@ TODO: allow to delete entire run
 
 TODO: don't ask "measure.sh" to be locked, it should always be locked
 
-TODO: also keep track of tokens consumer per run
--> show this somewhere as well
-
 TODO: before running experiment, if we detect its never been run before, recommend to start with small max_experiments
 
 TODO: stop after x times no improvements or continue
@@ -23,6 +20,8 @@ ASK: make sure that docs/ is up to date compared to our codebase.
 TODO: log daemon.log
 
 ASK: I want to change our "cleanup" feature. It should be called finalize. Look at the alternatives and the research we did, any ideas for how we should implement it?
+
+ASK: from a higher level, do we have clean separation of concerns? Any higher level improvements to make?
 
 TODO: Simplicity criterion as a keep reason
 

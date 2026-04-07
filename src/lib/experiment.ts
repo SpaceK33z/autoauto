@@ -1,7 +1,7 @@
 import { join } from "node:path"
 import type { RunState } from "./run.ts"
 import type { ModelSlot } from "./config.ts"
-import { formatRecentResults, parseLastResult, parseDiscardedShas } from "./run.ts"
+import { formatRecentResults, parseLastResult, parseLastKeepResult, parseDiscardedShas } from "./run.ts"
 import {
   getFullSha,
   getRecentLog,
@@ -36,6 +36,7 @@ export interface ContextPacket {
   last_outcome: string
   discarded_diffs: string
   ideas_backlog: string
+  secondary_metrics?: Record<string, { direction: "lower" | "higher"; current_value?: number }>
 }
 
 /** Cost and usage data from an agent session. */
@@ -61,7 +62,7 @@ export async function buildContextPacket(
   programDir: string,
   runDir: string,
   state: RunState,
-  config: { metric_field: string; direction: "lower" | "higher" },
+  config: { metric_field: string; direction: "lower" | "higher"; secondary_metrics?: Record<string, { direction: "lower" | "higher" }> },
   options: { ideasBacklogEnabled?: boolean } = {},
 ): Promise<ContextPacket> {
   const [programMd, resultsRaw, recentGitLog] = await Promise.all([
@@ -107,6 +108,24 @@ export async function buildContextPacket(
     }
   }
 
+  let secondaryMetrics: ContextPacket["secondary_metrics"]
+  if (config.secondary_metrics && Object.keys(config.secondary_metrics).length > 0) {
+    secondaryMetrics = {}
+    const lastKeep = parseLastKeepResult(resultsRaw)
+    let lastKeepSecondary: Record<string, unknown> | null = null
+    if (lastKeep?.secondary_values) {
+      try { lastKeepSecondary = JSON.parse(lastKeep.secondary_values) as Record<string, unknown> } catch { /* ignore */ }
+    }
+
+    for (const [field, metric] of Object.entries(config.secondary_metrics)) {
+      const currentValue = lastKeepSecondary?.[field]
+      secondaryMetrics[field] = {
+        direction: metric.direction,
+        current_value: typeof currentValue === "number" ? currentValue : undefined,
+      }
+    }
+  }
+
   return {
     experiment: state.experiment_number,
     current_baseline: state.current_baseline,
@@ -123,11 +142,24 @@ export async function buildContextPacket(
     last_outcome: lastOutcome,
     discarded_diffs: discardedDiffs,
     ideas_backlog: ideasBacklog,
+    secondary_metrics: secondaryMetrics,
   }
 }
 
 /** Formats the context packet as the user message string for the agent. */
 export function buildExperimentPrompt(packet: ContextPacket): string {
+  let secondarySection = ""
+  if (packet.secondary_metrics && Object.keys(packet.secondary_metrics).length > 0) {
+    const lines = Object.entries(packet.secondary_metrics).map(([field, m]) => {
+      const val = m.current_value !== undefined ? String(m.current_value) : "unknown"
+      return `- ${field}: ${val} (${m.direction} is better)`
+    })
+    secondarySection = `
+## Secondary Metrics (advisory — do NOT optimize at the expense of the primary metric)
+${lines.join("\n")}
+`
+  }
+
   return `You are experiment ${packet.experiment} of an autoresearch loop.
 
 ## Current State
@@ -135,7 +167,7 @@ export function buildExperimentPrompt(packet: ContextPacket): string {
 - Original baseline: ${packet.original_baseline}
 - Best achieved: ${packet.best_metric} (experiment #${packet.best_experiment})
 - Total: ${packet.total_keeps} keeps, ${packet.total_discards} discards
-
+${secondarySection}
 ## Last Outcome
 ${packet.last_outcome}
 

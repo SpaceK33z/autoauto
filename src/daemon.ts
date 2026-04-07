@@ -188,7 +188,7 @@ async function main() {
         experiment_number: 0,
         commit: fullSha.slice(0, 7),
         metric_value: baseline.median_metric,
-        secondary_values: JSON.stringify(baseline.median_quality_gates),
+        secondary_values: JSON.stringify({ ...baseline.median_quality_gates, ...baseline.median_secondary_metrics }),
         status: "keep",
         description: "baseline",
         measurement_duration_ms: baseline.duration_ms,

@@ -29,7 +29,6 @@ function ExperimentDetail({ result, qualityGateFields, secondaryMetrics }: {
   const gateFields = new Set(qualityGateFields ?? [])
   const secondaryFields = new Set(secondaryMetrics ? Object.keys(secondaryMetrics) : [])
 
-  // Split values into quality gates vs secondary metrics vs unknown
   const gateEntries: [string, unknown][] = []
   const secondaryEntries: [string, unknown][] = []
   if (allValues) {

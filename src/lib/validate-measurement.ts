@@ -38,6 +38,7 @@ interface ValidationOutput {
   validation_errors: Array<{ run: number; errors: string[] }>
   metric: FieldStats | null
   quality_gates: Record<string, FieldStats>
+  secondary_metrics: Record<string, FieldStats>
   assessment: Assessment | null
   recommendations: {
     noise_threshold: number
@@ -182,6 +183,7 @@ async function main() {
       validation_errors: [],
       metric: null,
       quality_gates: {},
+      secondary_metrics: {},
       assessment: null,
       recommendations: null,
       avg_duration_ms: 0,
@@ -230,9 +232,24 @@ async function main() {
 
   // 5. Compute stats if we have enough valid runs (>= 2)
   let metric: FieldStats | null = null
-  const qualityGateStats: Record<string, FieldStats> = {}
   let assessment: Assessment | null = null
   let recommendations: { noise_threshold: number; repeats: number } | null = null
+
+  function computeFieldStats(fields: string[]): Record<string, FieldStats> {
+    const stats: Record<string, FieldStats> = {}
+    for (const field of fields) {
+      const values = validOutputs
+        .map((r) => r.output[field])
+        .filter((v): v is number => typeof v === "number" && isFinite(v))
+      if (values.length >= 2) {
+        stats[field] = computeStats(field, values)
+      }
+    }
+    return stats
+  }
+
+  let qualityGateStats: Record<string, FieldStats> = {}
+  let secondaryMetricStats: Record<string, FieldStats> = {}
 
   if (validOutputs.length >= 2) {
     const metricValues = validOutputs.map((r) => r.output[config.metric_field] as number)
@@ -241,14 +258,8 @@ async function main() {
     const rec = recommend(metric.cv_percent)
     recommendations = rec.noise_threshold >= 0 ? rec : null
 
-    for (const field of Object.keys(config.quality_gates)) {
-      const values = validOutputs
-        .map((r) => r.output[field])
-        .filter((v): v is number => typeof v === "number" && isFinite(v))
-      if (values.length >= 2) {
-        qualityGateStats[field] = computeStats(field, values)
-      }
-    }
+    qualityGateStats = computeFieldStats(Object.keys(config.quality_gates))
+    secondaryMetricStats = computeFieldStats(Object.keys(config.secondary_metrics ?? {}))
   }
 
   // 6. Output result
@@ -265,6 +276,7 @@ async function main() {
     validation_errors: validationErrors,
     metric,
     quality_gates: qualityGateStats,
+    secondary_metrics: secondaryMetricStats,
     assessment,
     recommendations,
     avg_duration_ms: avgDuration,

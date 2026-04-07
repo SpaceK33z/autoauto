@@ -159,6 +159,7 @@ Requirements:
 - The metric field name MUST match \`metric_field\` in config.json
 - NEVER hardcode absolute home directory paths (e.g. /Users/username/..., /home/username/...). Use relative paths (preferred), \`$HOME\`, or \`~\` instead. Scripts run with cwd set to the project root, so relative paths work.
 - All quality gate fields MUST be present in the JSON output as finite numbers
+- All secondary metric fields MUST be present in the JSON output as finite numbers
 - Do NOT include build/compile steps — the orchestrator runs build.sh separately before measuring
 
 ### config.json Format
@@ -172,6 +173,9 @@ Requirements:
   "quality_gates": {
     "<field_name>": { "max": <number> },
     "<field_name>": { "min": <number> }
+  },
+  "secondary_metrics": {
+    "<field_name>": { "direction": "<lower|higher>" }
   }
 }
 \`\`\`
@@ -179,8 +183,8 @@ Requirements:
 Guidelines:
 - \`noise_threshold\`: Start with 0.02 (2%) for stable metrics. Use 0.05 (5%) for noisier metrics. Discuss with the user based on the measurement type.
 - \`repeats\`: Use 3 for fast, stable metrics. Use 5 for noisy ones. More repeats = more reliable but slower experiments.
-- \`quality_gates\`: Only include gates for metrics that could realistically regress. Don't add gates for things that won't change. Use \`max\` for metrics that should stay below a threshold, \`min\` for metrics that should stay above.
-- If there are no meaningful quality gates, use an empty object: \`"quality_gates": {}\`
+- \`quality_gates\`: Hard constraints — if a gate fails, the experiment is discarded regardless of the primary metric. Only include gates for metrics that could realistically regress. Use \`max\` for metrics that should stay below a threshold, \`min\` for metrics that should stay above. If there are no meaningful quality gates, use an empty object: \`"quality_gates": {}\`
+- \`secondary_metrics\`: Advisory metrics — tracked and shown to the agent, but do NOT influence keep/discard decisions. Each has a \`direction\` ("lower" or "higher") so the agent and dashboard can show improvement/regression. Use for metrics the user wants to monitor but not gate on (e.g., memory usage while optimizing latency, readability while optimizing bundle size). Field names must not overlap with \`metric_field\` or \`quality_gates\`. Omit if there are no secondary metrics to track.
 
 ## Saving Files
 

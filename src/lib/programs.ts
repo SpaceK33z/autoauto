@@ -12,12 +12,17 @@ export interface QualityGate {
   max?: number
 }
 
+export interface SecondaryMetric {
+  direction: "lower" | "higher"
+}
+
 export interface ProgramConfig {
   metric_field: string
   direction: "lower" | "higher"
   noise_threshold: number
   repeats: number
   quality_gates: Record<string, QualityGate>
+  secondary_metrics?: Record<string, SecondaryMetric>
   max_experiments?: number
 }
 
@@ -81,6 +86,30 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
     if (hasMax) assertFiniteNumber(gateConfig.max, `quality_gates.${field}.max`)
     if (typeof gateConfig.min === "number" && typeof gateConfig.max === "number" && gateConfig.min > gateConfig.max) {
       throw new Error(`config.json: quality_gates.${field}.min must be <= max`)
+    }
+  }
+
+  if (config.secondary_metrics !== undefined) {
+    if (typeof config.secondary_metrics !== "object" || config.secondary_metrics === null || Array.isArray(config.secondary_metrics)) {
+      throw new Error("config.json: secondary_metrics must be an object")
+    }
+
+    for (const [field, metric] of Object.entries(config.secondary_metrics as Record<string, unknown>)) {
+      if (typeof metric !== "object" || metric === null || Array.isArray(metric)) {
+        throw new Error(`config.json: secondary_metrics.${field} must be an object`)
+      }
+      const metricConfig = metric as Record<string, unknown>
+      if (metricConfig.direction !== "lower" && metricConfig.direction !== "higher") {
+        throw new Error(`config.json: secondary_metrics.${field}.direction must be "lower" or "higher"`)
+      }
+
+      // Prevent overlap with primary metric and quality gates
+      if (field === config.metric_field) {
+        throw new Error(`config.json: secondary_metrics.${field} overlaps with metric_field`)
+      }
+      if (field in (config.quality_gates as Record<string, unknown>)) {
+        throw new Error(`config.json: secondary_metrics.${field} overlaps with quality_gates`)
+      }
     }
   }
 

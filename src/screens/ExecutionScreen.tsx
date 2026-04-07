@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { Screen, ProgramConfig } from "../lib/programs.ts"
 import { getProgramDir } from "../lib/programs.ts"
@@ -100,6 +100,9 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [maxExpText, setMaxExpText] = useState(maxExperiments != null ? String(maxExperiments) : "")
   const maxExpTextRef = useRef(maxExpText)
   const [settingsError, setSettingsError] = useState<string | null>(null)
+
+  const qualityGateFields = useMemo(() => programConfig ? Object.keys(programConfig.quality_gates) : [], [programConfig])
+  const secondaryMetricsConfig = useMemo(() => programConfig?.secondary_metrics, [programConfig])
 
   const watcherRef = useRef<DaemonWatcher | null>(null)
   const abortControllerRef = useRef<AbortController>(new AbortController())
@@ -503,6 +506,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   selectedResult={selectedResult}
                   phaseLabel={currentPhaseLabel}
                   experimentNumber={experimentNumber}
+                  qualityGateFields={qualityGateFields}
+                  secondaryMetrics={secondaryMetricsConfig}
                 />
               )}
             </>
@@ -527,6 +532,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 toolStatus={toolStatus}
                 isRunning={phase === "running"}
                 selectedResult={selectedResult}
+                qualityGateFields={qualityGateFields}
+                secondaryMetrics={secondaryMetricsConfig}
               />
             </>
           )}
@@ -592,6 +599,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             toolStatus={toolStatus}
             isRunning={false}
             selectedResult={selectedResult}
+            qualityGateFields={qualityGateFields}
+            secondaryMetrics={secondaryMetricsConfig}
           />
           <box paddingX={1}>
             <text fg="#888888">Press Escape to go back</text>

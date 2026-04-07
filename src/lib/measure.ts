@@ -23,6 +23,7 @@ export interface MeasurementSeriesResult {
   success: boolean
   median_metric: number
   median_quality_gates: Record<string, number>
+  median_secondary_metrics: Record<string, number>
   quality_gates_passed: boolean
   gate_violations: string[]
   individual_runs: MeasurementResult[]
@@ -36,6 +37,28 @@ function median(values: number[]): number {
   const sorted = [...values].toSorted((a, b) => a - b)
   const n = sorted.length
   return n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)]
+}
+
+function collectFiniteValues(
+  output: Record<string, unknown>,
+  fields: string[],
+  target: Record<string, number[]>,
+): void {
+  for (const field of fields) {
+    const value = output[field]
+    if (typeof value === "number" && isFinite(value)) {
+      if (!target[field]) target[field] = []
+      target[field].push(value)
+    }
+  }
+}
+
+function computeMedians(fieldValues: Record<string, number[]>): Record<string, number> {
+  const result: Record<string, number> = {}
+  for (const [field, values] of Object.entries(fieldValues)) {
+    result[field] = median(values)
+  }
+  return result
 }
 
 // --- Measurement Execution ---
@@ -227,28 +250,29 @@ export async function runBuild(
 
 // --- Validation ---
 
+function validateFiniteFields(output: Record<string, unknown>, fields: string[], label: string): string[] {
+  const errors: string[] = []
+  for (const field of fields) {
+    const value = output[field]
+    if (value === undefined) {
+      errors.push(`${label} "${field}" missing from output`)
+    } else if (typeof value !== "number" || !isFinite(value)) {
+      errors.push(`${label} "${field}" is not a finite number: ${value}`)
+    }
+  }
+  return errors
+}
+
 /** Validates a measurement output has all required fields as finite numbers. */
 export function validateMeasurementOutput(
   output: Record<string, unknown>,
   config: ProgramConfig,
 ): { valid: boolean; errors: string[] } {
-  const errors: string[] = []
-
-  const metricValue = output[config.metric_field]
-  if (metricValue === undefined) {
-    errors.push(`metric_field "${config.metric_field}" missing from output`)
-  } else if (typeof metricValue !== "number" || !isFinite(metricValue)) {
-    errors.push(`metric_field "${config.metric_field}" is not a finite number: ${metricValue}`)
-  }
-
-  for (const field of Object.keys(config.quality_gates)) {
-    const value = output[field]
-    if (value === undefined) {
-      errors.push(`quality gate field "${field}" missing from output`)
-    } else if (typeof value !== "number" || !isFinite(value)) {
-      errors.push(`quality gate field "${field}" is not a finite number: ${value}`)
-    }
-  }
+  const errors = [
+    ...validateFiniteFields(output, [config.metric_field], "metric_field"),
+    ...validateFiniteFields(output, Object.keys(config.quality_gates), "quality gate field"),
+    ...validateFiniteFields(output, Object.keys(config.secondary_metrics ?? {}), "secondary metric field"),
+  ]
 
   return { valid: errors.length === 0, errors }
 }
@@ -297,6 +321,7 @@ export async function runMeasurementSeries(
         success: false,
         median_metric: 0,
         median_quality_gates: {},
+        median_secondary_metrics: {},
         quality_gates_passed: false,
         gate_violations: [],
         individual_runs: [],
@@ -309,6 +334,7 @@ export async function runMeasurementSeries(
   const runs: MeasurementResult[] = []
   const validMetrics: number[] = []
   const validGateValues: Record<string, number[]> = {}
+  const validSecondaryValues: Record<string, number[]> = {}
   let invalidOutputCount = 0
 
   for (let i = 0; i < config.repeats; i++) {
@@ -326,14 +352,8 @@ export async function runMeasurementSeries(
     }
 
     validMetrics.push(result.output[config.metric_field] as number)
-
-    for (const field of Object.keys(config.quality_gates)) {
-      const value = result.output[field]
-      if (typeof value === "number" && isFinite(value)) {
-        if (!validGateValues[field]) validGateValues[field] = []
-        validGateValues[field].push(value)
-      }
-    }
+    collectFiniteValues(result.output, Object.keys(config.quality_gates), validGateValues)
+    collectFiniteValues(result.output, Object.keys(config.secondary_metrics ?? {}), validSecondaryValues)
   }
 
   const duration_ms = Math.round(performance.now() - totalStart)
@@ -343,6 +363,7 @@ export async function runMeasurementSeries(
       success: false,
       median_metric: 0,
       median_quality_gates: {},
+      median_secondary_metrics: {},
       quality_gates_passed: false,
       gate_violations: [],
       individual_runs: runs,
@@ -366,6 +387,7 @@ export async function runMeasurementSeries(
       success: false,
       median_metric: 0,
       median_quality_gates: {},
+      median_secondary_metrics: {},
       quality_gates_passed: false,
       gate_violations: [],
       individual_runs: runs,
@@ -375,10 +397,8 @@ export async function runMeasurementSeries(
   }
 
   const medianMetric = median(validMetrics)
-  const medianGates: Record<string, number> = {}
-  for (const [field, values] of Object.entries(validGateValues)) {
-    medianGates[field] = median(values)
-  }
+  const medianGates = computeMedians(validGateValues)
+  const medianSecondary = computeMedians(validSecondaryValues)
 
   const gateCheck = checkQualityGates(medianGates, config)
 
@@ -386,6 +406,7 @@ export async function runMeasurementSeries(
     success: true,
     median_metric: medianMetric,
     median_quality_gates: medianGates,
+    median_secondary_metrics: medianSecondary,
     quality_gates_passed: gateCheck.passed,
     gate_violations: gateCheck.violations,
     individual_runs: runs,

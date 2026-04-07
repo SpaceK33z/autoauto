@@ -177,6 +177,16 @@ export function parseLastResult(raw: string): ExperimentResult | null {
   return parseTsvRow(lines[lines.length - 1])
 }
 
+/** Parses the last keep row from raw results.tsv content. */
+export function parseLastKeepResult(raw: string): ExperimentResult | null {
+  const lines = raw.trim().split("\n")
+  for (let i = lines.length - 1; i >= 1; i--) {
+    const row = parseTsvRow(lines[i])
+    if (row?.status === "keep") return row
+  }
+  return null
+}
+
 /** Extracts SHAs of recent discarded/crashed experiments from raw results.tsv content. */
 export function parseDiscardedShas(raw: string, count = 5): string[] {
   const lines = raw.trim().split("\n")
@@ -367,7 +377,7 @@ export async function startRun(
     experiment_number: 0,
     commit: fullSha.slice(0, 7),
     metric_value: baseline.median_metric,
-    secondary_values: JSON.stringify(baseline.median_quality_gates),
+    secondary_values: JSON.stringify({ ...baseline.median_quality_gates, ...baseline.median_secondary_metrics }),
     status: "keep",
     description: "baseline",
     measurement_duration_ms: baseline.duration_ms,
