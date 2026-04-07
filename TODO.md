@@ -20,12 +20,13 @@ ASK: in the README, explain why not simply use some autoresearch skills, explain
 
 ASK: make sure that docs/ is up to date compared to our codebase.
 
-ASK: gather best practices about Bun, use exa and web search. then, look at our usage of bun in the codebase
-
 TODO: log daemon.log
 
-ASK: Using claude Code, it should be possible to control autoauto. Poll for results, retrieve results, that kind of thing. Any ideas?
+ASK: I want to change our "cleanup" feature. It should be called finalize. Look at the alternatives and the research we did, any ideas for how we should implement it?
 
-ASK: Let's research "AutoAgent (kevinrgu)" - see competitors.md. Clone the directory for me in references/alternatives (add it to gitignore)
-(btw also rename competitors to alternatives).
-Then analyze for me good ideas that we don't have that we could implement
+TODO: Simplicity criterion as a keep reason
+
+---
+
+OpenCode support
+Codex SDK
