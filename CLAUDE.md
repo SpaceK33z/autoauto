@@ -79,7 +79,7 @@ src/
     experiment.ts          # Experiment agent spawning, context packets, lock detection
     experiment-loop.ts     # Main experiment loop orchestrator
     worktree.ts            # Git worktree create/remove for run isolation
-    daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (stream.log writes)
+    daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (per-experiment stream log writes)
     daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
     daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
 ```
@@ -115,7 +115,7 @@ src/
 - Experiment Agent tools: Read, Write, Edit, Bash, Glob, Grep — same as setup, auto-approved
 - Lock violation detection: after agent commits, check `git diff` for any `.autoauto/` modifications → immediate discard
 - Loop callbacks (`LoopCallbacks`) are the interface between orchestrator and display layer
-- In daemon mode, `FileCallbacks` (daemon-callbacks.ts) implements LoopCallbacks by writing to `stream.log`; all other state persistence is handled by the loop itself
+- In daemon mode, `FileCallbacks` (daemon-callbacks.ts) implements LoopCallbacks by writing per-experiment stream logs (`stream-001.log`, etc.); all other state persistence is handled by the loop itself
 - `LoopOptions.stopRequested` provides soft stop (checked at iteration boundary); `signal` is for hard abort only
 - Two-root path model: `cwd` (worktree for git/agent ops) vs `programDir` (mainRoot for config/state) — `runExperimentLoop` takes explicit params, not a single `projectRoot`
 - Re-baseline after keeps: `runMeasurementAndDecide()` runs a fresh measurement series after each keep; falls back to candidate measurement if re-baseline fails

@@ -24,7 +24,6 @@ import {
   readControl,
   releaseLock,
   recoverFromCrash,
-  initStreamLog,
   waitForDaemonStub,
   killChildProcessTree,
 } from "./lib/daemon-lifecycle.ts"
@@ -73,10 +72,7 @@ async function main() {
   const maxExperiments = runConfig?.max_experiments
   const ideasBacklogEnabled = runConfig?.ideas_backlog_enabled ?? true
 
-  // 3. Initialize stream.log
-  await initStreamLog(runDir)
-
-  // 4. Stop/abort signals
+  // 3. Stop/abort signals
   let stopRequested = false
   const abortController = new AbortController()
 

@@ -1,28 +1,35 @@
-import { writeFile, truncate } from "node:fs/promises"
+import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { LoopCallbacks } from "./experiment-loop.ts"
+
+/** Format experiment number as zero-padded 3-digit string: 1 → "001" */
+export function streamLogName(experimentNumber: number): string {
+  return `stream-${String(experimentNumber).padStart(3, "0")}.log`
+}
 
 /**
  * FileCallbacks: a thin LoopCallbacks implementation for the daemon.
  *
- * Only handles agent streaming text (stream.log). All other state persistence
- * is handled by the loop itself (state.json, results.tsv).
+ * Writes agent streaming text to per-experiment log files (stream-001.log, etc.).
+ * All other state persistence is handled by the loop itself (state.json, results.tsv).
  */
 export function createFileCallbacks(runDir: string): LoopCallbacks {
-  const streamLogPath = join(runDir, "stream.log")
+  let currentExperiment = 0
 
   return {
     onPhaseChange: () => {},
-    onExperimentStart: () => {
-      truncate(streamLogPath, 0).catch(() => {})
+    onExperimentStart: (num: number) => {
+      currentExperiment = num
     },
     onExperimentEnd: () => {},
     onStateUpdate: () => {},
     onAgentStream: (text: string) => {
-      writeFile(streamLogPath, text, { flag: "a" }).catch(() => {})
+      const path = join(runDir, streamLogName(currentExperiment))
+      writeFile(path, text, { flag: "a" }).catch(() => {})
     },
     onAgentToolUse: (status: string) => {
-      writeFile(streamLogPath, `\n[tool] ${status}\n`, { flag: "a" }).catch(() => {})
+      const path = join(runDir, streamLogName(currentExperiment))
+      writeFile(path, `\n[tool] ${status}\n`, { flag: "a" }).catch(() => {})
     },
     onError: () => {},
     onExperimentCost: () => {},

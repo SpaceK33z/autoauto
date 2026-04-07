@@ -1,6 +1,7 @@
-import { watch, statSync, type FSWatcher } from "node:fs"
+import { watch, statSync, readFileSync, type FSWatcher } from "node:fs"
 import { readFile, stat, writeFile, open } from "node:fs/promises"
 import { join, dirname } from "node:path"
+import { streamLogName } from "./daemon-callbacks.ts"
 import { fileURLToPath } from "node:url"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
@@ -188,12 +189,12 @@ export async function reconstructState(runDir: string, programDir: string): Prom
   programConfig: ProgramConfig
   streamText: string
 }> {
-  const [state, results, programConfig, streamText] = await Promise.all([
+  const [state, results, programConfig] = await Promise.all([
     readState(runDir),
     readAllResults(runDir),
     loadProgramConfig(programDir),
-    readStreamTail(runDir),
   ])
+  const streamText = await readStreamTail(runDir, state.experiment_number)
 
   return {
     state,
@@ -204,9 +205,10 @@ export async function reconstructState(runDir: string, programDir: string): Prom
   }
 }
 
-async function readStreamTail(runDir: string): Promise<string> {
+async function readStreamTail(runDir: string, experimentNumber: number): Promise<string> {
   try {
-    const content = await readFile(join(runDir, "stream.log"), "utf-8")
+    const filename = streamLogName(experimentNumber)
+    const content = await readFile(join(runDir, filename), "utf-8")
     // Same truncation as ExecutionScreen: keep last ~6KB
     return content.length > 8000 ? content.slice(-6000) : content
   } catch {
@@ -232,13 +234,17 @@ export function watchRunDir(
   // Track byte offsets for delta reads
   let resultsByteOffset = 0
   let streamByteOffset = 0
+  let currentStreamFile = "" // e.g. "stream-001.log"
 
   if (options.startAtEnd) {
     try {
       resultsByteOffset = statSync(join(runDir, "results.tsv")).size
     } catch {}
+    // Determine current stream file from state
     try {
-      streamByteOffset = statSync(join(runDir, "stream.log")).size
+      const state = JSON.parse(readFileSync(join(runDir, "state.json"), "utf-8"))
+      currentStreamFile = streamLogName(state.experiment_number ?? 0)
+      streamByteOffset = statSync(join(runDir, currentStreamFile)).size
     } catch {}
   }
 
@@ -266,8 +272,8 @@ export function watchRunDir(
           callbacks.onStateChange(state)
         } else if (file === "results.tsv") {
           await readResultsDelta()
-        } else if (file === "stream.log") {
-          await readStreamDelta()
+        } else if (file.startsWith("stream-") && file.endsWith(".log")) {
+          await readStreamDelta(file)
         } else if (file === "daemon.json") {
           // Heartbeat check handled by backup timer
         }
@@ -290,20 +296,20 @@ export function watchRunDir(
     }
   }
 
-  async function readStreamDelta() {
+  async function readStreamDelta(file: string) {
     try {
-      const info = await stat(join(runDir, "stream.log"))
-
-      // Detect truncation (new experiment started)
-      if (info.size < streamByteOffset) {
+      // New experiment file → reset stream
+      if (file !== currentStreamFile) {
+        currentStreamFile = file
         streamByteOffset = 0
         callbacks.onStreamReset?.()
       }
 
+      const info = await stat(join(runDir, file))
       if (info.size <= streamByteOffset) return
 
       const buf = Buffer.alloc(info.size - streamByteOffset)
-      const fd = await open(join(runDir, "stream.log"), "r")
+      const fd = await open(join(runDir, file), "r")
       await fd.read(buf, 0, buf.length, streamByteOffset)
       await fd.close()
       streamByteOffset = info.size
@@ -349,7 +355,7 @@ export function watchRunDir(
       if (stopped) return
       scheduleRead("state.json")
       scheduleRead("results.tsv")
-      scheduleRead("stream.log")
+      if (currentStreamFile) scheduleRead(currentStreamFile)
     }, 300)
   }
 

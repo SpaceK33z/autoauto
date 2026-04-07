@@ -366,12 +366,3 @@ export async function killChildProcessTree(parentPid: number, signal: NodeJS.Sig
     }
   }
 }
-
-// --- Stream Log ---
-
-/**
- * Initializes stream.log in the run directory (creates empty file).
- */
-export async function initStreamLog(runDir: string): Promise<void> {
-  await writeFile(join(runDir, "stream.log"), "")
-}
