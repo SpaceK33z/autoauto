@@ -104,13 +104,22 @@ Hoberman's production search: Round 1 got 3 improvements in 44 iterations (93% r
 | Time budget | Wall-clock cap for the entire run |
 | Manual stop | Human reviews progress and decides |
 
-### Escaping Local Optima (Future)
+### Escaping Local Optima
 
-No article fully solves the creativity ceiling. Options under exploration:
+No article fully solves the creativity ceiling, but several tactics have proven effective:
+
+**Human nudge cycle (Barazany, 165 experiments):**
+The most documented pattern. Agent explores autonomously → hits a ceiling → human asks probing questions or suggests directions → agent continues. This repeated throughout the entire CRM AUC run. Concrete tactics:
+- **Rubber duck debugging:** When the agent declared it had exhausted options at experiment 30, Barazany simply asked it to walk through its reasoning. Explaining its thinking unlocked a breakthrough (model stacking, +0.047 AUC).
+- **Research sub-agent spawning:** When stuck again later, the instruction "use your agents to research the topic and come up with new ideas" caused the agent to spawn a research sub-agent that returned five ranked ideas. The agent immediately started implementing the top one (CatBoost with target encoding, +0.015 AUC).
+
+**NEVER STOP instruction (paddo):**
+The agent is instructed it cannot pause to ask for human input — it must continue running until manually terminated. This prevents premature stoppage but increases the risk of late-session micro-adjustments. Best combined with a max experiment count or diminishing returns detection.
+
+**Other options under exploration:**
 - Meta-agent rewrites program.md to push exploration in new directions (SoftmaxData)
 - Periodic resets from earlier checkpoints to escape local minima
 - Diversity directives that reward novelty alongside improvement
-- Human nudges — agent hits ceiling, human suggests new direction, agent continues (Barazany: "This repeated throughout" across 165 experiments)
 
 ## Crash Recovery
 
@@ -167,6 +176,23 @@ What to expect from real autoresearch runs.
 
 A 5-25% keep rate is normal. High revert rates aren't waste — they're the cost of finding the ceiling (Hoberman). But bad proposal quality makes them wasteful (Cerebras).
 
+### Detailed Progression: Barazany's CRM AUC Run
+
+Shows how human nudges + sub-agent research break through plateaus across 165 experiments:
+
+| Stage | AUC | Key Change |
+|-------|-----|------------|
+| Baseline | 0.581 | Single XGBoost, 10 features |
+| +Stacking | 0.628 | 5 models stacked with meta-learner (after rubber duck nudge) |
+| +Temporal features | 0.654 | Year, quarter, month features |
+| +CatBoost | 0.669 | New base model with target encoding (after research sub-agent) |
+| +Better CV | 0.669 | 20-fold cross-validation (no metric gain, better reliability) |
+| Simplified meta-features | 0.670 | Less is more |
+| Removed redundant feature | 0.6719 | Cleaner signal |
+| +Temporal decay weights | 0.6747 | Older data weighted less |
+
+Key insight: a non-data-scientist used the pattern to break through a 3-week manual plateau. "I no longer feel like I'm out of ideas. That's new."
+
 ### Cost
 
 | Component | Typical Cost |
@@ -190,3 +216,11 @@ Eval caching can drastically cut per-iteration time: Hoberman reduced eval from 
 | Piana | Flaky tests fixed | 0 | 13 | 13 tests | 206 commits |
 | Koskinen | JSON ops/sec | baseline | +56% | +56% | — |
 | Lehmann | Page load | 1100ms | 67ms | -94% | — |
+| Karpathy | nanoGPT training speed | baseline | +11% | +11% | ~125 |
+| Shopify (Lutke) | Search quality | 1.6B manual | 0.8B +19% | smaller model wins | 37 |
+| Shopify | Liquid rendering | baseline | +53% speed | -61% allocations | 93 commits |
+| Aakash | Landing page skill | 41% | 92% | +124% | 4 rounds |
+
+### Transferability of Findings
+
+Not all improvements are hardware- or eval-specific. Karpathy's overnight run produced 20 stacked improvements including a genuine bug in the attention implementation. The 11% speedup transferred to larger models, demonstrating that well-constrained autoresearch can find transferable improvements, not just eval-specific ones. Shopify's result — a 0.8B model outperforming a hand-tuned 1.6B model — similarly shows the pattern finding improvements that generalize.
