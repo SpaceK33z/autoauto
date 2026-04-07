@@ -16,8 +16,26 @@ How to design metrics, measurement scripts, and evaluation harnesses for autores
 
 - **Use binary criteria for subjective domains.** For prompts, skills, copy, and templates, use 3-6 yes/no questions such as "includes a call to action: yes/no." The composite score is the pass rate across binary questions. (Saladi, Monkfrom)
 - **Sliding scales invite gaming.** Agents find edge cases that inflate 1-7 scores without improving real quality. Binary criteria leave less room for score inflation. (Saladi)
-- **3-6 criteria is the sweet spot.** Below 3 creates loopholes. Above 6 leads to checklist gaming where the agent optimizes for surface compliance rather than real quality. (Saladi, Monkfrom)
+- **3-6 criteria is the sweet spot.** Below 3 creates loopholes. Above 6 leads to checklist gaming where the agent optimizes for surface compliance rather than real quality. A stranger should be able to grade outputs without additional context. (Saladi, Monkfrom)
 - **Objective domains use direct metrics.** For ML use `val_bpb`, validation loss, accuracy, or AUC. For performance use latency, throughput, ops/sec, allocation count, or bundle size. For flaky tests and CI, a pass/fail metric is robust because the outcome is binary. (Barazany, Koskinen, Piana)
+
+### Example Binary Eval Templates
+
+**For Claude Skills / SKILL.md files** (Saladi):
+1. Steps are actionable (not vague advice)
+2. Formatting is correct (headers, lists, code blocks)
+3. Edge cases are handled
+4. Content is complete (covers the task end-to-end)
+5. A new user could follow the instructions without extra context
+
+**For system prompts** (Saladi):
+1. Output matches the required structure
+2. No hallucinated facts or links
+3. Response stays within length constraints
+4. Instructions are specific (not generic filler)
+5. Tone is consistent throughout
+
+These templates are starting points — the setup agent should adapt them to the user's specific target.
 - **Reported examples.** Ole Lehmann's marketing optimization used a 3-6 question checklist and went from 56% to 92% pass rate overnight for about $15. Aakash Gupta reports a landing-page skill improved from 41% to 92% in 4 rounds; Saladi gives the approximate skill/prompt-loop cost as about $0.10 per cycle.
 
 ## Composite Metrics & Quality Gates
@@ -89,4 +107,5 @@ The locked evaluator is both the central safeguard and the central blind spot. W
 - **Cache to cut per-iteration cost.** Hoberman's eval caching gave a 12x speedup, from 6 minutes to 30 seconds.
 - **Typical API costs.** PatentLLM cites about $0.05-0.20 per experiment for the original Claude API setup; Saladi gives about $0.10 per cycle for skill/prompt loops, about $5 for 50 rounds and $10-25 for 100 rounds. Running locally with ollama can eliminate API costs if you own the hardware.
 - **Budget for long runs.** A single overnight run is usually manageable. Multi-day runs need explicit max experiment counts, spend caps, and stop rules.
+- **Consumer tier sustainability.** L.J.'s 15-hour CIFAR-10 run on the $20/month Claude tier used only 16% of the weekly quota — roughly 1% per hour. Estimated capacity: 5 consecutive days of continuous runs without hitting limits. This makes autoresearch accessible without enterprise API plans.
 - **Track wasted eval minutes.** For each proposer/model tier, record accepted proposal rate and rejected-eval minutes. Pick by total loop cost, not by response latency alone.
