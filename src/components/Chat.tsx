@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { query } from "@anthropic-ai/claude-agent-sdk"
-import type { TextareaOptions } from "@opentui/core"
+import { useKeyboard } from "@opentui/react"
+import type { TextareaRenderable } from "@opentui/core"
 import { createPushStream, type PushStream } from "../lib/push-stream.ts"
 import { DEFAULT_SYSTEM_PROMPT } from "../lib/system-prompts.ts"
 import type { EffortLevel } from "../lib/config.ts"
@@ -13,13 +14,36 @@ import {
   formatResultError,
 } from "../lib/sdk-helpers.ts"
 
+const SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+function ToolStatusSpinner({ status }: { status: string }) {
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 100)
+    return () => clearInterval(interval)
+  }, [])
+
+  const spinner = SPINNER_CHARS[tick % SPINNER_CHARS.length]
+  const seconds = Math.floor(tick / 10)
+  const timeStr =
+    seconds >= 60
+      ? `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`
+      : `${seconds}s`
+
+  return (
+    <text fg="#888888">
+      {spinner} {status} ({timeStr})
+    </text>
+  )
+}
+
 interface ChatMessage {
   id: string
   role: "user" | "assistant"
   content: string
 }
 
-type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
 
 interface ChatProps {
   /** Working directory for agent tools (target repo path) */
@@ -62,6 +86,7 @@ export function Chat({
   const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const inputStreamRef = useRef<PushStream<SDKUserMessage> | null>(null)
+  const textareaRef = useRef<TextareaRenderable | null>(null)
   const [inputKey, setInputKey] = useState(0)
 
   // Capture config in refs — the agent session is long-lived and should not
@@ -186,14 +211,28 @@ export function Chat({
     [isStreaming]
   )
 
-  const handleInputSubmit = useCallback(
-    (value: unknown) => {
-      if (typeof value === "string") handleSubmit(value)
+  const handleTextareaSubmit = useCallback(
+    () => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const value = textarea.plainText
+      handleSubmit(value)
+      textarea.setText("")
     },
     [handleSubmit],
-  ) as
-    & ((event: OpenTUISubmitEvent) => void)
-    & ((value: string) => void)
+  )
+
+  // Auto-focus textarea when user starts typing while a non-interactable
+  // element (e.g. the messages scrollbox) has focus
+  useKeyboard((key) => {
+    const textarea = textareaRef.current
+    if (!textarea || isStreaming) return
+    // Only intercept printable single-character keys (no ctrl/meta combos)
+    if (key.ctrl || key.meta || key.name.length !== 1) return
+    textarea.focus()
+    textarea.insertText(key.name)
+    key.stopPropagation()
+  })
 
   return (
     <box flexDirection="column" flexGrow={1}>
@@ -239,12 +278,16 @@ export function Chat({
                 <text fg="#9ece6a">
                   <strong>AutoAuto</strong>
                 </text>
-                <text fg="#888888">Thinking...</text>
+                {toolStatus ? (
+                  <ToolStatusSpinner key={toolStatus} status={toolStatus} />
+                ) : (
+                  <text fg="#888888">Thinking...</text>
+                )}
               </box>
             )}
 
-            {toolStatus && isStreaming && (
-              <text fg="#888888">⟳ {toolStatus}</text>
+            {toolStatus && isStreaming && streamingText && (
+              <ToolStatusSpinner key={toolStatus} status={toolStatus} />
             )}
 
             {error && <text fg="#ff5555">Error: {error}</text>}
@@ -252,14 +295,19 @@ export function Chat({
         )}
       </scrollbox>
 
-      <box border borderStyle="rounded" height={3} title="Message">
-        <input
+      <box border borderStyle="rounded" minHeight={3} maxHeight={8} title="Message (Shift+Enter for newline)">
+        <textarea
           key={inputKey}
+          ref={textareaRef}
           placeholder={
             isStreaming ? "Waiting for response..." : defaultPlaceholder
           }
           focused={!isStreaming}
-          onSubmit={handleInputSubmit}
+          onSubmit={handleTextareaSubmit}
+          keyBindings={[
+            { name: "return", action: "submit" as const },
+            { name: "return", shift: true, action: "newline" as const },
+          ]}
         />
       </box>
     </box>
