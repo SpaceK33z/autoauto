@@ -1,4 +1,4 @@
-export { getSetupSystemPrompt } from "./setup.ts"
+export { getSetupSystemPrompt, type SetupPromptResult } from "./setup.ts"
 export { getExperimentSystemPrompt } from "./experiment.ts"
 export { getFinalizeSystemPrompt } from "./finalize.ts"
 

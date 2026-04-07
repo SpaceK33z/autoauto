@@ -1,4 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react"
+import { mkdir } from "node:fs/promises"
+import { dirname } from "node:path"
 import { useKeyboard } from "@opentui/react"
 import type { TextareaOptions } from "@opentui/core"
 import { Chat } from "../components/Chat.tsx"
@@ -39,7 +41,16 @@ export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
     loadProgramSummaries(cwd).then(setExistingPrograms).catch(() => {})
   }, [cwd])
 
-  const systemPrompt = useMemo(() => getSetupSystemPrompt(cwd, existingPrograms), [cwd, existingPrograms])
+  const { systemPrompt, referencePath, referenceContent } = useMemo(
+    () => getSetupSystemPrompt(cwd, existingPrograms),
+    [cwd, existingPrograms],
+  )
+
+  useEffect(() => {
+    mkdir(dirname(referencePath), { recursive: true })
+      .then(() => Bun.write(referencePath, referenceContent))
+      .catch(() => {})
+  }, [referencePath, referenceContent])
   const [mode, setMode] = useState<SetupMode>("choose")
   const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined)
 
