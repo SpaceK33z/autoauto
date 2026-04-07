@@ -19,12 +19,12 @@ High-level tasks to complete the orchestrator loop described in [IDEA.md](./IDEA
 
 ## 2c. Measurement & Decision
 
-- [ ] Run `measure.sh` N times (repeats from config), take median
-- [ ] Compare against baseline + noise threshold
-- [ ] Check all quality gates pass
-- [ ] **Keep**: improvement beyond threshold + gates pass → update baseline, log to results.tsv
-- [ ] **Discard**: `git revert` the commit, log to results.tsv with reason
-- [ ] Re-measure baseline after keeps (code changed) and after consecutive discards (environment drift)
+- [x] Run `measure.sh` N times (repeats from config), take median
+- [x] Compare against baseline + noise threshold
+- [x] Check all quality gates pass
+- [x] **Keep**: improvement beyond threshold + gates pass → update baseline, log to results.tsv
+- [x] **Discard**: `git revert` the commit, log to results.tsv with reason
+- [x] Re-measure baseline after keeps (code changed) and after consecutive discards (environment drift)
 
 ## 2d. Results Tracking
 
