@@ -27,14 +27,14 @@ Multiple agent roles, all via Claude Agent SDK with different system prompts:
 | **Cleanup Agent** | Reviews accumulated diff, flags risks, produces summary | Once per run |
 
 Two model configuration slots:
-- **Execution model** — used for experiment agents (e.g. Sonnet at high throughput)
-- **Support model** — used for setup and cleanup agents (e.g. Opus at low throughput)
+- **Execution model** — used for experiment agents (e.g. Sonnet at high effort)
+- **Support model** — used for setup and cleanup agents (e.g. Opus at low effort)
 
-Each slot configures model choice (Sonnet or Opus) and throughput tier (low/medium/high) via Claude Agent SDK.
+Each slot configures model choice (Sonnet or Opus) and effort level (low/medium/high, plus max for Opus) via Claude Agent SDK's `effort` option.
 
 ## Auth
 
-On first run, check for `ANTHROPIC_API_KEY` in the environment. If not set, prompt the user to run `claude setup-token` (requires Claude Code to be installed).
+On first run, verify authentication via the SDK's `accountInfo()` call. This supports all SDK auth methods: API key (`ANTHROPIC_API_KEY`), OAuth, and cloud providers. If authentication fails, show an error screen with setup instructions (e.g. `claude setup-token`).
 
 ## Data Model
 
@@ -177,12 +177,10 @@ When creating a second program that reuses the same measurement type (e.g. Light
 
 Keyboard-first, mouse-clickable. All screens use OpenTUI.
 
-1. **Home** — list of programs (or empty state prompting setup)
-2. **New Program** — option to start with ideation ("help me find targets") or go straight to setup
-3. **Setup** — chat-style conversation with setup agent. Agent inspects repo, asks questions, generates program.md + measure.sh, validates measurement stability, presents for review. User can iterate. Explicit confirm to save.
-4. **Program Detail** — view config, program.md sections, past runs, start a new run
-5. **Run (Execution)** — live dashboard (see below). TUI is view-only during runs.
-6. **Run Complete** — prompt to run cleanup or abandon
+1. **Home** — list of programs (or empty state prompting setup), `n` to create new program (flows directly into setup), `s` for settings
+2. **Setup** — chat-style conversation with setup agent. Agent inspects repo, asks questions, generates program.md + measure.sh, validates measurement stability, presents for review. User can iterate. Supports ideation mode ("help me find targets"). Explicit confirm to save.
+3. **Settings** — model configuration for execution and support slots (model choice + effort level)
+4. **Execution** — live dashboard (see below) with stats header, results table, and agent output panel. Handles run-in-progress and run-complete states (prompt to run cleanup or abandon).
 
 ## Phases
 
@@ -218,7 +216,7 @@ The orchestrator loop. AutoAuto controls the loop, the agent is stateless betwee
 
 **Locked evaluator:** `measure.sh` and `config.json` are made read-only (`chmod 444`) before the experiment loop starts. The Experiment Agent must never modify the measurement script or metric config — this is the #1 safeguard against metric gaming. If the agent attempts to edit these files, the orchestrator treats it as a discard.
 
-**Agent tools:** Read files, edit files, bash (for git commit, builds), web search. No directory scoping — trust the system prompt and scope constraints in program.md. Failures are safely reverted.
+**Agent tools:** Read, Write, Edit, Bash, Glob, Grep. No directory scoping — trust the system prompt and scope constraints in program.md. Failures are safely reverted.
 
 **Run termination:** Manual stop kills the current experiment immediately. Max experiment count stops after the current experiment finishes. Both prompt: run cleanup or abandon.
 
