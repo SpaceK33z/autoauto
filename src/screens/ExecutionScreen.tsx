@@ -42,7 +42,8 @@ function Divider({ width, label }: { width: number; label?: string }) {
 }
 
 export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, navigate, maxExperiments }: ExecutionScreenProps) {
-  const { width: termWidth } = useTerminalDimensions()
+  const { width: termWidth, height: termHeight } = useTerminalDimensions()
+  const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
   const [runState, setRunState] = useState<RunState | null>(null)
   const [currentPhaseLabel, setCurrentPhaseLabel] = useState("Initializing...")
@@ -60,6 +61,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
   const [runDir, setRunDir] = useState<string | null>(null)
   const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null)
+  const [tableFocused, setTableFocused] = useState(false)
+  const [selectedResult, setSelectedResult] = useState<ExperimentResult | null>(null)
 
   useEffect(() => {
     const abortController = new AbortController()
@@ -70,7 +73,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       try {
         // 1. Start run (branch, baseline)
         setCurrentPhaseLabel("Establishing baseline...")
-        const runResult = await startRun(cwd, programSlug)
+        const runResult = await startRun(cwd, programSlug, modelConfig)
         if (cancelled) return
 
         setOriginalBranch(runResult.originalBranch)
@@ -211,6 +214,25 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       return
     }
 
+    // During execution: Tab to toggle table focus
+    if ((phase === "starting" || phase === "running") && key.name === "tab") {
+      setTableFocused(f => !f)
+      return
+    }
+
+    // Escape: deselect first, then unfocus table
+    if (key.name === "escape") {
+      if (selectedResult) {
+        setSelectedResult(null)
+        return
+      }
+      if (tableFocused) {
+        setTableFocused(false)
+        return
+      }
+      return
+    }
+
     // During execution or cleanup
     if (key.name === "q" || (key.ctrl && key.name === "c")) {
       abortControllerRef.current.abort()
@@ -237,22 +259,70 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
           />
 
-          <Divider width={termWidth} label="Results" />
+          {compact ? (
+            <>
+              <box paddingX={1}>
+                <text>
+                  {tableFocused ? (
+                    <>
+                      <span fg="#7aa2f7"><strong>[ Results ]</strong></span>
+                      {"  "}
+                      <span fg="#565f89">Agent</span>
+                    </>
+                  ) : (
+                    <>
+                      <span fg="#565f89">Results</span>
+                      {"  "}
+                      <span fg="#7aa2f7"><strong>[ {selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} ]</strong></span>
+                    </>
+                  )}
+                  {"  "}
+                  <span fg="#565f89">Tab ⇄</span>
+                </text>
+              </box>
+              {tableFocused ? (
+                <ResultsTable
+                  results={results}
+                  metricField={programConfig?.metric_field ?? "metric"}
+                  width={termWidth}
+                  experimentNumber={experimentNumber}
+                  focused={tableFocused}
+                  selectedResult={selectedResult}
+                  onSelect={setSelectedResult}
+                />
+              ) : (
+                <AgentPanel
+                  streamingText={agentStreamText}
+                  toolStatus={toolStatus}
+                  isRunning={phase === "running"}
+                  selectedResult={selectedResult}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              <Divider width={termWidth} label="Results" />
 
-          <ResultsTable
-            results={results}
-            metricField={programConfig?.metric_field ?? "metric"}
-            width={termWidth}
-            experimentNumber={experimentNumber}
-          />
+              <ResultsTable
+                results={results}
+                metricField={programConfig?.metric_field ?? "metric"}
+                width={termWidth}
+                experimentNumber={experimentNumber}
+                focused={tableFocused}
+                selectedResult={selectedResult}
+                onSelect={setSelectedResult}
+              />
 
-          <Divider width={termWidth} label="Agent" />
+              <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
 
-          <AgentPanel
-            streamingText={agentStreamText}
-            toolStatus={toolStatus}
-            isRunning={phase === "running"}
-          />
+              <AgentPanel
+                streamingText={agentStreamText}
+                toolStatus={toolStatus}
+                isRunning={phase === "running"}
+                selectedResult={selectedResult}
+              />
+            </>
+          )}
 
           {lastError && (
             <box paddingX={1}>
