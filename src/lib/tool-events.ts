@@ -1,9 +1,13 @@
-import { basename } from "node:path"
+function abbreviatePath(filePath: string): string {
+  const parts = filePath.replace(/^\//, "").split("/")
+  if (parts.length <= 3) return parts.join("/")
+  return `…/${parts.slice(-3).join("/")}`
+}
 
 function formatFileToolEvent(verb: string, input: Record<string, unknown>): string {
   const filePath = input.file_path
   if (typeof filePath === "string") {
-    return `${verb} ${basename(filePath)}`
+    return `${verb} ${abbreviatePath(filePath)}`
   }
   return `${verb} file...`
 }
@@ -29,8 +33,10 @@ export function formatToolEvent(
     }
     case "Grep": {
       const pattern = input.pattern
+      const path = input.path
       if (typeof pattern === "string") {
-        return `Grep: ${pattern}`
+        const suffix = typeof path === "string" ? ` in ${abbreviatePath(path)}` : ""
+        return `Grep: ${pattern}${suffix}`
       }
       return "Searching content..."
     }
@@ -47,8 +53,8 @@ export function formatToolEvent(
           return "Running measurement"
         }
         const truncated =
-          command.length > 60 ? `${command.slice(0, 57)}...` : command
-        return `Running: ${truncated}`
+          command.length > 80 ? `${command.slice(0, 77)}...` : command
+        return `$ ${truncated}`
       }
       return "Running command..."
     }
