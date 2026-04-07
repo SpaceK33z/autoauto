@@ -113,6 +113,11 @@ export function mergeSelectedModelSlot(previous: ModelSlot, selected: ModelSlot)
   return { ...selected, effort }
 }
 
+export async function configExists(cwd: string): Promise<boolean> {
+  const root = await getProjectRoot(cwd)
+  return Bun.file(join(root, AUTOAUTO_DIR, CONFIG_FILE)).exists()
+}
+
 export async function loadProjectConfig(cwd: string): Promise<ProjectConfig> {
   const root = await getProjectRoot(cwd)
   const configPath = join(root, AUTOAUTO_DIR, CONFIG_FILE)

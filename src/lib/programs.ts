@@ -27,7 +27,7 @@ export interface ProgramConfig {
   max_consecutive_discards?: number
 }
 
-export type Screen = "home" | "setup" | "settings" | "program-detail" | "pre-run" | "execution"
+export type Screen = "home" | "setup" | "settings" | "program-detail" | "pre-run" | "execution" | "first-setup"
 
 export const AUTOAUTO_DIR = ".autoauto"
 

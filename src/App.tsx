@@ -9,8 +9,9 @@ import { SetupScreen } from "./screens/SetupScreen.tsx"
 import { SettingsScreen } from "./screens/SettingsScreen.tsx"
 import { ExecutionScreen } from "./screens/ExecutionScreen.tsx"
 import { PreRunScreen, type PreRunOverrides } from "./screens/PreRunScreen.tsx"
+import { FirstSetupScreen } from "./screens/FirstSetupScreen.tsx"
 import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.ts"
-import { loadProjectConfig, DEFAULT_CONFIG, type ProjectConfig } from "./lib/config.ts"
+import { loadProjectConfig, configExists, DEFAULT_CONFIG, type ProjectConfig } from "./lib/config.ts"
 import { isRunActive } from "./lib/run.ts"
 
 const cwd = process.cwd()
@@ -18,7 +19,7 @@ const cwd = process.cwd()
 export function App() {
   const renderer = useRenderer()
   const { width, height } = useTerminalDimensions()
-  const [screen, setScreen] = useState<Screen>("home")
+  const [screen, setScreen] = useState<Screen | null>(null)
   const [selectedProgram, setSelectedProgram] = useState<string | null>(null)
   const [projectRoot, setProjectRoot] = useState(cwd)
   const [projectConfig, setProjectConfig] = useState<ProjectConfig>(DEFAULT_CONFIG)
@@ -29,6 +30,9 @@ export function App() {
   useEffect(() => {
     getProjectRoot(cwd).then(setProjectRoot).catch(() => {})
     ensureAutoAutoDir(cwd).catch(() => {})
+    configExists(cwd).then((exists) => {
+      setScreen(exists ? "home" : "first-setup")
+    })
   }, [])
 
   // Load project config + reload when returning to home
@@ -47,6 +51,16 @@ export function App() {
     }
   })
 
+  if (!screen) {
+    return (
+      <box flexDirection="column" width={width} height={height}>
+        <box flexGrow={1} justifyContent="center" alignItems="center">
+          <text fg="#888888">Loading...</text>
+        </box>
+      </box>
+    )
+  }
+
   const footerText =
     screen === "home"
       ? " n: new program | s: settings | Tab: switch panel | Enter: run | Escape: quit"
@@ -54,7 +68,9 @@ export function App() {
         ? " Escape: detach (daemon continues) | q: stop | Ctrl+C: abort"
         : screen === "settings"
           ? " ↑↓: navigate | ←→: change/open | Enter: open model picker | Escape: back"
-          : " Escape: back"
+          : screen === "first-setup"
+            ? " ↑↓: navigate | ←→: cycle | Enter: select/continue"
+            : " Escape: back"
 
   return (
     <box flexDirection="column" width={width} height={height}>
@@ -73,6 +89,13 @@ export function App() {
       )}
 
       <box flexDirection="column" flexGrow={1} flexShrink={1}>
+        {screen === "first-setup" && (
+          <FirstSetupScreen
+            cwd={cwd}
+            navigate={setScreen}
+            onConfigChange={setProjectConfig}
+          />
+        )}
         {screen === "home" && (
           <HomeScreen
             cwd={cwd}
