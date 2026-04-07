@@ -29,7 +29,9 @@ export function createFileCallbacks(runDir: string): LoopCallbacks {
   return {
     onPhaseChange: () => {},
     onExperimentStart: (num: number) => {
-      getWriter(num)
+      const w = getWriter(num)
+      w.write(`[time:${Date.now()}]\n`)
+      w.flush()
     },
     onExperimentEnd: () => {
       writer?.end()
@@ -43,7 +45,7 @@ export function createFileCallbacks(runDir: string): LoopCallbacks {
     },
     onAgentToolUse: (status: string) => {
       const w = getWriter(currentExperiment)
-      w.write(`\n[tool] ${status}\n`)
+      w.write(`\n[time:${Date.now()}]\n[tool] ${status}\n`)
       w.flush()
     },
     onError: () => {},
