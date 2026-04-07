@@ -1,0 +1,244 @@
+import { spawn } from "node:child_process"
+import type { ProgramConfig } from "./programs.ts"
+
+// --- Types ---
+
+export type MeasurementResult =
+  | { success: true; output: Record<string, unknown>; duration_ms: number }
+  | { success: false; error: string; duration_ms: number }
+
+export interface MeasurementSeriesResult {
+  success: boolean
+  median_metric: number
+  median_quality_gates: Record<string, number>
+  quality_gates_passed: boolean
+  gate_violations: string[]
+  individual_runs: MeasurementResult[]
+  duration_ms: number
+}
+
+// --- Helpers ---
+
+function median(values: number[]): number {
+  const sorted = [...values].toSorted((a, b) => a - b)
+  const n = sorted.length
+  return n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)]
+}
+
+// --- Measurement Execution ---
+
+/**
+ * Runs measure.sh once and returns parsed output.
+ * Uses Node spawn with timeout (matching validate-measurement.ts pattern).
+ */
+export async function runMeasurement(
+  measureShPath: string,
+  projectRoot: string,
+  timeoutMs?: number,
+): Promise<MeasurementResult> {
+  const start = performance.now()
+  return new Promise((resolve) => {
+    const proc = spawn("bash", [measureShPath], {
+      cwd: projectRoot,
+      env: { ...process.env },
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutMs ?? 60_000,
+    })
+
+    proc.stdout!.setEncoding("utf-8")
+    proc.stderr!.setEncoding("utf-8")
+
+    let stdout = ""
+    let stderr = ""
+
+    proc.stdout!.on("data", (chunk: string) => {
+      stdout += chunk
+    })
+    proc.stderr!.on("data", (chunk: string) => {
+      stderr += chunk
+    })
+
+    proc.on("close", (exitCode) => {
+      const duration_ms = Math.round(performance.now() - start)
+
+      if (exitCode !== 0) {
+        resolve({
+          success: false,
+          error: `exit code ${exitCode}${stderr ? `: ${stderr.trim().slice(0, 200)}` : ""}`,
+          duration_ms,
+        })
+        return
+      }
+
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(stdout.trim())
+      } catch {
+        resolve({
+          success: false,
+          error: `invalid JSON on stdout: ${stdout.trim().slice(0, 200)}`,
+          duration_ms,
+        })
+        return
+      }
+
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        resolve({
+          success: false,
+          error: `stdout must be a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`,
+          duration_ms,
+        })
+        return
+      }
+
+      resolve({ success: true, output: parsed as Record<string, unknown>, duration_ms })
+    })
+
+    proc.on("error", (err) => {
+      const duration_ms = Math.round(performance.now() - start)
+      resolve({ success: false, error: err.message, duration_ms })
+    })
+  })
+}
+
+// --- Validation ---
+
+/** Validates a measurement output has all required fields as finite numbers. */
+export function validateMeasurementOutput(
+  output: Record<string, unknown>,
+  config: ProgramConfig,
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = []
+
+  const metricValue = output[config.metric_field]
+  if (metricValue === undefined) {
+    errors.push(`metric_field "${config.metric_field}" missing from output`)
+  } else if (typeof metricValue !== "number" || !isFinite(metricValue)) {
+    errors.push(`metric_field "${config.metric_field}" is not a finite number: ${metricValue}`)
+  }
+
+  for (const field of Object.keys(config.quality_gates)) {
+    const value = output[field]
+    if (value === undefined) {
+      errors.push(`quality gate field "${field}" missing from output`)
+    } else if (typeof value !== "number" || !isFinite(value)) {
+      errors.push(`quality gate field "${field}" is not a finite number: ${value}`)
+    }
+  }
+
+  return { valid: errors.length === 0, errors }
+}
+
+/** Checks quality gate thresholds (separate from field existence validation). */
+export function checkQualityGates(
+  output: Record<string, number>,
+  config: ProgramConfig,
+): { passed: boolean; violations: string[] } {
+  const violations: string[] = []
+
+  for (const [field, gate] of Object.entries(config.quality_gates)) {
+    const value = output[field]
+    if (value === undefined) continue
+    if (gate.max !== undefined && value > gate.max) {
+      violations.push(`${field}=${value} exceeds max ${gate.max}`)
+    }
+    if (gate.min !== undefined && value < gate.min) {
+      violations.push(`${field}=${value} below min ${gate.min}`)
+    }
+  }
+
+  return { passed: violations.length === 0, violations }
+}
+
+// --- Measurement Series ---
+
+/**
+ * Runs measure.sh N times (config.repeats), computes median, validates all outputs.
+ * Requires at least ceil(repeats / 2) valid measurements to succeed.
+ */
+export async function runMeasurementSeries(
+  measureShPath: string,
+  projectRoot: string,
+  config: ProgramConfig,
+): Promise<MeasurementSeriesResult> {
+  const totalStart = performance.now()
+  const runs: MeasurementResult[] = []
+  const validMetrics: number[] = []
+  const validGateValues: Record<string, number[]> = {}
+
+  for (let i = 0; i < config.repeats; i++) {
+    // eslint-disable-next-line no-await-in-loop -- measurements must run sequentially
+    const result = await runMeasurement(measureShPath, projectRoot)
+    runs.push(result)
+
+    if (!result.success) continue
+
+    const validation = validateMeasurementOutput(result.output, config)
+    if (!validation.valid) continue
+
+    validMetrics.push(result.output[config.metric_field] as number)
+
+    for (const field of Object.keys(config.quality_gates)) {
+      const value = result.output[field]
+      if (typeof value === "number" && isFinite(value)) {
+        if (!validGateValues[field]) validGateValues[field] = []
+        validGateValues[field].push(value)
+      }
+    }
+  }
+
+  const duration_ms = Math.round(performance.now() - totalStart)
+  const minRequired = Math.ceil(config.repeats / 2)
+
+  if (validMetrics.length < minRequired) {
+    return {
+      success: false,
+      median_metric: 0,
+      median_quality_gates: {},
+      quality_gates_passed: false,
+      gate_violations: [],
+      individual_runs: runs,
+      duration_ms,
+    }
+  }
+
+  const medianMetric = median(validMetrics)
+  const medianGates: Record<string, number> = {}
+  for (const [field, values] of Object.entries(validGateValues)) {
+    medianGates[field] = median(values)
+  }
+
+  const gateCheck = checkQualityGates(medianGates, config)
+
+  return {
+    success: true,
+    median_metric: medianMetric,
+    median_quality_gates: medianGates,
+    quality_gates_passed: gateCheck.passed,
+    gate_violations: gateCheck.violations,
+    individual_runs: runs,
+    duration_ms,
+  }
+}
+
+// --- Comparison ---
+
+/**
+ * Compares measured metric against baseline using noise threshold.
+ * noise_threshold is a decimal fraction (e.g. 0.02 for 2%).
+ */
+export function compareMetric(
+  baseline: number,
+  measured: number,
+  noiseThreshold: number,
+  direction: "lower" | "higher",
+): "improved" | "regressed" | "noise" {
+  const relativeChange =
+    direction === "lower"
+      ? (baseline - measured) / baseline // positive = improvement for "lower"
+      : (measured - baseline) / baseline // positive = improvement for "higher"
+
+  if (relativeChange > noiseThreshold) return "improved"
+  if (relativeChange < -noiseThreshold) return "regressed"
+  return "noise"
+}

@@ -55,9 +55,13 @@ src/
   lib/
     auth.ts              # Authentication checking via SDK
     config.ts            # Project config CRUD (.autoauto/config.json)
+    git.ts               # Git operations (branch, revert, log, SHA)
+    measure.ts           # Measurement execution, validation, comparison
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
+    run.ts               # Run lifecycle (branch, baseline, state, locking)
     system-prompts.ts    # Agent system prompts (setup, ideation)
+    tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
 ```
 
@@ -118,9 +122,38 @@ Standalone Bun script that validates measurement script stability:
 - **Called by:** Setup agent via Bash tool
 - **Used for:** Pre-experiment validation during setup (Phase 1) — ensures measurement is stable before entering the optimization loop
 
+## Run Lifecycle (`src/lib/run.ts`)
+
+Manages the experiment run setup and state:
+
+- `startRun()` — orchestrates branch creation → baseline measurement → state initialization → evaluator locking
+- `RunState` — checkpoint persisted atomically to `state.json` via temp-file + rename
+- `ExperimentResult` — typed row for the append-only `results.tsv`
+- Branch naming: `autoauto-<slug>-<YYYYMMDD-HHMMSS>`
+- Evaluator locking: `chmod 444` on `measure.sh` + `config.json` before loop starts
+
+## Measurement (`src/lib/measure.ts`)
+
+Handles measurement execution and decision logic:
+
+- `runMeasurement()` — single measure.sh execution with JSON parsing and validation
+- `runMeasurementSeries()` — N repeated measurements with median aggregation
+- `compareMetric()` — relative change comparison against noise threshold
+- `checkQualityGates()` — threshold enforcement on quality gate fields
+
+## Git Operations (`src/lib/git.ts`)
+
+Thin wrappers around git commands for the orchestrator:
+
+- `createExperimentBranch()` is called from `run.ts`
+- `revertCommits()` uses `git revert --no-edit` (not reset) to preserve history for agent learning
+- `resetHard()` is the fallback for revert conflicts only
+
 ## Current State
 
-Phase 1 (Setup) is complete. The TUI shell, screen navigation, program listing, multi-turn
-Claude Agent SDK chat, setup agent (repo inspection, scope definition, artifact generation,
-measurement validation), and model configuration are all implemented. Authentication is
-checked on startup with a helpful error screen if not configured.
+Phase 1 (Setup) is complete. Phase 2a (Branch & Baseline) adds the run lifecycle utilities:
+experiment branch creation, baseline measurement, state persistence, evaluator locking, and
+the `startRun()` orchestrator that ties it all together. The TUI shell, screen navigation,
+program listing, multi-turn Claude Agent SDK chat, setup agent (repo inspection, scope
+definition, artifact generation, measurement validation), and model configuration are all
+implemented. Authentication is checked on startup with a helpful error screen if not configured.

@@ -10,7 +10,20 @@ export interface Program {
   configPath: string
 }
 
-export type Screen = "home" | "setup" | "settings"
+export interface QualityGate {
+  min?: number
+  max?: number
+}
+
+export interface ProgramConfig {
+  metric_field: string
+  direction: "lower" | "higher"
+  noise_threshold: number
+  repeats: number
+  quality_gates: Record<string, QualityGate>
+}
+
+export type Screen = "home" | "setup" | "settings" | "program-detail" | "execution"
 
 export const AUTOAUTO_DIR = ".autoauto"
 
@@ -53,6 +66,16 @@ export async function listPrograms(cwd: string): Promise<Program[]> {
 /** Returns the absolute path to the programs directory */
 export function getProgramsDir(cwd: string): string {
   return join(cwd, AUTOAUTO_DIR, "programs")
+}
+
+/** Returns the absolute path to a specific program's directory */
+export function getProgramDir(cwd: string, slug: string): string {
+  return join(cwd, AUTOAUTO_DIR, "programs", slug)
+}
+
+/** Returns the absolute path to a specific run's directory */
+export function getRunDir(cwd: string, slug: string, runId: string): string {
+  return join(cwd, AUTOAUTO_DIR, "programs", slug, "runs", runId)
 }
 
 export async function ensureAutoAutoDir(cwd: string): Promise<void> {

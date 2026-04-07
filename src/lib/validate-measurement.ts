@@ -3,21 +3,7 @@
 import { spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { dirname } from "node:path"
-
-// --- Types ---
-
-interface QualityGate {
-  min?: number
-  max?: number
-}
-
-interface ProgramConfig {
-  metric_field: string
-  direction: "lower" | "higher"
-  noise_threshold: number
-  repeats: number
-  quality_gates: Record<string, QualityGate>
-}
+import type { ProgramConfig } from "./programs.ts"
 
 interface RunResult {
   run: number

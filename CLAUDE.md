@@ -63,8 +63,11 @@ src/
   lib/
     auth.ts              # Authentication checking via SDK
     config.ts            # Project config CRUD (.autoauto/config.json)
+    git.ts               # Git operations (branch, revert, log, SHA)
+    measure.ts           # Measurement execution, validation, comparison
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
+    run.ts               # Run lifecycle (branch, baseline, state, locking)
     system-prompts.ts    # Agent system prompts (setup, ideation)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
@@ -87,6 +90,13 @@ src/
 - Defaults: Sonnet + high effort for both slots
 - Model/effort passed to `query()` via `model` and `effort` options
 - Auth checked on startup via SDK `accountInfo()` — supports API key, OAuth, and cloud providers
+- Shared types (`ProgramConfig`, `QualityGate`) live in `src/lib/programs.ts` — import from there, not from `validate-measurement.ts`
+- Run state persisted atomically via temp-file + rename (`writeState()` in `src/lib/run.ts`)
+- Results.tsv is append-only — use `appendResult()`, never rewrite
+- Evaluator locking (`chmod 444`) is the #1 safeguard — always lock before experiment loop, unlock on completion
+- Git operations in `src/lib/git.ts` — prefer `git revert` over `git reset` to preserve history
+- Measurement series returns median of N runs — use `runMeasurementSeries()` for all metric comparisons
+- `compareMetric()` uses relative change as a decimal fraction compared against `noise_threshold`
 
 ## Testing the TUI Interactively
 
