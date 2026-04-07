@@ -1,6 +1,5 @@
 import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { query } from "@anthropic-ai/claude-agent-sdk"
 import type { ModelSlot } from "./config.ts"
 import type { ProgramConfig } from "./programs.ts"
 import type { RunState, ExperimentResult } from "./run.ts"
@@ -14,8 +13,8 @@ import {
   countCommitsBetween,
 } from "./git.ts"
 import { createEventLogger } from "./events.ts"
-import { createPushStream } from "./push-stream.ts"
-import { type SDKUserMessage, getTextDelta, getToolStatus, extractCost } from "./sdk-helpers.ts"
+import { getProvider } from "./agent/index.ts"
+import { formatToolEvent } from "./tool-events.ts"
 import { getCleanupSystemPrompt } from "./system-prompts.ts"
 
 export interface CleanupResult {
@@ -105,60 +104,39 @@ async function runCleanupAgent(
   callbacks: CleanupCallbacks,
   signal?: AbortSignal,
 ): Promise<{ summary: string; cost?: ExperimentCost }> {
-  const inputStream = createPushStream<SDKUserMessage>()
-  const abortController = new AbortController()
-
-  if (signal) {
-    if (signal.aborted) {
-      return { summary: "" }
-    }
-    signal.addEventListener("abort", () => abortController.abort(), { once: true })
+  if (signal?.aborted) {
+    return { summary: "" }
   }
-
-  inputStream.push({
-    type: "user",
-    message: { role: "user", content: userPrompt },
-    parent_tool_use_id: null,
-  })
-  inputStream.end()
 
   let fullText = ""
   let cost: ExperimentCost | undefined
 
   try {
-    const q = query({
-      prompt: inputStream,
-      options: {
-        systemPrompt,
-        tools: ["Read", "Bash", "Glob", "Grep"],
-        allowedTools: ["Read", "Bash", "Glob", "Grep"],
-        maxTurns: 10,
-        cwd: projectRoot,
-        model: modelConfig.model,
-        effort: modelConfig.effort,
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-        persistSession: false,
-        includePartialMessages: true,
-        abortController,
-      },
+    const session = getProvider().runOnce(userPrompt, {
+      systemPrompt,
+      tools: ["Read", "Bash", "Glob", "Grep"],
+      allowedTools: ["Read", "Bash", "Glob", "Grep"],
+      maxTurns: 10,
+      cwd: projectRoot,
+      model: modelConfig.model,
+      effort: modelConfig.effort,
+      signal,
     })
 
-    for await (const message of q) {
+    for await (const event of session) {
       if (signal?.aborted) break
 
-      if (message.type === "stream_event") {
-        const text = getTextDelta(message)
-        if (text) {
-          fullText += text
-          callbacks.onStreamText(text)
-        }
-
-        const tool = getToolStatus(message)
-        if (tool) callbacks.onToolStatus(tool)
-      } else if (message.type === "result") {
-        cost = extractCost(message)
-        break
+      switch (event.type) {
+        case "text_delta":
+          fullText += event.text
+          callbacks.onStreamText(event.text)
+          break
+        case "tool_use":
+          callbacks.onToolStatus(formatToolEvent(event.tool, event.input ?? {}))
+          break
+        case "result":
+          cost = event.cost
+          break
       }
     }
   } catch (err: unknown) {

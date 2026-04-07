@@ -1,18 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react"
-import { query } from "@anthropic-ai/claude-agent-sdk"
 import { useKeyboard } from "@opentui/react"
 import type { TextareaRenderable } from "@opentui/core"
-import { createPushStream, type PushStream } from "../lib/push-stream.ts"
 import { DEFAULT_SYSTEM_PROMPT } from "../lib/system-prompts.ts"
 import type { EffortLevel } from "../lib/config.ts"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
-import {
-  type SDKUserMessage,
-  getAssistantText,
-  getTextDelta,
-  getToolStatus,
-  formatResultError,
-} from "../lib/sdk-helpers.ts"
+import { getProvider, type AgentSession } from "../lib/agent/index.ts"
+import { formatToolEvent } from "../lib/tool-events.ts"
 
 const SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -85,7 +78,7 @@ export function Chat({
   const [isStreaming, setIsStreaming] = useState(false)
   const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const inputStreamRef = useRef<PushStream<SDKUserMessage> | null>(null)
+  const sessionRef = useRef<AgentSession | null>(null)
   const textareaRef = useRef<TextareaRenderable | null>(null)
   const [inputKey, setInputKey] = useState(0)
 
@@ -95,21 +88,24 @@ export function Chat({
   const defaultPlaceholder = inputPlaceholder ?? "Ask something..."
 
   useEffect(() => {
-    const abortController = new AbortController()
-    const inputStream = createPushStream<SDKUserMessage>()
-    inputStreamRef.current = inputStream
     const config = configRef.current
+    const session = getProvider().createSession({
+      systemPrompt: config.systemPrompt,
+      tools: config.tools ?? [],
+      allowedTools: config.allowedTools,
+      maxTurns: config.maxTurns,
+      cwd: config.cwd,
+      model: config.model,
+      effort: config.effort,
+    })
+    sessionRef.current = session
 
     // Auto-submit initial message if provided
     if (config.initialMessage) {
       const text = config.initialMessage.trim()
       if (text) {
         setMessages([{ id: crypto.randomUUID(), role: "user", content: text }])
-        inputStream.push({
-          type: "user" as const,
-          message: { role: "user" as const, content: text },
-          parent_tool_use_id: null,
-        })
+        session.pushMessage(text)
         setIsStreaming(true)
         setInputKey((k) => k + 1)
       }
@@ -117,91 +113,66 @@ export function Chat({
 
     ;(async () => {
       try {
-        const q = query({
-          prompt: inputStream,
-          options: {
-            systemPrompt: config.systemPrompt,
-            tools: config.tools ?? [],
-            allowedTools: config.allowedTools,
-            maxTurns: config.maxTurns,
-            cwd: config.cwd,
-            model: config.model,
-            effort: config.effort,
-            permissionMode: "bypassPermissions",
-            allowDangerouslySkipPermissions: true,
-            includePartialMessages: true,
-            abortController,
-            persistSession: false,
-          },
-        })
-
-        for await (const message of q) {
-          if (abortController.signal.aborted) break
-
-          if (message.type === "stream_event") {
-            const textDelta = getTextDelta(message)
-            if (textDelta) {
-              setStreamingText((prev) => prev + textDelta)
+        for await (const event of session) {
+          switch (event.type) {
+            case "text_delta":
+              setStreamingText((prev) => prev + event.text)
               setToolStatus(null)
-            }
-
-            const nextToolStatus = getToolStatus(message)
-            if (nextToolStatus) {
-              setToolStatus(nextToolStatus)
-            }
-          } else if (message.type === "assistant") {
-            const fullText = getAssistantText(message)
-
-            // Skip tool-only turns that produced no visible text
-            if (fullText.trim()) {
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: crypto.randomUUID(),
-                  role: "assistant",
-                  content: fullText,
-                },
-              ])
-            }
-            setStreamingText("")
-            setIsStreaming(false)
-            setToolStatus(null)
-          } else if (message.type === "result") {
-            const resultError = formatResultError(message)
-            if (resultError) setError(resultError)
-            setIsStreaming(false)
+              break
+            case "tool_use":
+              setToolStatus(formatToolEvent(event.tool, event.input ?? {}))
+              break
+            case "assistant_complete":
+              // Skip tool-only turns that produced no visible text
+              if (event.text.trim()) {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: crypto.randomUUID(),
+                    role: "assistant",
+                    content: event.text,
+                  },
+                ])
+              }
+              setStreamingText("")
+              setIsStreaming(false)
+              setToolStatus(null)
+              break
+            case "error":
+              setError(event.error)
+              setIsStreaming(false)
+              break
+            case "result":
+              if (!event.success && event.error) {
+                setError(`Agent error: ${event.error}`)
+              }
+              setIsStreaming(false)
+              break
           }
         }
       } catch (err: unknown) {
-        if (!abortController.signal.aborted) {
-          setError(err instanceof Error ? err.message : String(err))
-          setIsStreaming(false)
-        }
+        setError(err instanceof Error ? err.message : String(err))
+        setIsStreaming(false)
       }
     })()
 
     return () => {
-      abortController.abort()
-      inputStream.end()
-      inputStreamRef.current = null
+      session.close()
+      sessionRef.current = null
     }
   }, [])
 
   const handleSubmit = useCallback(
     (value: string) => {
       const text = value.trim()
-      if (!text || isStreaming || !inputStreamRef.current) return
+      if (!text || isStreaming || !sessionRef.current) return
 
       setMessages((prev) => [
         ...prev,
         { id: crypto.randomUUID(), role: "user", content: text },
       ])
 
-      inputStreamRef.current.push({
-        type: "user" as const,
-        message: { role: "user" as const, content: text },
-        parent_tool_use_id: null,
-      })
+      sessionRef.current.pushMessage(text)
 
       setIsStreaming(true)
       setStreamingText("")
@@ -221,6 +192,13 @@ export function Chat({
     },
     [handleSubmit],
   )
+
+  // Wire up onSubmit imperatively — React reconciler only maps onSubmit for <input>, not <textarea>
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.onSubmit = handleTextareaSubmit
+  }, [inputKey, handleTextareaSubmit])
 
   // Auto-focus textarea when user starts typing while a non-interactable
   // element (e.g. the messages scrollbox) has focus
@@ -304,7 +282,6 @@ export function Chat({
             isStreaming ? "Waiting for response..." : defaultPlaceholder
           }
           focused={!isStreaming}
-          onSubmit={handleTextareaSubmit}
           keyBindings={[
             { name: "return", action: "submit" as const },
             { name: "return", shift: true, action: "newline" as const },

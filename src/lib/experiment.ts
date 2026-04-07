@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { query } from "@anthropic-ai/claude-agent-sdk"
 import type { RunState } from "./run.ts"
 import type { ModelSlot } from "./config.ts"
 import { formatRecentResults, parseLastResult, parseDiscardedShas } from "./run.ts"
@@ -11,8 +10,8 @@ import {
   getFilesChangedBetween,
   getDiscardedDiffs,
 } from "./git.ts"
-import { createPushStream } from "./push-stream.ts"
-import { type SDKUserMessage, getTextDelta, getToolStatus, extractCost } from "./sdk-helpers.ts"
+import { getProvider, type AgentCost } from "./agent/index.ts"
+import { formatToolEvent } from "./tool-events.ts"
 
 // --- Types ---
 
@@ -34,15 +33,8 @@ export interface ContextPacket {
   discarded_diffs: string
 }
 
-/** Cost and usage data from the SDK result message */
-export interface ExperimentCost {
-  total_cost_usd: number
-  duration_ms: number
-  duration_api_ms: number
-  num_turns: number
-  input_tokens: number
-  output_tokens: number
-}
+/** Cost and usage data from an agent session. */
+export type ExperimentCost = AgentCost
 
 /** Result of running one experiment agent session */
 export type ExperimentOutcome =
@@ -168,7 +160,7 @@ export function checkLockViolation(filesChanged: string[]): LockViolation {
 // --- Experiment Agent ---
 
 /**
- * Spawns a fresh Claude Agent SDK session for one experiment.
+ * Spawns a fresh agent session for one experiment.
  * One-shot: push one user message, iterate to result, return outcome.
  */
 export async function runExperimentAgent(
@@ -181,67 +173,42 @@ export async function runExperimentAgent(
   onToolStatus?: (status: string) => void,
   signal?: AbortSignal,
 ): Promise<ExperimentOutcome> {
-  const inputStream = createPushStream<SDKUserMessage>()
-  const abortController = new AbortController()
-
-  // Link external signal to our abort controller
-  if (signal) {
-    if (signal.aborted) {
-      return { type: "agent_error", error: "aborted before start" }
-    }
-    signal.addEventListener("abort", () => abortController.abort(), { once: true })
+  if (signal?.aborted) {
+    return { type: "agent_error", error: "aborted before start" }
   }
-
-  // Push the single user message and end the stream (one-shot)
-  inputStream.push({
-    type: "user",
-    message: { role: "user", content: userPrompt },
-    parent_tool_use_id: null,
-  })
-  inputStream.end()
 
   let cost: ExperimentCost | undefined
 
   try {
-    const q = query({
-      prompt: inputStream,
-      options: {
-        systemPrompt,
-        tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-        allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-        maxTurns: 30,
-        cwd: projectRoot,
-        model: modelConfig.model,
-        effort: modelConfig.effort,
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-        persistSession: false,
-        includePartialMessages: true,
-        abortController,
-      },
+    const session = getProvider().runOnce(userPrompt, {
+      systemPrompt,
+      tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+      allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+      maxTurns: 30,
+      cwd: projectRoot,
+      model: modelConfig.model,
+      effort: modelConfig.effort,
+      signal,
     })
 
-    for await (const message of q) {
-      if (signal?.aborted) {
-        break
-      }
+    for await (const event of session) {
+      if (signal?.aborted) break
 
-      if (message.type === "stream_event") {
-        const text = getTextDelta(message)
-        if (text) onStreamText?.(text)
-
-        const tool = getToolStatus(message)
-        if (tool) onToolStatus?.(tool)
-      } else if (message.type === "result") {
-        cost = extractCost(message)
-        if (message.subtype !== "success") {
-          return {
-            type: "agent_error",
-            error: message.errors.join(", ") || message.subtype,
-            cost,
+      switch (event.type) {
+        case "text_delta":
+          onStreamText?.(event.text)
+          break
+        case "tool_use":
+          onToolStatus?.(formatToolEvent(event.tool, event.input ?? {}))
+          break
+        case "error":
+          return { type: "agent_error", error: event.error, cost }
+        case "result":
+          cost = event.cost
+          if (!event.success) {
+            return { type: "agent_error", error: event.error ?? "unknown", cost }
           }
-        }
-        break
+          break
       }
     }
   } catch (err: unknown) {
