@@ -1,3 +1,5 @@
+import { syntaxStyle } from "../lib/syntax-theme.ts"
+
 interface AgentPanelProps {
   streamingText: string
   toolStatus: string | null
@@ -15,7 +17,7 @@ export function AgentPanel({ streamingText, toolStatus, isRunning }: AgentPanelP
         )}
         {streamingText && (
           <box padding={1} flexDirection="column">
-            <text>{streamingText}</text>
+            <markdown content={streamingText} syntaxStyle={syntaxStyle} streaming={isRunning} />
           </box>
         )}
       </scrollbox>

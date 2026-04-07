@@ -1,9 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { query } from "@anthropic-ai/claude-agent-sdk"
+import type { TextareaOptions } from "@opentui/core"
 import { createPushStream, type PushStream } from "../lib/push-stream.ts"
 import { DEFAULT_SYSTEM_PROMPT } from "../lib/system-prompts.ts"
-import { formatToolEvent } from "../lib/tool-events.ts"
 import type { EffortLevel } from "../lib/config.ts"
+import { syntaxStyle } from "../lib/syntax-theme.ts"
+import {
+  type SDKUserMessage,
+  getAssistantText,
+  getTextDelta,
+  getToolStatus,
+  formatResultError,
+} from "../lib/sdk-helpers.ts"
 
 interface ChatMessage {
   id: string
@@ -11,11 +19,7 @@ interface ChatMessage {
   content: string
 }
 
-interface SDKUserMessage {
-  type: "user"
-  message: { role: "user"; content: string }
-  parent_tool_use_id: string | null
-}
+type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
 
 interface ChatProps {
   /** Working directory for agent tools (target repo path) */
@@ -85,52 +89,36 @@ export function Chat({
           if (abortController.signal.aborted) break
 
           if (message.type === "stream_event") {
-            const event = message.event
-            if (
-              event.type === "content_block_delta" &&
-              "delta" in event &&
-              event.delta.type === "text_delta" &&
-              "text" in event.delta
-            ) {
-              setStreamingText(
-                (prev) => prev + (event.delta as { text: string }).text
-              )
+            const textDelta = getTextDelta(message)
+            if (textDelta) {
+              setStreamingText((prev) => prev + textDelta)
               setToolStatus(null)
             }
 
-            if (
-              event.type === "content_block_start" &&
-              "content_block" in event &&
-              (event.content_block as any).type === "tool_use"
-            ) {
-              const block = event.content_block as any
-              setToolStatus(
-                formatToolEvent(block.name ?? "", block.input ?? {})
-              )
+            const nextToolStatus = getToolStatus(message)
+            if (nextToolStatus) {
+              setToolStatus(nextToolStatus)
             }
           } else if (message.type === "assistant") {
-            const fullText = (message as any).message.content
-              .filter((block: any) => block.type === "text")
-              .map((block: any) => block.text)
-              .join("")
+            const fullText = getAssistantText(message)
 
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "assistant",
-                content: fullText,
-              },
-            ])
+            // Skip tool-only turns that produced no visible text
+            if (fullText.trim()) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "assistant",
+                  content: fullText,
+                },
+              ])
+            }
             setStreamingText("")
             setIsStreaming(false)
             setToolStatus(null)
           } else if (message.type === "result") {
-            if ((message as any).subtype !== "success") {
-              setError(
-                `Agent error: ${(message as any).errors?.join(", ") ?? "unknown"}`
-              )
-            }
+            const resultError = formatResultError(message)
+            if (resultError) setError(resultError)
             setIsStreaming(false)
           }
         }
@@ -173,6 +161,15 @@ export function Chat({
     [isStreaming]
   )
 
+  const handleInputSubmit = useCallback(
+    (value: unknown) => {
+      if (typeof value === "string") handleSubmit(value)
+    },
+    [handleSubmit],
+  ) as
+    & ((event: OpenTUISubmitEvent) => void)
+    & ((value: string) => void)
+
   return (
     <box flexDirection="column" flexGrow={1}>
       <scrollbox
@@ -194,7 +191,11 @@ export function Chat({
                 <text fg={msg.role === "user" ? "#7aa2f7" : "#9ece6a"}>
                   <strong>{msg.role === "user" ? "You" : "AutoAuto"}</strong>
                 </text>
-                <text>{msg.content}</text>
+                {msg.role === "assistant" ? (
+                  <markdown content={msg.content} syntaxStyle={syntaxStyle} />
+                ) : (
+                  <text>{msg.content}</text>
+                )}
                 <text>{""}</text>
               </box>
             ))}
@@ -204,7 +205,7 @@ export function Chat({
                 <text fg="#9ece6a">
                   <strong>AutoAuto</strong>
                 </text>
-                <text>{streamingText}</text>
+                <markdown content={streamingText} syntaxStyle={syntaxStyle} streaming />
               </box>
             )}
 
@@ -233,11 +234,7 @@ export function Chat({
             isStreaming ? "Waiting for response..." : "Ask something..."
           }
           focused={!isStreaming}
-          onSubmit={
-            ((value: string) => {
-              handleSubmit(value)
-            }) as any
-          }
+          onSubmit={handleInputSubmit}
         />
       </box>
     </box>
