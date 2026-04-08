@@ -107,6 +107,8 @@ When you run a program multiple times, each new run can **carry forward** contex
 
 This gives the agent institutional memory across runs, not just within a single run. It's especially useful after an **Update** — the revised program benefits from knowing what the previous run already explored.
 
+Carry forward is termination-aware: when the previous run ended via stagnation, the agent is nudged toward orthogonal approaches rather than refining the exhausted direction (based on Liu et al.'s "pivot" pattern). When the previous run hit the max-experiments limit, the agent is told that unexplored directions may remain. Stopped or aborted runs carry neutral framing.
+
 Carry forward is enabled by default. You can disable it in the PreRun screen ("Previous Run Context" toggle) or via CLI (`--no-carry-forward`). It's automatically skipped when no previous runs exist.
 
 **Important:** Previous run code changes are NOT merged into the working tree. The agent is told to treat previous results as guidance, not as existing code.
