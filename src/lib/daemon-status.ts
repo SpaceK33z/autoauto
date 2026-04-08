@@ -73,13 +73,17 @@ export async function reconstructState(runDir: string, programDir: string): Prom
   metricHistory: number[]
   programConfig: ProgramConfig
   streamText: string
+  ideasText: string
 }> {
   const [state, results, programConfig] = await Promise.all([
     readState(runDir),
     readAllResults(runDir),
     loadProgramConfig(programDir),
   ])
-  const streamText = await readStreamTail(runDir, state.experiment_number)
+  const [streamText, ideasText] = await Promise.all([
+    readStreamTail(runDir, state.experiment_number),
+    Bun.file(join(runDir, "ideas.md")).text().catch(() => ""),
+  ])
 
   return {
     state,
@@ -87,6 +91,7 @@ export async function reconstructState(runDir: string, programDir: string): Prom
     metricHistory: getMetricHistory(results),
     programConfig,
     streamText,
+    ideasText,
   }
 }
 

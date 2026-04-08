@@ -11,6 +11,7 @@ export interface WatchCallbacks {
   onStreamChange: (text: string) => void
   onStreamReset?: () => void
   onToolStatus?: (status: string | null) => void
+  onIdeasChange?: (text: string) => void
   onDaemonDied: () => void
 }
 
@@ -74,6 +75,9 @@ export function watchRunDir(
           await readResultsDelta()
         } else if (file.startsWith("stream-") && file.endsWith(".log")) {
           await readStreamDelta(file)
+        } else if (file === "ideas.md" && callbacks.onIdeasChange) {
+          const text = await Bun.file(join(runDir, "ideas.md")).text()
+          callbacks.onIdeasChange(text)
         } else if (file === "daemon.json") {
           // Heartbeat check handled by backup timer
         }

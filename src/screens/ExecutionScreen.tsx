@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { Screen, ProgramConfig } from "../lib/programs.ts"
 import { getProgramDir } from "../lib/programs.ts"
-import type { ModelSlot } from "../lib/config.ts"
+import { formatModelSlot, isEffortConfigurable, type ModelSlot } from "../lib/config.ts"
 import type { RunState, ExperimentResult, TerminationReason } from "../lib/run.ts"
 import { getRunStats } from "../lib/run.ts"
 import { removeWorktree } from "../lib/worktree.ts"
@@ -68,14 +68,40 @@ function getPhaseLabel(phase: RunState["phase"], error?: string | null, isStoppi
   return PHASE_LABELS[phase] ?? phase
 }
 
+function formatHeaderModelLabel(slot: ModelSlot): string {
+  const model = formatModelSlot(slot, true)
+  return isEffortConfigurable(slot) ? `${model}/${slot.effort}` : model
+}
+
+function getRunModelConfig(state: RunState | null, fallback: ModelSlot): ModelSlot {
+  if (
+    state?.model &&
+    (state.provider === "claude" || state.provider === "codex" || state.provider === "opencode") &&
+    (state.effort === "low" || state.effort === "medium" || state.effort === "high" || state.effort === "max")
+  ) {
+    return { provider: state.provider, model: state.model, effort: state.effort }
+  }
+  return fallback
+}
+
+function IdeasPanel({ text }: { text: string }) {
+  return (
+    <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
+      <box paddingX={1} flexDirection="column">
+        <markdown content={text} syntaxStyle={syntaxStyle} />
+      </box>
+    </scrollbox>
+  )
+}
+
 function Divider({ width, label }: { width: number; label?: string }) {
   const innerWidth = Math.max(width - 2, 0)
   if (label) {
     const labelStr = `─ ${label} `
     const rest = "─".repeat(Math.max(innerWidth - labelStr.length, 0))
-    return <text fg="#565f89">{labelStr}{rest}</text>
+    return <text fg="#666666">{labelStr}{rest}</text>
   }
-  return <text fg="#565f89">{"─".repeat(innerWidth)}</text>
+  return <text fg="#666666">{"─".repeat(innerWidth)}</text>
 }
 
 export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, useWorktree = true, attachRunId, readOnly = false, onUpdateProgram }: ExecutionScreenProps) {
@@ -104,8 +130,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [maxExpText, setMaxExpText] = useState(String(maxExperiments))
   const maxExpTextRef = useRef(maxExpText)
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [ideasText, setIdeasText] = useState("")
+  const [showIdeas, setShowIdeas] = useState(true)
 
   const secondaryMetricsConfig = useMemo(() => programConfig?.secondary_metrics, [programConfig])
+  const ideasVisible = showIdeas && ideasText.length > 0
 
   const watcherRef = useRef<DaemonWatcher | null>(null)
   const abortControllerRef = useRef<AbortController>(new AbortController())
@@ -114,6 +143,14 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
   const stoppingRef = useRef(false)
   stoppingRef.current = stopping // ref for use inside effect closures
+  const parsedMaxExperiments = Number.parseInt(maxExpText, 10)
+  const displayMaxExperiments = Number.isFinite(parsedMaxExperiments) && parsedMaxExperiments > 0
+    ? parsedMaxExperiments
+    : maxExperiments
+  const headerModelLabel = useMemo(
+    () => formatHeaderModelLabel(getRunModelConfig(runState, modelConfig)),
+    [runState, modelConfig],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -131,6 +168,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             // Daemon died — show complete state
             try {
               const reconstructed = await reconstructState(activeRunDir, programDir)
+              const currentMax = await getMaxExperiments(activeRunDir)
               if (!cancelled) {
                 setRunDir(activeRunDir)
                 setRunState(reconstructed.state)
@@ -140,7 +178,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 setTotalCostUsd(reconstructed.state.total_cost_usd ?? 0)
                 setExperimentNumber(reconstructed.state.experiment_number)
                 setAgentStreamText(reconstructed.streamText)
+                setIdeasText(reconstructed.ideasText)
                 setTerminationReason(reconstructed.state.termination_reason ?? null)
+                if (currentMax != null) {
+                  const text = String(currentMax)
+                  setMaxExpText(text)
+                  maxExpTextRef.current = text
+                }
                 if (reconstructed.state.phase === "crashed") {
                   setLastError(reconstructed.state.error ?? "Daemon crashed")
                   setPhase("error")
@@ -171,6 +215,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             setTotalCostUsd(reconstructed.state.total_cost_usd ?? 0)
             setExperimentNumber(reconstructed.state.experiment_number)
             setAgentStreamText(reconstructed.streamText)
+            setIdeasText(reconstructed.ideasText)
             setPhase("running")
             // Sync maxExpText from run-config for settings panel
             const currentMax = await getMaxExperiments(activeRunDir)
@@ -236,6 +281,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             onToolStatus: (status) => {
               if (cancelled) return
               setToolStatus(status)
+            },
+            onIdeasChange: (text) => {
+              if (cancelled) return
+              setIdeasText(text)
             },
             onDaemonDied: () => {
               if (cancelled) return
@@ -361,6 +410,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     if (phase === "complete" && readOnly) {
       if (key.name === "escape") {
         navigate("home")
+      } else if (key.name === "i") {
+        setShowIdeas(v => !v)
       }
       return
     }
@@ -433,6 +484,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
     // Stop/abort during execution
     if (phase === "starting" || phase === "running") {
+      if (key.name === "i") {
+        setShowIdeas(v => !v)
+        return
+      }
+
       if (key.name === "s") {
         setShowSettings(true)
         return
@@ -482,6 +538,9 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`${programSlug}`}>
           <StatsHeader
             experimentNumber={experimentNumber}
+            maxExperiments={displayMaxExperiments}
+            width={termWidth}
+            modelLabel={headerModelLabel}
             totalKeeps={runState?.total_keeps ?? 0}
             totalDiscards={runState?.total_discards ?? 0}
             totalCrashes={runState?.total_crashes ?? 0}
@@ -504,17 +563,17 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                     <>
                       <span fg="#7aa2f7"><strong>[ Results ]</strong></span>
                       {"  "}
-                      <span fg="#565f89">Agent</span>
+                      <span fg="#666666">Agent</span>
                     </>
                   ) : (
                     <>
-                      <span fg="#565f89">Results</span>
+                      <span fg="#666666">Results</span>
                       {"  "}
                       <span fg="#7aa2f7"><strong>[ {selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} ]</strong></span>
                     </>
                   )}
                   {"  "}
-                  <span fg="#565f89">Tab ⇄</span>
+                  <span fg="#666666">Tab ⇄</span>
                 </text>
               </box>
               {tableFocused ? (
@@ -558,13 +617,31 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
               <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
 
-              <AgentPanel
-                streamingText={agentStreamText}
-                toolStatus={toolStatus}
-                isRunning={phase === "running"}
-                selectedResult={selectedResult}
-                secondaryMetrics={secondaryMetricsConfig}
-              />
+              {ideasVisible ? (
+                <box flexDirection="row" flexGrow={1}>
+                  <box flexDirection="column" flexGrow={3}>
+                    <AgentPanel
+                      streamingText={agentStreamText}
+                      toolStatus={toolStatus}
+                      isRunning={phase === "running"}
+                      selectedResult={selectedResult}
+                      secondaryMetrics={secondaryMetricsConfig}
+                    />
+                  </box>
+                  <box flexDirection="column" flexGrow={2}>
+                    <Divider width={Math.floor(termWidth * 0.38)} label="Ideas" />
+                    <IdeasPanel text={ideasText} />
+                  </box>
+                </box>
+              ) : (
+                <AgentPanel
+                  streamingText={agentStreamText}
+                  toolStatus={toolStatus}
+                  isRunning={phase === "running"}
+                  selectedResult={selectedResult}
+                  secondaryMetrics={secondaryMetricsConfig}
+                />
+              )}
             </>
           )}
 
@@ -600,6 +677,9 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`${programSlug}`}>
           <StatsHeader
             experimentNumber={experimentNumber}
+            maxExperiments={displayMaxExperiments}
+            width={termWidth}
+            modelLabel={headerModelLabel}
             totalKeeps={runState.total_keeps}
             totalDiscards={runState.total_discards}
             totalCrashes={runState.total_crashes}
@@ -625,15 +705,33 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             onSelect={setSelectedResult}
           />
           <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
-          <AgentPanel
-            streamingText={agentStreamText}
-            toolStatus={toolStatus}
-            isRunning={false}
-            selectedResult={selectedResult}
-            secondaryMetrics={secondaryMetricsConfig}
-          />
+          {ideasVisible ? (
+            <box flexDirection="row" flexGrow={1}>
+              <box flexDirection="column" flexGrow={3}>
+                <AgentPanel
+                  streamingText={agentStreamText}
+                  toolStatus={toolStatus}
+                  isRunning={false}
+                  selectedResult={selectedResult}
+                  secondaryMetrics={secondaryMetricsConfig}
+                />
+              </box>
+              <box flexDirection="column" flexGrow={2}>
+                <Divider width={Math.floor(termWidth * 0.38)} label="Ideas" />
+                <IdeasPanel text={ideasText} />
+              </box>
+            </box>
+          ) : (
+            <AgentPanel
+              streamingText={agentStreamText}
+              toolStatus={toolStatus}
+              isRunning={false}
+              selectedResult={selectedResult}
+              secondaryMetrics={secondaryMetricsConfig}
+            />
+          )}
           <box paddingX={1}>
-            <text fg="#888888">Press Escape to go back</text>
+            <text fg="#888888">Press Escape to go back{ideasText.length > 0 ? " · i toggle ideas" : ""}</text>
           </box>
         </box>
       )}
@@ -654,6 +752,9 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Finalize">
           <StatsHeader
             experimentNumber={experimentNumber}
+            maxExperiments={displayMaxExperiments}
+            width={termWidth}
+            modelLabel={headerModelLabel}
             totalKeeps={runState?.total_keeps ?? 0}
             totalDiscards={runState?.total_discards ?? 0}
             totalCrashes={runState?.total_crashes ?? 0}
@@ -688,7 +789,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 {finalizeResult.groups.map((g) => (
                   <box key={g.name} flexDirection="column">
                     <text fg="#9ece6a" selectable>  {g.branchName}</text>
-                    <text fg="#565f89" selectable>    {g.files.length} file{g.files.length > 1 ? "s" : ""}: {g.files.map((f) => f.split("/").pop()).join(", ")}</text>
+                    <text fg="#666666" selectable>    {g.files.length} file{g.files.length > 1 ? "s" : ""}: {g.files.map((f) => f.split("/").pop()).join(", ")}</text>
                   </box>
                 ))}
               </>
@@ -698,7 +799,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               <text fg="#888888" selectable>No changes to squash (0 keeps)</text>
             )}
             <box height={1} />
-            <text fg="#a9b1d6">Summary saved to run directory. Press Escape to go back.</text>
+            <text fg="#ffffff">Summary saved to run directory. Press Escape to go back.</text>
           </box>
           <scrollbox flexGrow={1} focused>
             <box paddingX={1} flexDirection="column">
