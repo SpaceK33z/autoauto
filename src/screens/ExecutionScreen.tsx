@@ -6,7 +6,15 @@ import { formatModelLabel, type ModelSlot } from "../lib/config.ts"
 import type { RunState, ExperimentResult, TerminationReason } from "../lib/run.ts"
 import { getRunStats } from "../lib/run.ts"
 import { removeWorktree } from "../lib/worktree.ts"
-import { runFinalize, type FinalizeResult } from "../lib/finalize.ts"
+import {
+  runFinalizeReview,
+  refineFinalizeGroups,
+  applyFinalizeGroups,
+  saveSummaryOnly,
+  type FinalizeResult,
+  type FinalizeReviewResult,
+  type ProposedGroup,
+} from "../lib/finalize.ts"
 import { formatShellError } from "../lib/git.ts"
 import {
   spawnDaemon,
@@ -25,9 +33,10 @@ import { RunSettingsOverlay } from "../components/RunSettingsOverlay.tsx"
 import { StatsHeader } from "../components/StatsHeader.tsx"
 import { ResultsTable } from "../components/ResultsTable.tsx"
 import { AgentPanel } from "../components/AgentPanel.tsx"
+import { FinalizeApproval } from "../components/FinalizeApproval.tsx"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
 
-type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error"
+type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_review" | "finalize_complete" | "error"
 
 function truncateStreamText(prev: string, text: string): string {
   const next = prev + text
@@ -132,6 +141,15 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [ideasText, setIdeasText] = useState("")
   const [showIdeas, setShowIdeas] = useState(true)
+
+  // Finalize review state
+  const [reviewData, setReviewData] = useState<FinalizeReviewResult | null>(null)
+  const [reviewSummary, setReviewSummary] = useState("")
+  const [reviewGroups, setReviewGroups] = useState<ProposedGroup[] | null>(null)
+  const [reviewValidationError, setReviewValidationError] = useState<string | null>(null)
+  const [isRefining, setIsRefining] = useState(false)
+  const [refiningText, setRefiningText] = useState("")
+  const [refiningToolStatus, setRefiningToolStatus] = useState<string | null>(null)
 
   const secondaryMetricsConfig = useMemo(() => programConfig?.secondary_metrics, [programConfig])
   const ideasVisible = showIdeas && ideasText.length > 0
@@ -357,9 +375,9 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     setCurrentPhaseLabel("Finalizing...")
 
     try {
-      const result = await runFinalize(
+      const worktreePath = runState.in_place ? undefined : runState.worktree_path
+      const review = await runFinalizeReview(
         cwd,
-        programSlug,
         runDir,
         runState,
         programConfig,
@@ -369,21 +387,125 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           onToolStatus: (status) => setToolStatus(status),
         },
         finalizeAbort.signal,
-        runState.in_place ? undefined : runState.worktree_path, // In-place mode uses projectRoot (cwd)
+        worktreePath,
       )
-      // In-place mode: restore original branch after finalize
+
+      setTotalCostUsd(prev => prev + (review.cost?.total_cost_usd ?? 0))
+      setReviewData(review)
+      setReviewSummary(review.summary)
+      setReviewGroups(review.proposedGroups)
+      setReviewValidationError(review.validationError)
+      setPhase("finalize_review")
+    } catch (err: unknown) {
+      setLastError(formatShellError(err, "Finalize failed"))
+      setPhase("error")
+    }
+  }, [cwd, runDir, runState, programConfig, supportModelConfig])
+
+  const handleFinalizeApprove = useCallback(async () => {
+    if (!runState || !runDir || !programConfig || !reviewData || !reviewGroups) return
+
+    setPhase("finalizing")
+    setAgentStreamText("")
+    setCurrentPhaseLabel("Creating branches...")
+
+    try {
+      const worktreePath = runState.in_place ? undefined : runState.worktree_path
+      const result = await applyFinalizeGroups(
+        cwd,
+        programSlug,
+        runDir,
+        runState,
+        programConfig,
+        reviewGroups,
+        reviewData.savedHead,
+        reviewSummary,
+        reviewData.results,
+        worktreePath,
+        reviewData.cost,
+      )
+
       if (runState.in_place && runState.original_branch) {
         const { checkoutBranch } = await import("../lib/git.ts")
         await checkoutBranch(cwd, runState.original_branch).catch(() => {})
       }
       setFinalizeResult(result)
-      setTotalCostUsd(prev => prev + (result.cost?.total_cost_usd ?? 0))
       setPhase("finalize_complete")
     } catch (err: unknown) {
       setLastError(formatShellError(err, "Finalize failed"))
       setPhase("error")
     }
-  }, [cwd, programSlug, runDir, runState, programConfig, supportModelConfig])
+  }, [cwd, programSlug, runDir, runState, programConfig, reviewData, reviewGroups, reviewSummary])
+
+  const handleFinalizeSkipGrouping = useCallback(async () => {
+    if (!runState || !runDir || !programConfig || !reviewData) return
+
+    try {
+      const result = await saveSummaryOnly(
+        runState,
+        reviewData.results,
+        programConfig,
+        reviewSummary,
+        runDir,
+        reviewData.cost,
+      )
+
+      if (runState.in_place && runState.original_branch) {
+        const { checkoutBranch } = await import("../lib/git.ts")
+        await checkoutBranch(cwd, runState.original_branch).catch(() => {})
+      }
+      setFinalizeResult(result)
+      setPhase("finalize_complete")
+    } catch (err: unknown) {
+      setLastError(formatShellError(err, "Finalize failed"))
+      setPhase("error")
+    }
+  }, [cwd, runDir, runState, programConfig, reviewData, reviewSummary])
+
+  const handleFinalizeRefine = useCallback(async (feedback: string) => {
+    if (!runState || !reviewData) return
+
+    const refineAbort = new AbortController()
+    abortControllerRef.current = refineAbort
+
+    setIsRefining(true)
+    setRefiningText("")
+    setRefiningToolStatus(null)
+
+    try {
+      const worktreePath = runState.in_place ? undefined : runState.worktree_path
+      const refined = await refineFinalizeGroups(
+        reviewSummary,
+        feedback,
+        reviewData.changedFiles,
+        supportModelConfig,
+        cwd,
+        {
+          onStreamText: (text) => setRefiningText(prev => truncateStreamText(prev, text)),
+          onToolStatus: (status) => setRefiningToolStatus(status),
+        },
+        refineAbort.signal,
+        worktreePath,
+      )
+
+      setTotalCostUsd(prev => prev + (refined.cost?.total_cost_usd ?? 0))
+      setReviewSummary(refined.summary)
+      setReviewGroups(refined.proposedGroups)
+      setReviewValidationError(refined.validationError)
+    } catch (err: unknown) {
+      setLastError(formatShellError(err, "Refinement failed"))
+    } finally {
+      setIsRefining(false)
+      setRefiningText("")
+      setRefiningToolStatus(null)
+    }
+  }, [cwd, runState, reviewData, reviewSummary, supportModelConfig])
+
+  const handleFinalizeCancel = useCallback(() => {
+    abortControllerRef.current.abort()
+    setPhase("complete")
+    setReviewData(null)
+  }, [])
 
   const handleUpdateProgram = useCallback(async () => {
     await cleanupRunEnvironment()
@@ -400,6 +522,15 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   }, [autoFinalize, phase, handleFinalize])
 
   useKeyboard((key) => {
+    if (phase === "finalize_review") {
+      // Ctrl+C during refinement aborts the agent
+      if (isRefining && key.ctrl && key.name === "c") {
+        abortControllerRef.current.abort()
+      }
+      // FinalizeApproval component handles the rest
+      return
+    }
+
     if (phase === "finalize_complete") {
       if (key.name === "escape") {
         navigate("home")
@@ -802,6 +933,21 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             isRunning={true}
           />
         </box>
+      )}
+
+      {phase === "finalize_review" && (
+        <FinalizeApproval
+          summary={reviewSummary}
+          proposedGroups={reviewGroups}
+          validationError={reviewValidationError}
+          isRefining={isRefining}
+          refiningText={refiningText}
+          toolStatus={refiningToolStatus}
+          onApprove={handleFinalizeApprove}
+          onSkipGrouping={handleFinalizeSkipGrouping}
+          onRefine={handleFinalizeRefine}
+          onCancel={handleFinalizeCancel}
+        />
       )}
 
       {phase === "finalize_complete" && finalizeResult && (

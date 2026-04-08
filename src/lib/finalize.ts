@@ -393,11 +393,20 @@ export function generateSummaryReport(
   return lines.join("\n")
 }
 
-// --- Main Entry Point ---
+// --- Phase 1: Review ---
 
-export async function runFinalize(
+export interface FinalizeReviewResult {
+  summary: string
+  proposedGroups: ProposedGroup[] | null
+  validationError: string | null
+  changedFiles: string[]
+  savedHead: string
+  results: ExperimentResult[]
+  cost?: ExperimentCost
+}
+
+export async function runFinalizeReview(
   projectRoot: string,
-  programSlug: string,
   runDir: string,
   state: RunState,
   config: ProgramConfig,
@@ -405,10 +414,9 @@ export async function runFinalize(
   callbacks: FinalizeCallbacks,
   signal?: AbortSignal,
   worktreePath?: string,
-): Promise<FinalizeResult> {
+): Promise<FinalizeReviewResult> {
   const gitCwd = worktreePath ?? projectRoot
 
-  // Save HEAD before any modifications
   const savedHead = await getFullSha(gitCwd)
   const preAgentSha = savedHead
 
@@ -433,67 +441,197 @@ export async function runFinalize(
     throw new Error("Finalize agent modified the repository. Aborting.")
   }
 
-  // Try grouped finalize if there are keeps and enough changed files
+  // Try extracting groups
+  let proposedGroups: ProposedGroup[] | null = null
+  let validationError: string | null = null
+
   if (state.total_keeps > 0 && changedFiles.length > 0) {
     const proposed = extractFinalizeGroups(summary)
-
-    if (proposed && proposed.length > 1) {
+    if (proposed && proposed.length > 0) {
       const validation = validateGroups(proposed, changedFiles)
-
       if (validation.valid) {
-        // Create group branches
-        const createdGroups: FinalizeGroupResult[] = []
-        try {
-          for (const group of validation.groups) {
-            const branchName = `autoauto-${programSlug}-${state.run_id}-${group.name}`.slice(0, 100)
-            const commitSha = await createGroupBranch(
-              gitCwd,
-              branchName,
-              state.original_baseline_sha,
-              savedHead,
-              group.files,
-              group.title,
-            )
-            createdGroups.push({
-              name: group.name,
-              branchName,
-              commitSha,
-              title: group.title,
-              description: group.description,
-              files: group.files,
-              risk: group.risk,
-            })
-          }
-        } catch {
-          // Partial failure — restore worktree to original state
-          // Already-created group branches are kept (they're valid refs)
-          await checkoutBranch(gitCwd, state.branch_name).catch(() => {})
-          await resetHard(gitCwd, savedHead).catch(() => {})
-
-          if (createdGroups.length === 0) {
-            // Total failure — fall through to summary-only below
-            return summaryOnly(state, results, config, summary, runDir, cost)
-          }
-
-          // Partial success — return what we have
-          const report = generateSummaryReport(state, results, config, summary, createdGroups, cost)
-          await Bun.write(join(runDir, "summary.md"), report)
-          return { summary: report, mode: "grouped", groups: createdGroups, cost }
-        }
-
-        // Restore worktree to original experiment branch
-        await checkoutBranch(gitCwd, state.branch_name).catch(() => {})
-        await resetHard(gitCwd, savedHead).catch(() => {})
-
-        const report = generateSummaryReport(state, results, config, summary, createdGroups, cost)
-        await Bun.write(join(runDir, "summary.md"), report)
-        return { summary: report, mode: "grouped", groups: createdGroups, cost }
+        proposedGroups = validation.groups
+      } else {
+        validationError = validation.reason
       }
     }
   }
 
-  // Summary-only — no grouping possible, just generate the report
-  return summaryOnly(state, results, config, summary, runDir, cost)
+  return { summary, proposedGroups, validationError, changedFiles, savedHead, results, cost }
+}
+
+// --- Phase 2: Refine ---
+
+export interface FinalizeRefineResult {
+  summary: string
+  proposedGroups: ProposedGroup[] | null
+  validationError: string | null
+  cost?: ExperimentCost
+}
+
+export async function refineFinalizeGroups(
+  previousSummary: string,
+  userFeedback: string,
+  changedFiles: string[],
+  modelConfig: ModelSlot,
+  projectRoot: string,
+  callbacks: FinalizeCallbacks,
+  signal?: AbortSignal,
+  worktreePath?: string,
+): Promise<FinalizeRefineResult> {
+  const gitCwd = worktreePath ?? projectRoot
+
+  const systemPrompt = `You are the AutoAuto Finalize Agent refining a changeset grouping based on user feedback.
+
+You previously analyzed an experiment run and proposed file groupings. The user wants changes.
+
+## Rules
+- You are READ-ONLY. Do NOT modify files.
+- Use ONLY files from the Changed Files list below.
+- Each file must appear in exactly ONE group.
+- All changed files must be assigned to a group.
+- Output your revised grouping in the same <finalize_groups> XML format.
+
+## Changed Files
+${changedFiles.join("\n")}
+`
+
+  const userPrompt = `Here is your previous analysis:
+
+${previousSummary}
+
+The user's feedback:
+
+${userFeedback}
+
+Please revise the grouping based on this feedback. Include a brief explanation of what you changed, then output the revised <finalize_groups> block.`
+
+  const { summary, cost } = await runFinalizeAgent(
+    gitCwd,
+    systemPrompt,
+    userPrompt,
+    modelConfig,
+    callbacks,
+    signal,
+  )
+
+  let proposedGroups: ProposedGroup[] | null = null
+  let validationError: string | null = null
+
+  const proposed = extractFinalizeGroups(summary)
+  if (proposed && proposed.length > 0) {
+    const validation = validateGroups(proposed, changedFiles)
+    if (validation.valid) {
+      proposedGroups = validation.groups
+    } else {
+      validationError = validation.reason
+    }
+  }
+
+  return { summary, proposedGroups, validationError, cost }
+}
+
+// --- Phase 3: Apply ---
+
+export async function applyFinalizeGroups(
+  projectRoot: string,
+  programSlug: string,
+  runDir: string,
+  state: RunState,
+  config: ProgramConfig,
+  groups: ProposedGroup[],
+  savedHead: string,
+  agentSummary: string,
+  results: ExperimentResult[],
+  worktreePath?: string,
+  cost?: ExperimentCost,
+): Promise<FinalizeResult> {
+  const gitCwd = worktreePath ?? projectRoot
+
+  const createdGroups: FinalizeGroupResult[] = []
+  try {
+    for (const group of groups) {
+      const branchName = `autoauto-${programSlug}-${state.run_id}-${group.name}`.slice(0, 100)
+      const commitSha = await createGroupBranch(
+        gitCwd,
+        branchName,
+        state.original_baseline_sha,
+        savedHead,
+        group.files,
+        group.title,
+      )
+      createdGroups.push({
+        name: group.name,
+        branchName,
+        commitSha,
+        title: group.title,
+        description: group.description,
+        files: group.files,
+        risk: group.risk,
+      })
+    }
+  } catch {
+    // Partial failure — restore worktree to original state
+    await checkoutBranch(gitCwd, state.branch_name).catch(() => {})
+    await resetHard(gitCwd, savedHead).catch(() => {})
+
+    if (createdGroups.length === 0) {
+      return summaryOnly(state, results, config, agentSummary, runDir, cost)
+    }
+
+    const report = generateSummaryReport(state, results, config, agentSummary, createdGroups, cost)
+    await Bun.write(join(runDir, "summary.md"), report)
+    return { summary: report, mode: "grouped", groups: createdGroups, cost }
+  }
+
+  // Restore worktree to original experiment branch
+  await checkoutBranch(gitCwd, state.branch_name).catch(() => {})
+  await resetHard(gitCwd, savedHead).catch(() => {})
+
+  const report = generateSummaryReport(state, results, config, agentSummary, createdGroups, cost)
+  await Bun.write(join(runDir, "summary.md"), report)
+  return { summary: report, mode: "grouped", groups: createdGroups, cost }
+}
+
+// --- Summary-only fallback ---
+
+export async function saveSummaryOnly(
+  state: RunState,
+  results: ExperimentResult[],
+  config: ProgramConfig,
+  agentSummary: string,
+  runDir: string,
+  cost?: ExperimentCost,
+): Promise<FinalizeResult> {
+  return summaryOnly(state, results, config, agentSummary, runDir, cost)
+}
+
+// --- Legacy entry point (calls review + apply in one shot) ---
+
+export async function runFinalize(
+  projectRoot: string,
+  programSlug: string,
+  runDir: string,
+  state: RunState,
+  config: ProgramConfig,
+  modelConfig: ModelSlot,
+  callbacks: FinalizeCallbacks,
+  signal?: AbortSignal,
+  worktreePath?: string,
+): Promise<FinalizeResult> {
+  const review = await runFinalizeReview(
+    projectRoot, runDir, state, config, modelConfig, callbacks, signal, worktreePath,
+  )
+
+  if (review.proposedGroups && review.proposedGroups.length > 1) {
+    return applyFinalizeGroups(
+      projectRoot, programSlug, runDir, state, config,
+      review.proposedGroups, review.savedHead, review.summary, review.results,
+      worktreePath, review.cost,
+    )
+  }
+
+  return summaryOnly(state, review.results, config, review.summary, runDir, review.cost)
 }
 
 async function summaryOnly(
