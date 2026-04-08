@@ -185,7 +185,7 @@ export function App() {
             supportModelConfig={projectConfig.supportModel}
             ideasBacklogEnabled={projectConfig.ideasBacklogEnabled}
             navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setScreen(s) }}
-            maxExperiments={preRunOverrides?.maxExperiments}
+            maxExperiments={preRunOverrides?.maxExperiments ?? 0}
             useWorktree={preRunOverrides?.useWorktree ?? true}
             attachRunId={attachRunId ?? undefined}
             readOnly={attachReadOnly}

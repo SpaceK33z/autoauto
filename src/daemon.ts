@@ -75,7 +75,8 @@ async function main() {
   // 2. Read per-run config
   const runConfig = await readRunConfig(runDir)
   const modelConfig = runConfig ? runConfigToModelSlot(runConfig) : { provider: "claude" as const, model: "sonnet", effort: "high" as const }
-  const maxExperiments = runConfig?.max_experiments
+  if (!runConfig?.max_experiments) throw new Error("run-config.json must specify max_experiments")
+  const maxExperiments = runConfig.max_experiments
   const ideasBacklogEnabled = runConfig?.ideas_backlog_enabled ?? true
 
   // 3. Stop/abort signals

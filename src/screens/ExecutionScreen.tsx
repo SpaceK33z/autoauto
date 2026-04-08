@@ -40,7 +40,7 @@ interface ExecutionScreenProps {
   supportModelConfig: ModelSlot
   ideasBacklogEnabled: boolean
   navigate: (screen: Screen) => void
-  maxExperiments?: number
+  maxExperiments: number
   /** Use git worktree for isolation (default true). When false, runs in-place in main checkout. */
   useWorktree?: boolean
   /** If set, attach to an existing run instead of starting a new one */
@@ -101,7 +101,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [showStopConfirm, setShowStopConfirm] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [maxExpText, setMaxExpText] = useState(maxExperiments != null ? String(maxExperiments) : "")
+  const [maxExpText, setMaxExpText] = useState(String(maxExperiments))
   const maxExpTextRef = useRef(maxExpText)
   const [settingsError, setSettingsError] = useState<string | null>(null)
 
@@ -174,8 +174,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             setPhase("running")
             // Sync maxExpText from run-config for settings panel
             const currentMax = await getMaxExperiments(activeRunDir)
-            if (!cancelled) {
-              const text = currentMax != null ? String(currentMax) : ""
+            if (!cancelled && currentMax != null) {
+              const text = String(currentMax)
               setMaxExpText(text)
               maxExpTextRef.current = text
             }
@@ -384,14 +384,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
         // Validate and auto-save
         const parsed = parseInt(next, 10)
-        if (next === "") {
-          setSettingsError(null)
-          if (runDir) updateMaxExperiments(runDir, undefined)
-        } else if (!isNaN(parsed) && parsed > 0 && parsed >= experimentNumber) {
+        if (next === "" || isNaN(parsed) || parsed < 1) {
+          setSettingsError("Must be a positive integer")
+        } else if (parsed < experimentNumber) {
+          setSettingsError(`Must be at least ${experimentNumber} (experiments already done)`)
+        } else {
           setSettingsError(null)
           if (runDir) updateMaxExperiments(runDir, parsed)
-        } else if (!isNaN(parsed) && parsed > 0 && parsed < experimentNumber) {
-          setSettingsError(`Must be at least ${experimentNumber} (experiments already done)`)
         }
       }
       return

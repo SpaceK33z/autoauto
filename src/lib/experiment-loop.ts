@@ -60,7 +60,7 @@ export interface LoopCallbacks {
 
 /** Options to control the experiment loop */
 export interface LoopOptions {
-  maxExperiments?: number
+  maxExperiments: number
   /** Hard abort — kills agent mid-execution, reverts, crash row */
   signal?: AbortSignal
   /** Soft stop — checked at iteration boundary, finishes current experiment normally */
@@ -391,7 +391,7 @@ export async function runExperimentLoop(
   config: ProgramConfig,
   modelConfig: ModelSlot,
   callbacks: LoopCallbacks,
-  options: LoopOptions = {},
+  options: LoopOptions,
 ): Promise<RunState> {
   const measureShPath = join(programDir, "measure.sh")
   const buildShPath = join(programDir, "build.sh")
@@ -455,7 +455,7 @@ export async function runExperimentLoop(
 
     // --- Build context packet ---
     const packet = await buildContextPacket(
-      cwd, programDir, runDir, state, config, { ideasBacklogEnabled },
+      cwd, programDir, runDir, state, config, { ideasBacklogEnabled, consecutiveDiscards, maxConsecutiveDiscards },
     )
     const systemPrompt = getExperimentSystemPrompt(packet.program_md, { ideasBacklogEnabled })
     const userPrompt = buildExperimentPrompt(packet)
@@ -656,7 +656,7 @@ export async function runExperimentLoop(
     ? "aborted"
     : consecutiveDiscards >= maxConsecutiveDiscards
       ? "stagnation"
-      : state.experiment_number >= (effectiveMaxExperiments ?? Infinity)
+      : state.experiment_number >= effectiveMaxExperiments
         ? "max_experiments"
         : "stopped"
 

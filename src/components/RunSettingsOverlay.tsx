@@ -14,17 +14,15 @@ export function RunSettingsOverlay({ maxExpText, experimentNumber, validationErr
         <text>
           <span fg="#7aa2f7"><strong>{`Max Experiments: ${maxExpText}`}<span fg="#7aa2f7">{"\u2588"}</span></strong></span>
           {"  "}
-          {hasMax ? (
+          {hasMax && (
             <span fg="#565f89">{`(${experimentNumber} of ${parsed} done)`}</span>
-          ) : (
-            <span fg="#565f89">{`(${experimentNumber} done, unlimited)`}</span>
           )}
         </text>
       </box>
       {validationError ? (
         <text fg="#ff5555" selectable>{validationError}</text>
       ) : (
-        <text fg="#888888">Type a number, or clear for unlimited</text>
+        <text fg="#888888">Type a number to set the experiment limit</text>
       )}
       <text fg="#565f89">Esc: close</text>
     </box>

@@ -305,7 +305,7 @@ async function cmdStart(args: ParsedArgs) {
   }
 
   const maxExperimentsStr = getFlag(args.flags, "max-experiments")
-  let maxExperiments: number | undefined = programConfig.max_experiments
+  let maxExperiments: number = programConfig.max_experiments ?? 25
   if (maxExperimentsStr != null) {
     const parsed = parsePositiveInt(maxExperimentsStr)
     if (parsed == null) die(`Invalid --max-experiments: "${maxExperimentsStr}". Must be a positive integer.`)
@@ -704,7 +704,7 @@ async function cmdStop(args: ParsedArgs) {
 async function cmdLimit(args: ParsedArgs) {
   const slug = args.positional[0]
   const valueStr = args.positional[1]
-  if (!slug || valueStr == null) die("Usage: autoauto limit <program-slug> <n|none>")
+  if (!slug || valueStr == null) die("Usage: autoauto limit <program-slug> <n>")
 
   const root = await resolveRoot(args.flags)
   const programDir = getProgramDir(root, slug)
@@ -714,25 +714,16 @@ async function cmdLimit(args: ParsedArgs) {
   if (!active) die(`No active run for "${slug}".`)
   if (!active.daemonAlive) die("Daemon is not running. Run may have already completed.")
 
-  let maxExperiments: number | undefined
-  if (valueStr === "none") {
-    maxExperiments = undefined
-  } else {
-    const parsed = parsePositiveInt(valueStr)
-    if (parsed == null) die(`Invalid value: "${valueStr}". Use a positive integer or "none".`)
-    maxExperiments = parsed
-  }
+  const parsed = parsePositiveInt(valueStr)
+  if (parsed == null) die(`Invalid value: "${valueStr}". Must be a positive integer.`)
+  const maxExperiments = parsed
 
   await updateMaxExperiments(active.runDir, maxExperiments)
 
   if (json) {
-    outJson({ run_id: active.runId, max_experiments: maxExperiments ?? null })
+    outJson({ run_id: active.runId, max_experiments: maxExperiments })
   } else {
-    if (maxExperiments != null) {
-      out(`Updated ${slug} run ${active.runId}: max experiments set to ${maxExperiments}.`)
-    } else {
-      out(`Updated ${slug} run ${active.runId}: experiment cap removed.`)
-    }
+    out(`Updated ${slug} run ${active.runId}: max experiments set to ${maxExperiments}.`)
   }
 }
 

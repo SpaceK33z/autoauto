@@ -23,7 +23,7 @@ export interface ProgramConfig {
   repeats: number
   quality_gates: Record<string, QualityGate>
   secondary_metrics?: Record<string, SecondaryMetric>
-  max_experiments?: number
+  max_experiments: number
   max_consecutive_discards?: number
 }
 
@@ -60,10 +60,9 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
     throw new Error("config.json: repeats must be an integer >= 1")
   }
   if (
-    config.max_experiments !== undefined &&
-    (typeof config.max_experiments !== "number" ||
-      !Number.isInteger(config.max_experiments) ||
-      config.max_experiments < 1)
+    typeof config.max_experiments !== "number" ||
+    !Number.isInteger(config.max_experiments) ||
+    config.max_experiments < 1
   ) {
     throw new Error("config.json: max_experiments must be an integer >= 1")
   }

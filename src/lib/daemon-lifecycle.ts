@@ -22,7 +22,7 @@ export interface RunConfig {
   provider?: AgentProviderID
   model: string
   effort: string
-  max_experiments?: number
+  max_experiments: number
   ideas_backlog_enabled?: boolean
   in_place?: boolean
 }

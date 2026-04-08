@@ -23,7 +23,7 @@ import { ModelPicker } from "../components/ModelPicker.tsx"
 
 export interface PreRunOverrides {
   modelConfig: ModelSlot
-  maxExperiments: number | undefined
+  maxExperiments: number
   useWorktree: boolean
 }
 
@@ -64,8 +64,8 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
   function handleStart() {
     const parsed = parseInt(maxExpText, 10)
-    const maxExperiments = !isNaN(parsed) && parsed > 0 ? parsed : undefined
-    onStart({ modelConfig: modelSlot, maxExperiments, useWorktree })
+    if (isNaN(parsed) || parsed < 1) return // require a valid limit
+    onStart({ modelConfig: modelSlot, maxExperiments: parsed, useWorktree })
   }
 
   function handleCycleProvider(direction: -1 | 1) {
@@ -157,11 +157,11 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
           {selected === 0 ? (
             <span fg="#7aa2f7"><strong>{`  Max Experiments: ${maxExpText || ""}`}<span fg="#7aa2f7">{"\u2588"}</span></strong></span>
           ) : (
-            `  Max Experiments: ${maxExpText || "(unlimited)"}`
+            `  Max Experiments: ${maxExpText || "(required)"}`
           )}
         </text>
         {selected === 0 && (
-          <text fg="#888888">{"  Type a number, or leave empty for unlimited"}</text>
+          <text fg="#888888">{"  Type a number (required)"}</text>
         )}
       </box>
 

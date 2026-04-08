@@ -65,7 +65,7 @@ export async function spawnDaemon(
   mainRoot: string,
   programSlug: string,
   modelConfig: ModelSlot,
-  maxExperiments?: number,
+  maxExperiments: number,
   ideasBacklogEnabled = true,
   useWorktree = true,
 ): Promise<{ runId: string; runDir: string; worktreePath: string | null; pid: number }> {
@@ -436,9 +436,9 @@ export async function forceKillDaemon(runDir: string): Promise<void> {
 /**
  * Updates max_experiments in run-config.json. The daemon re-reads this file
  * at each iteration boundary, so the change takes effect after the current experiment.
- * Pass undefined to remove the limit (unlimited).
+ * Must be a positive integer.
  */
-export async function updateMaxExperiments(runDir: string, maxExperiments: number | undefined): Promise<void> {
+export async function updateMaxExperiments(runDir: string, maxExperiments: number): Promise<void> {
   const config = await readRunConfig(runDir)
   if (!config || config.max_experiments === maxExperiments) return
   await writeRunConfig(runDir, { ...config, max_experiments: maxExperiments })
@@ -447,9 +447,9 @@ export async function updateMaxExperiments(runDir: string, maxExperiments: numbe
 /**
  * Reads the current max_experiments from run-config.json.
  */
-export async function getMaxExperiments(runDir: string): Promise<number | undefined> {
+export async function getMaxExperiments(runDir: string): Promise<number | null> {
   const config = await readRunConfig(runDir)
-  return config?.max_experiments
+  return config?.max_experiments ?? null
 }
 
 // --- Active Run Detection ---
