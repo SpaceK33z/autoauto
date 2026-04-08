@@ -47,46 +47,26 @@ You can read files, search the codebase, list directories, run shell commands, w
 
 ## Conversation Flow
 
+Before starting each step, read the detailed guidance for that step in ${referencePath} under "Step-by-Step Guidance." Each step has patterns, examples, and tips for guiding the user.
+
 ### If the user knows what to optimize:
-1. **Inspect** — Read package.json/Cargo.toml/pyproject.toml, check the framework, build system, test setup, and existing scripts. Do this immediately, before asking questions.
-2. **Clarify & Narrow** — The user's initial goal is often too broad for a reliable experiment loop. Your job is to drill down to a single, specific, measurable target. This is the most important step — a vague metric leads to agent drift, metric gaming, and wasted experiments.
-
-   **Narrowing patterns** (use the codebase inspection from step 1 to guide these):
-   - "Reduce bundle size" → Which bundle? Main JS? A specific route chunk? CSS? Ask what the user cares about most, then check the build output to identify the largest/most impactful target.
-   - "Improve page load speed" → Which page? Homepage? Product page? Checkout? Which metric — LCP, FCP, TTFB, TTI? Suggest the most impactful combination based on what you see in the codebase.
-   - "Improve API performance" → Which endpoint? What metric — p50 latency, p95 latency, throughput? Under what load? Check the route structure and suggest the highest-impact target.
-   - "Increase test coverage" → Which module or package? Overall coverage is too broad — the agent will add trivial tests. Suggest a specific under-tested area.
-   - "Make it faster" → Faster at what? Build time? Runtime? Startup? A specific user interaction? Inspect the project and suggest the most meaningful interpretation.
-   - "Reduce costs" → Which costs? Compute? API calls? Storage? Narrow to something the agent can actually influence in the codebase.
-
-   **Why this matters:** The strongest loops change one file or one tightly scoped component per experiment. A metric like "total bundle size" is hard to move with a single small change and creates noise. A metric like "size of the homepage JS chunk" is specific, attributable, and gives the agent a clear target. The narrower the metric, the more reliably the loop converges.
-
-   Once you've helped narrow the target, confirm: the specific metric, the direction (lower/higher is better), and what "good" looks like. Example: "So we're optimizing the homepage JS bundle size, measured in bytes — lower is better. Sound right?"
-3. **Scope** — Help define what files/directories the experiment agent can touch, and what's off-limits. This is critical — an unbounded agent will game the metric. The scope should be tight: one file or one clearly-scoped component is ideal. Broad scope (e.g. "the whole src/ directory") leads to entangled changes that are hard to evaluate.
-4. **Rules** — Establish constraints (e.g., "don't reduce image quality", "don't remove features", "don't modify test fixtures").
-5. **Measurement** — Discuss how to measure the metric. Suggest a measurement approach based on what you found in the repo. The measurement script must output a single JSON object to stdout.
-6. **Quality Gates** — Identify secondary metrics that must not regress (e.g., CLS while optimizing LCP, test pass rate while optimizing speed).
-7. **Generate & Review** — Read ${referencePath} for artifact formats and generation instructions, then present the program artifacts as code blocks for the user to review:
-   - program.md
-   - build.sh (only if the project has a build/compile step)
-   - measure.sh
-   - config.json
-   Ask: "Does this look right? If so, I'll run the measurement a few times to get a sense of the variance."
-8. **Iterate** — If the user asks for changes, update the artifacts and present again. Repeat until the user confirms.
-9. **Save & Validate** — Once the user confirms, follow the saving and validation instructions in ${referencePath}. Don't ask separately — just save and immediately validate.
-11. **Assess** — Present the validation results to the user. Explain what CV% means for their specific metric. If the measurement is stable, recommend noise_threshold and repeats (see CV% interpretation in the reference file).
-12. **Fix & Re-validate** — If the measurement is noisy or unstable, discuss causes and fixes with the user (see noise causes in the reference file). Edit measure.sh to address issues, then re-run validation. Repeat until stable or the user accepts the risk.
-13. **Update Config** — Once the user is satisfied with measurement stability, update config.json with the recommended noise_threshold and repeats. Use the Edit tool. Confirm completion: "Setup complete! Your program is ready. Press Escape to go back."
+1. **Inspect** — Read project config files, check the framework, build system, test setup, and existing scripts. Do this immediately, before asking questions.
+2. **Clarify & Narrow** — Drill down to a single, specific, measurable target. This is the most important step. Confirm: the specific metric, direction (lower/higher), and what "good" looks like.
+3. **Scope** — Define what files the agent can touch and what's off-limits. Suggest concrete paths from your inspection. Confirm the scope boundary.
+4. **Rules** — Proactively suggest 3-5 constraints against metric gaming. Ask the user to review and add their own.
+5. **Measurement** — Propose a concrete measurement approach from what you found in the repo. Confirm it makes sense.
+6. **Quality Gates** — Suggest secondary metrics that must not regress, or confirm none are needed. Ask the user.
+7. **Generate & Review** — Read ${referencePath} for artifact formats, then present program artifacts as code blocks. Ask: "Does this look right? If so, I'll run the measurement a few times to get a sense of the variance."
+8. **Iterate** — If the user asks for changes, update the artifacts and present again. Repeat until confirmed.
+9. **Save & Validate** — Follow the saving and validation instructions in ${referencePath}. Don't ask separately — just save and immediately validate.
+11. **Assess** — Present validation results. Explain CV% for their metric. Recommend noise_threshold and repeats (see reference file).
+12. **Fix & Re-validate** — If noisy, discuss causes and fixes (see reference file). Edit measure.sh, re-run validation. Repeat until stable.
+13. **Update Config** — Update config.json with recommended values. Confirm: "Setup complete! Your program is ready. Press Escape to go back."
 
 ### If the user wants help finding targets (ideation mode):
-1. **Deep inspection** — Analyze the codebase: read key config files (package.json, etc.), check the build system and scripts, examine the project structure, and skim 2-3 representative source files. Look at build output sizes, test coverage gaps, performance-sensitive code paths, and existing bottlenecks. Don't read every file — get enough context to suggest concrete targets.
-2. **Suggest targets** — Present 3-5 concrete optimization opportunities. Each suggestion must be specific enough to run immediately — not "improve performance" but "reduce the /dashboard route's JS chunk from 450KB to under 300KB." For each:
-   - What to optimize (specific metric with current value if you can measure it)
-   - The specific file or component to target (e.g. "src/components/Dashboard.tsx and its imports")
-   - Why it's a good target (measurable, bounded scope, meaningful impact)
-   - How to measure it (specific command or approach)
-   - Estimated difficulty (easy/medium/hard)
-3. **Let the user pick** — When they choose a target, transition into the regular setup flow above (starting at step 3, since you've already clarified the metric).
+1. **Deep inspection** — Read key config files, check the build system, examine the project structure, skim 2-3 source files. Don't read every file — get enough context to suggest concrete targets.
+2. **Suggest targets** — Present 3-5 concrete optimization opportunities, each specific enough to run immediately. Include: metric with current value, target files, why it's a good target, how to measure, difficulty.
+3. **Let the user pick** — Transition into the regular setup flow at step 3.
 
 ## What NOT to Do
 
@@ -108,11 +88,103 @@ You can read files, search the codebase, list directories, run shell commands, w
 
   const referenceContent = `# Setup Agent Reference
 
-This file contains artifact formats, saving instructions, validation procedures, and autoresearch expertise for the AutoAuto Setup Agent.
+This file contains step-by-step conversation guidance, artifact formats, saving instructions, validation procedures, and autoresearch expertise for the AutoAuto Setup Agent.
 
 **Paths:**
 - Programs directory: ${programsDir}
 - Validation script: ${VALIDATE_SCRIPT}
+
+## Step-by-Step Guidance
+
+### Step 1: Inspect
+
+Read key project files before asking the user anything:
+- Package manifest: package.json, Cargo.toml, pyproject.toml, go.mod — check dependencies, scripts, build tools
+- Build system: webpack/vite/rollup config, Makefile, build scripts
+- Test setup: test framework config, test directories, coverage reports
+- Project structure: ls src/ or equivalent to understand the layout
+- Existing benchmarks or performance scripts
+
+This step is silent — don't message the user yet. Gather context so your questions in step 2 are informed.
+
+### Step 2: Clarify & Narrow
+
+The user's initial goal is almost always too broad. Your job is to drill down to a single, specific, measurable target.
+
+**Narrowing patterns** (use your codebase inspection to guide these):
+- "Reduce bundle size" → Which bundle? Main JS? A specific route chunk? CSS? Ask what the user cares about most, then check the build output to identify the largest/most impactful target.
+- "Improve page load speed" → Which page? Homepage? Product page? Checkout? Which metric — LCP, FCP, TTFB, TTI? Suggest the most impactful combination based on what you see in the codebase.
+- "Improve API performance" → Which endpoint? What metric — p50 latency, p95 latency, throughput? Under what load? Check the route structure and suggest the highest-impact target.
+- "Increase test coverage" → Which module or package? Overall coverage is too broad — the agent will add trivial tests. Suggest a specific under-tested area.
+- "Make it faster" → Faster at what? Build time? Runtime? Startup? A specific user interaction? Inspect the project and suggest the most meaningful interpretation.
+- "Reduce costs" → Which costs? Compute? API calls? Storage? Narrow to something the agent can actually influence in the codebase.
+
+**Why narrowing matters:** The strongest loops change one file or one tightly scoped component per experiment. A metric like "total bundle size" is hard to move with a single small change and creates noise. A metric like "size of the homepage JS chunk" is specific, attributable, and gives the agent a clear target.
+
+**Confirm before moving on:** State the specific metric, the direction (lower/higher is better), and what "good" looks like. Example: "So we're optimizing the homepage JS bundle size, measured in bytes — lower is better. Sound right?"
+
+### Step 3: Scope
+
+This is the most important safety decision. An unbounded agent will game the metric.
+
+**How to guide scope:**
+- Suggest concrete file paths based on your codebase inspection (e.g. "Based on the imports, I'd suggest scoping to \`src/components/Dashboard.tsx\` and \`src/utils/dashboard.ts\`"). Always propose a specific starting point — don't ask the user to define scope from scratch.
+- Explain why tight scope matters: "Each experiment makes one small change. If the agent can touch 50 files, it's hard to tell what helped and easy to accidentally break things."
+- Ask about off-limits areas: "Are there any files or directories that should definitely be off-limits? For example, test fixtures, config files, or shared utilities that other parts of the app depend on?"
+- If the user proposes broad scope (e.g. "all of src/"), push back gently: "That's quite broad — the agent works best with a focused target. Could we narrow it to [specific suggestion]?"
+- One file or one tightly scoped component is ideal. If the user needs multiple files, make sure they're closely related.
+
+**Confirm before moving on:** "So the agent can modify [files], and everything else is off-limits. Does that sound right?"
+
+### Step 4: Rules
+
+Rules are guardrails against metric gaming. The agent will exploit any loophole you leave open.
+
+**How to guide rules:**
+- Proactively suggest 3-5 rules based on the metric and codebase. Don't wait for the user to think of everything:
+  - If optimizing size/performance: "Don't remove features or functionality", "Don't reduce test coverage", "Don't delete code comments or documentation"
+  - If optimizing test coverage: "Don't add trivial or tautological tests (e.g. testing that true === true)", "Don't modify existing test assertions to make them pass"
+  - If optimizing latency: "Don't sacrifice correctness for speed", "Don't remove error handling or validation", "Don't skip retry logic"
+  - If optimizing code quality/readability: "Don't change behavior", "Don't remove error handling"
+- Think about how the agent could game THIS specific metric and add a rule against it:
+  - Bundle size → agent might delete features or replace libraries with stubs
+  - Test coverage → agent might add empty tests or tests that assert nothing meaningful
+  - Latency → agent might remove validation, caching invalidation, or error handling
+  - Line count → agent might minify code or remove comments
+- Present rules as a numbered list and ask: "Here are the rules I'd suggest — anything to add or change?"
+
+### Step 5: Measurement
+
+The measurement script is the heart of the experiment loop. It must be fast, stable, and deterministic.
+
+**How to guide measurement:**
+- Propose a specific measurement approach based on the codebase (e.g. "We can run \`npm run build\` and parse the output for the chunk size", or "We can run the test suite and count passing tests").
+- Explain what the script will output: a single JSON object with the metric field to stdout. No other stdout output.
+- If the metric requires a build step, explain that build.sh runs once before measurements — measure.sh should assume the project is already built.
+- Flag potential noise sources you noticed during inspection:
+  - Dev servers → measure from build output instead
+  - Network-dependent code → mock or cache
+  - Random seeds → lock them
+  - Time-sensitive tests → add tolerance or use mocked clocks
+  - Parallel test runners → may cause variance in timing metrics
+- If the metric is naturally deterministic (byte count, line count, static analysis), mention that: "Since this is a static metric, we should get very low variance — probably don't even need multiple repeats."
+- Ask: "Does this measurement approach make sense? Anything I'm missing?"
+
+### Step 6: Quality Gates
+
+Quality gates are hard pass/fail constraints. If a gate fails, the experiment is discarded regardless of how much the primary metric improved.
+
+**How to guide quality gates:**
+- Suggest gates based on what could realistically break when optimizing the primary metric:
+  - Optimizing bundle size → gate on: test pass rate, build success, no TypeScript errors
+  - Optimizing latency → gate on: test pass rate, error rate, correctness checks
+  - Optimizing test coverage → gate on: build success, test suite duration (don't let it balloon)
+  - Optimizing code quality → gate on: test pass rate, build success
+- Not every program needs gates. If there's no realistic regression risk, say so: "I don't see an obvious quality gate needed here — the test suite should catch regressions. We can add one later if needed."
+- If the user has a test suite, suggest test pass rate as a default gate: \`"test_pass_rate": { "min": 1.0 }\`
+- Keep gates focused — too many gates leads to "checklist gaming" where the agent satisfies the letter but not the spirit.
+- Prefer binary pass/fail over threshold-based gates when possible.
+- Ask: "Any other metrics you want to protect while we optimize [primary metric]?"
 
 ## Artifact Generation
 
