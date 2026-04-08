@@ -420,6 +420,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         navigate("home")
       } else if (key.name === "i") {
         setShowIdeas(v => !v)
+      } else if (key.name === "f") {
+        handleFinalize()
       }
       return
     }
@@ -753,7 +755,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             />
           )}
           <box paddingX={1}>
-            <text fg="#888888">Press Escape to go back{ideasText.length > 0 ? " · i toggle ideas" : ""}</text>
+            <text fg="#888888">Esc back · f finalize{ideasText.length > 0 ? " · i toggle ideas" : ""}</text>
           </box>
         </box>
       )}

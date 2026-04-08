@@ -27,6 +27,7 @@ export function App() {
   const [preRunOverrides, setPreRunOverrides] = useState<PreRunOverrides | null>(null)
   const [attachRunId, setAttachRunId] = useState<string | null>(null)
   const [attachReadOnly, setAttachReadOnly] = useState(false)
+  const [autoFinalize, setAutoFinalize] = useState(false)
   const [updateProgramSlug, setUpdateProgramSlug] = useState<string | null>(null)
   const [showPostUpdatePrompt, setShowPostUpdatePrompt] = useState(false)
 
@@ -66,9 +67,9 @@ export function App() {
 
   const footerText =
     screen === "home"
-      ? " n: new | e: edit | d: delete | s: settings | Tab: switch panel | Enter: run | Escape: quit"
+      ? " n: new | e: edit | d: delete | f: finalize | s: settings | Tab: switch | Enter: run | Esc: quit"
       : screen === "execution"
-        ? " Escape: detach (daemon continues) | q: stop | Ctrl+C: abort"
+        ? " Escape: detach (daemon continues) | Tab: switch panel | s: settings | q: stop | Ctrl+C: abort"
         : screen === "settings"
           ? " ↑↓: navigate | ←→: change/open | Enter: open model picker | Escape: back"
           : screen === "first-setup"
@@ -114,7 +115,17 @@ export function App() {
               setSelectedProgram(run.state.program_slug)
               setPreRunOverrides(null)
               setAttachRunId(run.run_id)
+              setAutoFinalize(false)
               setAttachReadOnly(!isRunActive(run))
+              setScreen("execution")
+            }}
+            onFinalizeRun={(run) => {
+              if (!run.state) return
+              setSelectedProgram(run.state.program_slug)
+              setPreRunOverrides(null)
+              setAttachRunId(run.run_id)
+              setAutoFinalize(true)
+              setAttachReadOnly(false)
               setScreen("execution")
             }}
             onUpdateProgram={(slug) => {
@@ -184,15 +195,17 @@ export function App() {
             modelConfig={preRunOverrides?.modelConfig ?? projectConfig.executionModel}
             supportModelConfig={projectConfig.supportModel}
             ideasBacklogEnabled={projectConfig.ideasBacklogEnabled}
-            navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setScreen(s) }}
+            navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setAutoFinalize(false); setScreen(s) }}
             maxExperiments={preRunOverrides?.maxExperiments ?? 0}
             useWorktree={preRunOverrides?.useWorktree ?? true}
             attachRunId={attachRunId ?? undefined}
             readOnly={attachReadOnly}
+            autoFinalize={autoFinalize}
             onUpdateProgram={(slug) => {
               setPreRunOverrides(null)
               setAttachRunId(null)
               setAttachReadOnly(false)
+              setAutoFinalize(false)
               setUpdateProgramSlug(slug)
               setSelectedProgram(slug)
               setScreen("setup")

@@ -17,6 +17,7 @@ interface HomeScreenProps {
   onSelectProgram: (slug: string) => void
   onSelectRun: (run: RunInfo) => void
   onUpdateProgram: (slug: string) => void
+  onFinalizeRun: (run: RunInfo) => void
 }
 
 interface HomeData {
@@ -97,7 +98,7 @@ async function loadHomeData(cwd: string): Promise<HomeData> {
 
 type Panel = "programs" | "runs"
 
-export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpdateProgram }: HomeScreenProps) {
+export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpdateProgram, onFinalizeRun }: HomeScreenProps) {
   const { width } = useTerminalDimensions()
   const [data, setData] = useState<HomeData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -220,6 +221,11 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       } else if (key.name === "return") {
         const run = selectableRuns[selectedRunIndex]
         if (run) onSelectRun(run)
+      } else if (key.name === "f") {
+        const run = selectableRuns[selectedRunIndex]
+        if (run && run.state?.phase === "complete") {
+          onFinalizeRun(run)
+        }
       } else if (key.name === "d") {
         const run = selectableRuns[selectedRunIndex]
         if (run && !isRunActive(run)) {
@@ -255,12 +261,12 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       width={sideBySide ? PROGRAMS_PANEL_WIDTH : undefined}
       border
       borderStyle="rounded"
-      borderColor={programsFocused ? "#7aa2f7" : "#565f89"}
+      borderColor={programsFocused ? "#7aa2f7" : "#666666"}
       title="Programs"
     >
       {programs.length === 0 ? (
         <box flexGrow={1} justifyContent="center" alignItems="center">
-          <text fg="#565f89">No programs yet.</text>
+          <text fg="#666666">No programs yet.</text>
         </box>
       ) : (
         <scrollbox flexGrow={1}>
@@ -278,8 +284,8 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
                   ) : (
                     <span fg="#333333">{"  "}</span>
                   )}
-                  <span fg={isSelected ? "#ffffff" : "#c0caf5"}>{p.name}</span>
-                  <span fg="#565f89">
+                  <span fg={isSelected ? "#ffffff" : "#ffffff"}>{p.name}</span>
+                  <span fg="#666666">
                     {" "}
                     {p.totalRuns > 0 ? `${p.totalRuns}r` : ""}
                     {p.lastRunDate ? ` ${relativeTime(p.lastRunDate)}` : ""}
@@ -292,7 +298,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       )}
       {programsFocused && programs[selectedIndex]?.hasActiveRun && (
         <box paddingX={1}>
-          <text fg="#565f89">Cannot edit/delete while run is active</text>
+          <text fg="#666666">Cannot edit/delete while run is active</text>
         </box>
       )}
     </box>
@@ -305,7 +311,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       flexGrow={1}
       border
       borderStyle="rounded"
-      borderColor={runsFocused ? "#7aa2f7" : "#565f89"}
+      borderColor={runsFocused ? "#7aa2f7" : "#666666"}
       title="Runs"
     >
       <RunsTable
@@ -334,14 +340,14 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     >
       <text fg="#ff5555"><strong>Delete this run?</strong></text>
       <box height={1} />
-      <text fg="#c0caf5">
+      <text fg="#ffffff">
         {confirmDelete.state?.program_slug ?? "?"} / {confirmDelete.run_id}
       </text>
-      <text fg="#565f89">
+      <text fg="#666666">
         {confirmDelete.state?.phase ?? "unknown"} · {confirmDelete.state ? (confirmDelete.state.total_keeps + confirmDelete.state.total_discards + confirmDelete.state.total_crashes) : 0} experiments
       </text>
       <box height={1} />
-      <text fg="#565f89">
+      <text fg="#666666">
         {deleting ? "Deleting..." : "This will remove the run directory, worktree, and branch."}
       </text>
       <box height={1} />
@@ -365,12 +371,12 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     >
       <text fg="#ff5555"><strong>Delete this program?</strong></text>
       <box height={1} />
-      <text fg="#c0caf5">{confirmDeleteProgram.name}</text>
-      <text fg="#565f89">
+      <text fg="#ffffff">{confirmDeleteProgram.name}</text>
+      <text fg="#666666">
         {confirmDeleteProgram.totalRuns} run{confirmDeleteProgram.totalRuns !== 1 ? "s" : ""} will also be deleted
       </text>
       <box height={1} />
-      <text fg="#565f89">
+      <text fg="#666666">
         {deleting ? "Deleting..." : "This will remove all program files, runs, worktrees, and branches."}
       </text>
       <box height={1} />
