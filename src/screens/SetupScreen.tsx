@@ -53,13 +53,15 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
     () => isUpdate ? null : getSetupSystemPrompt(cwd, existingPrograms),
     [cwd, existingPrograms, isUpdate],
   )
+  const [setupReady, setSetupReady] = useState(false)
 
   useEffect(() => {
-    if (setupResult) {
-      mkdir(dirname(setupResult.referencePath), { recursive: true })
-        .then(() => Bun.write(setupResult.referencePath, setupResult.referenceContent))
-        .catch(() => {})
-    }
+    if (!setupResult) return
+    setSetupReady(false)
+    mkdir(dirname(setupResult.referencePath), { recursive: true })
+      .then(() => Bun.write(setupResult.referencePath, setupResult.referenceContent))
+      .then(() => setSetupReady(true))
+      .catch(() => setSetupReady(true)) // proceed anyway — agent can still work without reference
   }, [setupResult])
 
   const [updateSystemPrompt, setUpdateSystemPrompt] = useState<string | null>(null)
@@ -71,10 +73,9 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
     const programDir = getProgramDir(cwd, programSlug)
 
     Promise.all([
-      getUpdateSystemPrompt(cwd, programSlug, programDir).then((result) => {
-        mkdir(dirname(result.referencePath), { recursive: true })
-          .then(() => Bun.write(result.referencePath, result.referenceContent))
-          .catch(() => {})
+      getUpdateSystemPrompt(cwd, programSlug, programDir).then(async (result) => {
+        await mkdir(dirname(result.referencePath), { recursive: true })
+        await Bun.write(result.referencePath, result.referenceContent)
         return result.systemPrompt
       }),
       buildUpdateRunContext(programDir),
@@ -181,6 +182,19 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
           </box>
           <box height={1} />
           <text fg="#888888">{"  Press Enter to skip and analyze everything"}</text>
+        </box>
+      </box>
+    )
+  }
+
+  // Wait for reference file to be written before rendering Chat
+  if (!isUpdate && !setupReady) {
+    return (
+      <box flexDirection="column" flexGrow={1}>
+        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="New Program">
+          <box flexGrow={1} justifyContent="center" alignItems="center">
+            <text fg="#888888">Preparing...</text>
+          </box>
         </box>
       </box>
     )
