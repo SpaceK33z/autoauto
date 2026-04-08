@@ -59,6 +59,8 @@ interface ExecutionScreenProps {
   maxExperiments: number
   /** Use git worktree for isolation (default true). When false, runs in-place in main checkout. */
   useWorktree?: boolean
+  /** Carry forward context from previous runs (default true). */
+  carryForward?: boolean
   /** If set, attach to an existing run instead of starting a new one */
   attachRunId?: string
   readOnly?: boolean
@@ -119,7 +121,7 @@ function Divider({ width, label }: { width: number; label?: string }) {
   return <text fg="#666666">{"─".repeat(innerWidth)}</text>
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, useWorktree = true, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, useWorktree = true, carryForward = true, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
@@ -257,7 +259,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           }
         } else {
           // Spawn mode: create worktree, spawn daemon
-          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree)
+          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward)
           if (cancelled) return
 
           activeRunDir = result.runDir
@@ -357,7 +359,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       cancelled = true
       watcherRef.current?.stop()
     }
-  }, [cwd, programSlug, modelConfig, maxExperiments, useWorktree, attachRunId, ideasBacklogEnabled])
+  }, [cwd, programSlug, modelConfig, maxExperiments, useWorktree, carryForward, attachRunId, ideasBacklogEnabled])
 
   const cleanupRunEnvironment = useCallback(async () => {
     if (runState?.in_place) {

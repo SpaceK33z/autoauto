@@ -2,6 +2,7 @@ import { rename, readdir, appendFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { $ } from "bun"
 import { getProgramDir, type ProgramConfig } from "./programs.ts"
+import { readIdeasBacklogSummary } from "./ideas-backlog.ts"
 
 // --- Types ---
 
@@ -336,6 +337,89 @@ export async function getLatestRun(programDir: string): Promise<RunInfo | null> 
 export function isRunActive(r: RunInfo): boolean {
   const phase = r.state?.phase
   return phase != null && phase !== "complete" && phase !== "crashed"
+}
+
+// --- Previous Run Context ---
+
+export interface PreviousRunContext {
+  previousResults: string
+  previousIdeas: string
+}
+
+/**
+ * Reads context from previous completed runs of the same program.
+ * - Results: keep rows only + 1-line summary per run (most recent first), capped at 3000 chars.
+ * - Ideas: ideas.md from the latest completed previous run, capped at 2000 chars.
+ */
+export async function readPreviousRunContext(programDir: string, currentRunId: string): Promise<PreviousRunContext> {
+  const empty: PreviousRunContext = { previousResults: "", previousIdeas: "" }
+
+  let runs: RunInfo[]
+  try {
+    runs = await listRuns(programDir)
+  } catch {
+    return empty
+  }
+
+  // Filter out current run and active runs
+  const previousRuns = runs.filter((r) => r.run_id !== currentRunId && !isRunActive(r))
+  if (previousRuns.length === 0) return empty
+
+  // Build combined results: keep rows + per-run summary, most recent first
+  const MAX_RESULTS_CHARS = 3000
+  const resultParts: string[] = []
+  let totalChars = 0
+
+  for (const run of previousRuns) {
+    if (totalChars >= MAX_RESULTS_CHARS) break
+    try {
+      const raw = await Bun.file(join(run.run_dir, "results.tsv")).text()
+      const lines = raw.trim().split("\n")
+      if (lines.length <= 1) continue
+
+      // Parse all rows, extract keeps
+      const keeps: string[] = []
+      let totalExperiments = 0
+      let totalKeeps = 0
+      for (let i = 1; i < lines.length; i++) {
+        const row = parseTsvRow(lines[i])
+        if (!row || row.status === "verification_baseline" || row.status === "verification_current") continue
+        totalExperiments++
+        if (row.status === "keep") {
+          totalKeeps++
+          keeps.push(`  ${row.experiment_number}\t${row.metric_value}\t${row.description}`)
+        }
+      }
+
+      // Build run summary
+      const state = run.state
+      const baselineStr = state ? `baseline ${state.original_baseline} -> ${state.current_baseline}` : ""
+      const summary = `Run ${run.run_id}: ${totalExperiments} experiments, ${totalKeeps} kept${baselineStr ? `, ${baselineStr}` : ""}`
+
+      const runBlock = keeps.length > 0
+        ? `${summary}\n${keeps.join("\n")}`
+        : summary
+
+      if (totalChars + runBlock.length > MAX_RESULTS_CHARS && totalChars > 0) break
+      resultParts.push(runBlock)
+      totalChars += runBlock.length + 1
+    } catch {
+      continue
+    }
+  }
+
+  // Read ideas from latest completed previous run
+  let previousIdeas = ""
+  try {
+    previousIdeas = await readIdeasBacklogSummary(previousRuns[0].run_dir, 2000)
+  } catch {
+    // ideas.md missing or unreadable
+  }
+
+  return {
+    previousResults: resultParts.join("\n\n"),
+    previousIdeas,
+  }
 }
 
 // --- Run Deletion ---
