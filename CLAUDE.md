@@ -4,12 +4,14 @@ TUI tool for autoresearch — autonomous experiment loops on any codebase.
 
 ## Key Docs
 
-- `IDEA.md` — Design choices and overall idea
-- `docs/architecture.md` — System architecture (Bun + OpenTUI + Claude Agent SDK)
-- `docs/autoresearch-ideas.md` — Non-ML autoresearch ideas extracted from reference articles
-- `docs/failure-patterns.md` — Documented failure modes, anti-patterns & safeguards from real implementations
-- `docs/measurement-patterns.md` — Metric design, scoring approaches, variance handling, gaming defenses
-- `docs/orchestration-patterns.md` — Loop design, context packets, ideas backlog, stopping criteria, model choice
+- `docs/concepts.md` — How AutoAuto works: programs, runs, experiments, measurement, agents
+- `docs/glossary.md` — Quick definitions for core AutoAuto terms
+- `docs/measurement-guide.md` — Writing good measurement scripts, choosing metrics, pitfalls
+- `docs/use-cases.md` — Use case ideas across performance, prompts, marketing, and more
+- `docs/architecture.md` — Internal architecture for contributors
+- `docs/patterns/metric-design.md` — Metric design, scoring approaches, variance handling, gaming defenses
+- `docs/patterns/failure-modes.md` — Failure modes, anti-patterns & safeguards from real implementations
+- `docs/patterns/loop-tuning.md` — Loop design, context packets, stopping criteria, model choice
 - `references/articles/INDEX.md` — 30 indexed autoresearch articles for inspiration
 
 ## Stack
@@ -100,7 +102,12 @@ src/
     push-stream.ts       # Push-based async iterable utility
     run.ts               # Run state persistence, types, results I/O
     run-setup.ts         # Run bootstrap: directory init, measurement locking
-    system-prompts.ts    # Agent system prompts (setup, update, experiment, finalize)
+    system-prompts/      # Agent system prompts
+      index.ts           # Re-exports prompt builders
+      setup.ts           # Setup agent prompt
+      update.ts          # Update agent prompt
+      experiment.ts      # Experiment agent prompt
+      finalize.ts        # Finalize agent prompt
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
     experiment.ts          # Experiment agent spawning, context packets, lock detection
@@ -163,7 +170,7 @@ writer.end()    // close when done
 
 ## Implementation Rules
 
-See `IDEA.md` for how the system works (agent design, context packets, loop mechanics, safeguards). These are the hard rules to follow when modifying the codebase:
+See `docs/concepts.md` for how the system works and `docs/architecture.md` for internal details. These are the hard rules to follow when modifying the codebase:
 
 - Shared types (`ProgramConfig`, `QualityGate`) live in `src/lib/programs.ts` — import from there, not from `validate-measurement.ts`
 - `results.tsv` is append-only — use `appendResult()`, never rewrite

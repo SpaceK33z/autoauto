@@ -193,11 +193,19 @@ Supported providers: **Claude** (Agent SDK), **Codex** (CLI), **OpenCode**.
 
 | Doc | Contents |
 |-----|----------|
-| [Architecture](docs/architecture.md) | System architecture, data model, daemon design |
-| [Orchestration Patterns](docs/orchestration-patterns.md) | Loop design, context packets, stopping criteria |
-| [Measurement Patterns](docs/measurement-patterns.md) | Metric design, scoring approaches, variance handling |
-| [Failure Patterns](docs/failure-patterns.md) | Documented failure modes and safeguards from real implementations |
-| [Autoresearch Ideas](docs/autoresearch-ideas.md) | Non-ML use cases across performance, prompts, marketing, and more |
+| [Concepts](docs/concepts.md) | How AutoAuto works: programs, runs, experiments, measurement, agents |
+| [Glossary](docs/glossary.md) | Quick definitions for AutoAuto terms and run mechanics |
+| [Measurement Guide](docs/measurement-guide.md) | Writing good measurement scripts, choosing metrics, avoiding pitfalls |
+| [Use Cases](docs/use-cases.md) | Ideas and inspiration across performance, prompts, marketing, and more |
+| [Architecture](docs/architecture.md) | Internal architecture for contributors |
+
+### Patterns from 30+ implementations
+
+| Doc | Contents |
+|-----|----------|
+| [Metric Design](docs/patterns/metric-design.md) | Choosing metrics, scoring approaches, variance handling, gaming defenses |
+| [Failure Modes](docs/patterns/failure-modes.md) | What goes wrong in autoresearch and how AutoAuto prevents it |
+| [Loop Tuning](docs/patterns/loop-tuning.md) | Context packets, stopping criteria, model choice, crash recovery |
 
 ## License
 
