@@ -97,7 +97,8 @@ src/
     measure.ts           # Measurement execution, validation, comparison
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
-    run.ts               # Run lifecycle (branch, baseline, state, locking)
+    run.ts               # Run state persistence, types, results I/O
+    run-setup.ts         # Run bootstrap: directory init, measurement locking
     system-prompts/      # Agent system prompts
       index.ts           # Re-exports all prompt functions
       setup.ts           # Setup agent system prompt
@@ -197,15 +198,20 @@ Standalone Bun script that validates measurement script stability:
 - **Called by:** Setup agent via Bash tool
 - **Used for:** Pre-experiment validation during setup (Phase 1) — ensures measurement is stable before entering the optimization loop
 
-## Run Lifecycle (`src/lib/run.ts`)
+## Run State (`src/lib/run.ts`)
 
-Manages the experiment run setup and state:
+Manages run state persistence, types, and results I/O:
 
-- `startRun()` — orchestrates branch creation → baseline measurement → state initialization → evaluator locking
 - `RunState` — checkpoint persisted atomically to `state.json` via temp-file + rename; includes `provider`, `model`, `effort`, `in_place` fields for reconnection
 - `ExperimentResult` — typed row for the append-only `results.tsv`; includes `measurement_duration_ms` and `diff_stats` columns
 - Branch naming: `autoauto-<slug>-<YYYYMMDD-HHMMSS>`
-- Evaluator locking: `chmod 444` on `measure.sh` + `config.json` before loop starts
+
+## Run Bootstrap (`src/lib/run-setup.ts`)
+
+Run directory initialization and measurement locking:
+
+- `initRunDir()` — creates run directory + results.tsv header
+- `lockMeasurement()` / `unlockMeasurement()` — `chmod 444`/`644` on `measure.sh` + `config.json` + `build.sh` before/after loop
 
 ## Measurement (`src/lib/measure.ts`)
 

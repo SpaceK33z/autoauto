@@ -1,16 +1,7 @@
-import { rename, mkdir, chmod, readdir, appendFile, rm } from "node:fs/promises"
+import { rename, readdir, appendFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { $ } from "bun"
-import { getProgramDir, loadProgramConfig, type ProgramConfig } from "./programs.ts"
-import type { ModelSlot } from "./config.ts"
-import { runMeasurementSeries } from "./measure.ts"
-import {
-  getFullSha,
-  isWorkingTreeClean,
-  getCurrentBranch,
-  createExperimentBranch,
-  checkoutBranch,
-} from "./git.ts"
+import { getProgramDir, type ProgramConfig } from "./programs.ts"
 
 // --- Types ---
 
@@ -142,35 +133,6 @@ const pad = (n: number) => String(n).padStart(2, "0")
 export function generateRunId(): string {
   const now = new Date()
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
-}
-
-// --- Measurement Locking ---
-
-/** Makes measure.sh, build.sh, and config.json read-only (chmod 444). #1 safeguard against metric gaming. */
-export async function lockMeasurement(programDir: string): Promise<void> {
-  await chmod(join(programDir, "measure.sh"), 0o444)
-  await chmod(join(programDir, "config.json"), 0o444)
-  await chmod(join(programDir, "build.sh"), 0o444).catch(() => {})
-}
-
-export async function unlockMeasurement(programDir: string): Promise<void> {
-  await chmod(join(programDir, "measure.sh"), 0o644)
-  await chmod(join(programDir, "config.json"), 0o644)
-  await chmod(join(programDir, "build.sh"), 0o644).catch(() => {})
-}
-
-// --- Run Directory ---
-
-export async function initRunDir(programDir: string, runId: string): Promise<string> {
-  const runDir = join(programDir, "runs", runId)
-  await mkdir(runDir, { recursive: true })
-
-  await Bun.write(
-    join(runDir, "results.tsv"),
-    "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\tdiff_stats\n",
-  )
-
-  return runDir
 }
 
 // --- State Persistence ---
@@ -419,98 +381,3 @@ export async function deleteProgram(projectRoot: string, slug: string): Promise<
   await rm(programDir, { recursive: true, force: true })
 }
 
-// --- High-Level Orchestration ---
-
-export async function startRun(
-  projectRoot: string,
-  programSlug: string,
-  modelConfig?: ModelSlot,
-): Promise<{ runId: string; runDir: string; state: RunState; originalBranch: string }> {
-  const programDir = getProgramDir(projectRoot, programSlug)
-  const measureShPath = join(programDir, "measure.sh")
-  const buildShPath = join(programDir, "build.sh")
-
-  const config = await loadProgramConfig(programDir)
-
-  if (!(await isWorkingTreeClean(projectRoot))) {
-    throw new Error("Working tree has uncommitted changes. Commit or stash them before starting a run.")
-  }
-
-  const originalBranchName = await getCurrentBranch(projectRoot)
-
-  const runId = generateRunId()
-  const branchName = await createExperimentBranch(projectRoot, programSlug, runId)
-
-  const runDir = await initRunDir(programDir, runId)
-
-  await lockMeasurement(programDir)
-
-  const cleanup = async () => {
-    await unlockMeasurement(programDir)
-    await checkoutBranch(projectRoot, originalBranchName).catch(() => {})
-  }
-
-  const baseline = await runMeasurementSeries(measureShPath, projectRoot, config, undefined, buildShPath)
-
-  if (!baseline.success) {
-    await cleanup()
-    const failureDetails = [
-      baseline.failure_reason,
-      ...baseline.individual_runs.map((r) => (r.success ? null : r.error)),
-    ].filter((detail): detail is string => Boolean(detail))
-    throw new Error(
-      `Baseline measurement failed: ${failureDetails.join(", ") || "unknown error"}`,
-    )
-  }
-
-  if (!baseline.quality_gates_passed) {
-    await cleanup()
-    throw new Error(`Baseline quality gates failed: ${baseline.gate_violations.join(", ")}`)
-  }
-
-  const fullSha = await getFullSha(projectRoot)
-
-  await appendResult(runDir, {
-    experiment_number: 0,
-    commit: fullSha.slice(0, 7),
-    metric_value: baseline.median_metric,
-    secondary_values: serializeSecondaryValues(baseline.median_quality_gates, baseline.median_secondary_metrics),
-    status: "keep",
-    description: "baseline",
-    measurement_duration_ms: baseline.duration_ms,
-  })
-
-  const now = new Date().toISOString()
-  const state: RunState = {
-    run_id: runId,
-    program_slug: programSlug,
-    phase: "idle",
-    experiment_number: 0,
-    original_baseline: baseline.median_metric,
-    current_baseline: baseline.median_metric,
-    best_metric: baseline.median_metric,
-    best_experiment: 0,
-    total_keeps: 0,
-    total_discards: 0,
-    total_crashes: 0,
-    branch_name: branchName,
-    original_baseline_sha: fullSha,
-    last_known_good_sha: fullSha,
-    candidate_sha: null,
-    started_at: now,
-    updated_at: now,
-    provider: modelConfig?.provider,
-    model: modelConfig?.model,
-    effort: modelConfig?.effort,
-    total_tokens: 0,
-    total_cost_usd: 0,
-    termination_reason: null,
-    original_branch: originalBranchName,
-    error: null,
-    error_phase: null,
-  }
-
-  await writeState(runDir, state)
-
-  return { runId, runDir, state, originalBranch: originalBranchName }
-}
