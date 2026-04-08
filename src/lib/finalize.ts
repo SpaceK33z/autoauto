@@ -364,6 +364,24 @@ export function generateSummaryReport(
     }
   }
 
+  // Verification results
+  const verificationRows = results.filter(
+    r => r.status === "verification_baseline" || r.status === "verification_current",
+  )
+  if (verificationRows.length > 0) {
+    lines.push("## Verification")
+    lines.push("")
+    lines.push("| Target | Verified Metric | Original Metric | Duration |")
+    lines.push("|--------|----------------|-----------------|----------|")
+    for (const r of verificationRows) {
+      const target = r.status === "verification_baseline" ? "Baseline" : "Current"
+      const original = r.status === "verification_baseline" ? state.original_baseline : state.current_baseline
+      const durationSec = (r.measurement_duration_ms / 1000).toFixed(1)
+      lines.push(`| ${target} | ${r.metric_value} | ${original} | ${durationSec}s |`)
+    }
+    lines.push("")
+  }
+
   // Per-group section (grouped finalize only)
   if (groups && groups.length > 0) {
     lines.push("## Finalize Groups")
