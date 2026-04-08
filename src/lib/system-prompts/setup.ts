@@ -388,18 +388,33 @@ Do NOT announce validation separately — it flows directly from saving. Just st
 
 | CV% | Assessment | What to tell the user |
 |-----|-----------|----------------------|
-| < 1% | Deterministic | "Your measurement is fully deterministic — no need to repeat. 1 repeat per experiment is enough." |
+| < 1% | Deterministic | "Your measurement is very stable." (But see 'Discrete & Near-Ceiling' section below — if the metric is near its max/min, still use ≥3 repeats.) |
 | 1–5% | Excellent | "Your measurement is very stable. Noise threshold of 2% and 3 repeats per experiment should work well." |
 | 5–15% | Acceptable | "Measurements have moderate variance. I recommend a noise threshold of X% and 5 repeats per experiment to ensure reliable results." |
 | 15–30% | Noisy | "Measurements show significant variance (CV% = X%). This means small improvements will be hard to detect. Let's try to reduce the noise before proceeding." |
 | ≥ 30% | Unstable | "Measurements are too noisy to run reliable experiments (CV% = X%). We need to fix this before proceeding." |
 
 Recommended config values based on CV%:
-- CV% < 1% (deterministic): noise_threshold=0.01, repeats=1 — metric is fully deterministic (e.g. bundle size, line count), no need to repeat
+- CV% < 1% (deterministic): noise_threshold=0.01, repeats=1 — BUT apply the 'Discrete & Near-Ceiling' check below. Only use repeats=1 for truly deterministic metrics (byte counts, line counts). For tool-based metrics (Lighthouse, benchmarks), use repeats=3 minimum.
 - CV% 1–5%: noise_threshold=0.02, repeats=3
 - CV% 5–15%: noise_threshold=max(CV%*1.5/100, 0.05), repeats=5
 - CV% 15–30%: noise_threshold=max(CV%*2/100, 0.10), repeats=7
 - CV% ≥ 30%: Do NOT recommend config — fix the measurement first
+
+### Discrete & Near-Ceiling Metric Adjustment
+
+After choosing noise_threshold from CV%, apply this critical check:
+
+**Calculate the minimum detectable improvement.** For the observed baseline value, compute: \`minimum_step / baseline_value\`. If noise_threshold ≥ this ratio, the threshold will silently filter out real improvements.
+
+Common cases:
+- **Integer/discrete metrics** (Lighthouse scores, test counts, percentage points): The minimum improvement is 1 unit. At baseline 98, that's 1/98 ≈ 1.02%. A noise_threshold of 0.01 (1%) sits right at the boundary — any measurement variance hides the improvement.
+- **Near-ceiling metrics** (baseline within ~5% of theoretical max/min): Remaining headroom is small, so even valid improvements represent tiny percentage changes.
+- **Composite scores** (averages of sub-scores): A sub-score improving from 96→100 may only move the composite by 1 point. The threshold must accommodate the composite granularity, not just the sub-score change.
+
+**Fix:** Set noise_threshold to at most **half** the minimum detectable improvement ratio: \`noise_threshold ≤ (minimum_step / baseline_value) / 2\`. For a Lighthouse composite at 98: threshold ≤ 1/98/2 ≈ 0.005. Also increase repeats to at least 3 even if CV% is low — you need multiple measurements to reliably distinguish a 1-point change from noise.
+
+**Tell the user:** "Your baseline (X) is close to the ceiling. The smallest possible improvement is Y%, so I'm setting a tighter noise threshold of Z% and using N repeats to reliably detect small gains."
 
 ### Common Noise Causes & Fixes
 
