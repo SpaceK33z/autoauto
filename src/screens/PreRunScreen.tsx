@@ -60,11 +60,16 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       }
     })
     listRuns(programDir).then(async (runs) => {
-      setHasPreviousRuns(runs.length > 0)
-      const latest = runs[0] ?? null
+      const completedRuns = runs.filter((r) => r.state?.phase === "complete")
+      setHasPreviousRuns(completedRuns.length > 0)
+      const latest = completedRuns[0] ?? null
       if (!latest) return
-      const results = await readAllResults(latest.run_dir)
-      setAvgDurationMs(getAvgMeasurementDuration(results))
+      try {
+        const results = await readAllResults(latest.run_dir)
+        setAvgDurationMs(getAvgMeasurementDuration(results))
+      } catch {
+        setHasPreviousRuns(false)
+      }
     })
   }, [cwd, programSlug])
 

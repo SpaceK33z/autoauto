@@ -263,7 +263,7 @@ ${packet.ideas_backlog}
 
 ${getExplorationDirective(packet.consecutive_discards, packet.max_consecutive_discards)}
 
-Review the recent results and discarded experiments${packet.ideas_backlog ? ", ideas backlog" : ""}${packet.previous_results ? ", and previous run history" : ""} above. Focus on what was tried, why it failed, and what should be tried next.
+Review the recent results and discarded experiments${packet.ideas_backlog ? ", ideas backlog" : ""}${packet.previous_results || packet.previous_ideas ? ", and previous run history" : ""} above. Focus on what was tried, why it failed, and what should be tried next.
 Implement ONE change, validate, and commit. Then stop.`
 }
 

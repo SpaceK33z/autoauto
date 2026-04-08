@@ -31,9 +31,7 @@
     "build": "bun build --compile src/index.tsx --outfile dist/autoauto",
     "lint": "oxlint",
     "typecheck": "bun tsc --noEmit",
-    "test": "bun test src --exclude 'src/e2e/**'",
-    "test:e2e": "bun test src/e2e",
-    "test:all": "bun test src"
+    "test": "bun test src"
   },
   "bin": {
     "autoauto": "./src/index.tsx"

@@ -8,7 +8,7 @@ import { initRunDir } from "./run-setup.ts"
 import { getProgramDir } from "./programs.ts"
 import type { ModelSlot } from "./config.ts"
 import { isWorkingTreeClean, formatShellError } from "./git.ts"
-import { createWorktree } from "./worktree.ts"
+import { createWorktree, getWorktreePath } from "./worktree.ts"
 import {
   acquireLock,
   updateLockPid,
@@ -48,7 +48,7 @@ export async function spawnDaemon(
   // 2. Generate run ID + acquire lock before creating isolated work
   const runId = generateRunId()
   const programDir = getProgramDir(mainRoot, programSlug)
-  const worktreePath = useWorktree ? join(mainRoot, ".autoauto", "worktrees", `${programSlug}-${runId}`) : mainRoot
+  const worktreePath = useWorktree ? getWorktreePath(mainRoot, programSlug, runId) : mainRoot
   const daemonId = randomUUID()
 
   const locked = await acquireLock(programDir, runId, daemonId, 0, worktreePath)

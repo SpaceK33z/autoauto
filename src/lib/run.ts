@@ -361,8 +361,8 @@ export async function readPreviousRunContext(programDir: string, currentRunId: s
     return empty
   }
 
-  // Filter out current run and active runs
-  const previousRuns = runs.filter((r) => r.run_id !== currentRunId && !isRunActive(r))
+  // Filter to only completed previous runs
+  const previousRuns = runs.filter((r) => r.run_id !== currentRunId && r.state?.phase === "complete")
   if (previousRuns.length === 0) return empty
 
   // Build combined results: keep rows + per-run summary, most recent first
