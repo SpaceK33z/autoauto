@@ -35,7 +35,7 @@ The ideas backlog prevents agents from retrying failed approaches. One implement
 
 **The dedicated file is stronger than git history** because it captures *reasoning*, not just *outcomes*. Git history tells you what changed; the backlog tells you why it didn't work and what to try instead.
 
-**Cross-run memory (carry forward):** When starting a new run, AutoAuto can feed the previous run's ideas backlog and kept-experiment summaries into the new run's context. This extends the backlog's anti-repetition benefit across program iterations — the agent won't retry approaches that a previous run already explored and discarded. Carry forward is adaptive: if the current run's own backlog grows large, previous ideas are dropped to stay within context limits.
+**Cross-run memory (carry forward):** When starting a new run, AutoAuto can feed the previous run's ideas backlog and kept-experiment summaries into the new run's context. This extends the backlog's anti-repetition benefit across program iterations — the agent won't retry approaches that a previous run already explored and discarded. Carry forward is adaptive: if the current run's own backlog grows large, previous ideas are dropped to stay within context limits. The framing is termination-aware: if the previous run stagnated, the agent is nudged to pivot (per Liu et al.'s three-way decision pattern) rather than continue refining the same direction.
 
 ## Ratchet logic
 

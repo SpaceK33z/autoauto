@@ -122,6 +122,8 @@ This gives the agent institutional memory across runs, not just within a single 
 
 Carry forward is enabled by default. You can disable it in the PreRun screen ("Previous Run Context" toggle) or via CLI (`--no-carry-forward`). It's automatically skipped when no previous runs exist.
 
+The framing adapts based on how the previous run ended. If it ended via **stagnation** (consecutive discards hit the limit), the agent is nudged toward orthogonal approaches rather than refining the exhausted direction — following Liu et al.'s "pivot" pattern. If it ended at the **experiment budget**, the agent is told unexplored directions may remain.
+
 **Important:** Previous run code changes are NOT merged into the working tree. The agent is told to treat previous results as guidance, not as existing code.
 
 ## Agents
