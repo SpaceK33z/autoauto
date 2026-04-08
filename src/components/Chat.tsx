@@ -63,6 +63,14 @@ interface ChatProps {
   inputPlaceholder?: string
   /** Title shown on the scrollbox border */
   title?: string
+  /** Pre-existing messages to restore (for session resume) */
+  resumeMessages?: Array<{ role: "user" | "assistant"; content: string }>
+  /** SDK session ID for native resume (Claude provider) */
+  resumeSessionId?: string
+  /** Called when the provider assigns a session ID */
+  onSessionId?: (id: string) => void
+  /** Called on every assistant_complete with the full message list (for draft persistence) */
+  onMessagesChange?: (messages: Array<{ role: "user" | "assistant"; content: string }>) => void
 }
 
 export function Chat({
@@ -78,8 +86,22 @@ export function Chat({
   emptyStateHint,
   inputPlaceholder,
   title,
+  resumeMessages,
+  resumeSessionId,
+  onSessionId,
+  onMessagesChange,
 }: ChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    // Pre-populate from resumed messages if provided
+    if (resumeMessages?.length) {
+      return resumeMessages.map((m) => ({
+        id: crypto.randomUUID(),
+        role: m.role,
+        content: m.content,
+      }))
+    }
+    return []
+  })
   const [streamingText, setStreamingText] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [toolStatus, setToolStatus] = useState<string | null>(null)
@@ -89,38 +111,71 @@ export function Chat({
   const [inputKey, setInputKey] = useState(0)
   const [inputBoxHeight, setInputBoxHeight] = useState(3)
 
+  // Track callbacks and latest messages in refs to avoid re-triggering the session effect
+  const onSessionIdRef = useRef(onSessionId)
+  onSessionIdRef.current = onSessionId
+  const onMessagesChangeRef = useRef(onMessagesChange)
+  onMessagesChangeRef.current = onMessagesChange
+
+  const emitMessagesChange = useCallback((nextMessages: ChatMessage[]) => {
+    onMessagesChangeRef.current?.(nextMessages.map((m) => ({ role: m.role, content: m.content })))
+  }, [])
+
   // Capture config in refs — the agent session is long-lived and should not
   // restart when parent re-renders. These are stable for the component lifetime.
-  const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns, provider, model, effort, initialMessage })
+  const configRef = useRef({ cwd, systemPrompt, tools, allowedTools, maxTurns, provider, model, effort, initialMessage, resumeMessages, resumeSessionId })
   const defaultPlaceholder = inputPlaceholder ?? "Ask something..."
 
   useEffect(() => {
     const config = configRef.current
+    const isClaudeResume = config.provider === "claude" && !!config.resumeSessionId
+    const hasResumeMessages = (config.resumeMessages?.length ?? 0) > 0
+
+    // For non-Claude resume: build a conversation preamble from prior messages
+    let effectiveSystemPrompt = config.systemPrompt
+    if (hasResumeMessages && !isClaudeResume) {
+      const transcript = config.resumeMessages!
+        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+        .join("\n\n")
+      effectiveSystemPrompt = `${config.systemPrompt ?? ""}\n\n---\nHere is the conversation so far from a previous session. Continue from where we left off:\n\n${transcript}\n---`
+    }
+
     const session = getProvider(config.provider).createSession({
-      systemPrompt: config.systemPrompt,
+      systemPrompt: effectiveSystemPrompt,
       tools: config.tools ?? [],
       allowedTools: config.allowedTools,
       maxTurns: config.maxTurns,
       cwd: config.cwd,
       model: config.model,
       effort: config.effort,
+      resumeSessionId: isClaudeResume ? config.resumeSessionId : undefined,
     })
     sessionRef.current = session
 
-    // Auto-submit initial message if provided
-    if (config.initialMessage) {
+    // Auto-submit initial message if provided (but not when resuming)
+    if (config.initialMessage && !hasResumeMessages) {
       const text = config.initialMessage.trim()
       if (text) {
-        setMessages([{ id: crypto.randomUUID(), role: "user", content: text }])
+        const nextMessages = [{ id: crypto.randomUUID(), role: "user" as const, content: text }]
+        setMessages(nextMessages)
+        emitMessagesChange(nextMessages)
         session.pushMessage(text)
         setIsStreaming(true)
         setInputKey((k) => k + 1)
       }
     }
 
+    let sessionIdEmitted = false
+
     ;(async () => {
       try {
         for await (const event of session) {
+          // Emit session ID once available
+          if (!sessionIdEmitted && session.sessionId) {
+            sessionIdEmitted = true
+            onSessionIdRef.current?.(session.sessionId)
+          }
+
           switch (event.type) {
             case "text_delta":
               setStreamingText((prev) => prev + event.text)
@@ -134,14 +189,18 @@ export function Chat({
             case "assistant_complete":
               // Skip tool-only turns that produced no visible text
               if (event.text.trim()) {
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: crypto.randomUUID(),
-                    role: "assistant",
-                    content: event.text,
-                  },
-                ])
+                setMessages((prev) => {
+                  const nextMessages = [
+                    ...prev,
+                    {
+                      id: crypto.randomUUID(),
+                      role: "assistant" as const,
+                      content: event.text,
+                    },
+                  ]
+                  emitMessagesChange(nextMessages)
+                  return nextMessages
+                })
               }
               setStreamingText("")
               setIsStreaming(false)
@@ -169,17 +228,21 @@ export function Chat({
       session.close()
       sessionRef.current = null
     }
-  }, [])
+  }, [emitMessagesChange])
 
   const handleSubmit = useCallback(
     (value: string) => {
       const text = value.trim()
       if (!text || isStreaming || !sessionRef.current) return
 
-      setMessages((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), role: "user", content: text },
-      ])
+      setMessages((prev) => {
+        const nextMessages = [
+          ...prev,
+          { id: crypto.randomUUID(), role: "user" as const, content: text },
+        ]
+        emitMessagesChange(nextMessages)
+        return nextMessages
+      })
 
       sessionRef.current.pushMessage(text)
 
@@ -188,7 +251,7 @@ export function Chat({
       setError(null)
       setInputKey((k) => k + 1)
     },
-    [isStreaming]
+    [emitMessagesChange, isStreaming]
   )
 
   const handleTextareaSubmit = useCallback(

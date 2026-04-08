@@ -11,6 +11,7 @@ import {
 import { listRuns, isRunActive, deleteRun, deleteProgram, type RunInfo } from "../lib/run.ts"
 import { RunsTable } from "../components/RunsTable.tsx"
 import { formatShellError } from "../lib/git.ts"
+import { listDrafts, deleteDraft, type DraftSession, type DraftEntry } from "../lib/drafts.ts"
 
 interface HomeScreenProps {
   cwd: string
@@ -19,12 +20,14 @@ interface HomeScreenProps {
   onSelectRun: (run: RunInfo) => void
   onUpdateProgram: (slug: string) => void
   onFinalizeRun: (run: RunInfo) => void
+  onResumeDraft: (draftName: string, draft: DraftSession) => void
 }
 
 interface HomeData {
   programs: ProgramInfo[]
   allRuns: RunInfo[]
   programConfigs: Record<string, ProgramConfig>
+  drafts: DraftEntry[]
 }
 
 const MAX_RUNS = 50
@@ -45,7 +48,7 @@ function relativeTime(iso: string): string {
 
 /** Single-pass loader: iterates programs once to build program info, all runs, and configs. */
 async function loadHomeData(cwd: string): Promise<HomeData> {
-  const programs = await listPrograms(cwd)
+  const [programs, drafts] = await Promise.all([listPrograms(cwd), listDrafts(cwd)])
   const allRuns: RunInfo[] = []
   const programInfos: ProgramInfo[] = []
   const programConfigs: Record<string, ProgramConfig> = {}
@@ -94,12 +97,13 @@ async function loadHomeData(cwd: string): Promise<HomeData> {
     programs: programInfos,
     allRuns: allRuns.slice(0, MAX_RUNS),
     programConfigs,
+    drafts,
   }
 }
 
 type Panel = "programs" | "runs"
 
-export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpdateProgram, onFinalizeRun }: HomeScreenProps) {
+export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpdateProgram, onFinalizeRun, onResumeDraft }: HomeScreenProps) {
   const { width } = useTerminalDimensions()
   const [data, setData] = useState<HomeData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -123,7 +127,26 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   }, [cwd])
 
   const programs = data?.programs ?? []
+  const drafts = data?.drafts ?? []
+  const draftsCount = drafts.length
+  const totalProgramItems = draftsCount + programs.length
   const selectableRuns = (data?.allRuns ?? []).filter((r) => r.state != null)
+
+  const performDeleteDraft = (draftEntry: DraftEntry) => {
+    setDeleting(true)
+    deleteDraft(cwd, draftEntry.name)
+      .then(() => {
+        setDeleting(false)
+        loadHomeData(cwd).then((newData) => {
+          setData(newData)
+          const newTotal = newData.drafts.length + newData.programs.length
+          setSelectedIndex((i) => Math.min(i, Math.max(0, newTotal - 1)))
+        })
+      })
+      .catch(() => {
+        setDeleting(false)
+      })
+  }
 
   const performDelete = (run: RunInfo) => {
     setDeleting(true)
@@ -153,7 +176,8 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
         setDeleting(false)
         loadHomeData(cwd).then((newData) => {
           setData(newData)
-          setSelectedIndex((i) => Math.min(i, Math.max(0, newData.programs.length - 1)))
+          const newTotal = newData.drafts.length + newData.programs.length
+          setSelectedIndex((i) => Math.min(i, Math.max(0, newTotal - 1)))
           const newSelectableRuns = (newData.allRuns ?? []).filter((r) => r.state != null)
           setSelectedRunIndex((i) => Math.min(i, Math.max(0, newSelectableRuns.length - 1)))
         })
@@ -184,7 +208,13 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     }
 
     if (key.name === "n") {
-      navigate("setup")
+      // If a draft exists, resume it instead of starting new
+      if (drafts.length > 0) {
+        const entry = drafts[0]
+        onResumeDraft(entry.name, entry.draft)
+      } else {
+        navigate("setup")
+      }
       return
     }
     if (key.name === "s") {
@@ -196,22 +226,35 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       return
     }
 
-    if (focusedPanel === "programs" && programs.length > 0) {
+    if (focusedPanel === "programs" && totalProgramItems > 0) {
       if (key.name === "up" || key.name === "k") {
         setSelectedIndex((i) => Math.max(0, i - 1))
       } else if (key.name === "down" || key.name === "j") {
-        setSelectedIndex((i) => Math.min(programs.length - 1, i + 1))
+        setSelectedIndex((i) => Math.min(totalProgramItems - 1, i + 1))
       } else if (key.name === "return") {
-        onSelectProgram(programs[selectedIndex].name)
+        if (selectedIndex < draftsCount) {
+          // Selected a draft — resume it
+          const entry = drafts[selectedIndex]
+          onResumeDraft(entry.name, entry.draft)
+        } else {
+          onSelectProgram(programs[selectedIndex - draftsCount].name)
+        }
       } else if (key.name === "e") {
-        const program = programs[selectedIndex]
-        if (program && !program.hasActiveRun) {
-          onUpdateProgram(program.name)
+        if (selectedIndex >= draftsCount) {
+          const program = programs[selectedIndex - draftsCount]
+          if (program && !program.hasActiveRun) {
+            onUpdateProgram(program.name)
+          }
         }
       } else if (key.name === "d") {
-        const program = programs[selectedIndex]
-        if (program && !program.hasActiveRun) {
-          setConfirmDeleteProgram(program)
+        if (selectedIndex < draftsCount) {
+          // Delete draft directly (no confirmation needed for drafts)
+          performDeleteDraft(drafts[selectedIndex])
+        } else {
+          const program = programs[selectedIndex - draftsCount]
+          if (program && !program.hasActiveRun) {
+            setConfirmDeleteProgram(program)
+          }
         }
       }
     } else if (focusedPanel === "runs" && selectableRuns.length > 0) {
@@ -265,14 +308,33 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       borderColor={programsFocused ? "#7aa2f7" : "#666666"}
       title="Programs"
     >
-      {programs.length === 0 ? (
+      {totalProgramItems === 0 ? (
         <box flexGrow={1} justifyContent="center" alignItems="center">
           <text fg="#666666">No programs yet.</text>
         </box>
       ) : (
         <scrollbox flexGrow={1}>
-          {programs.map((p, i) => {
+          {drafts.map((d, i) => {
             const isSelected = programsFocused && i === selectedIndex
+            const date = new Date(d.draft.createdAt)
+            const label = d.draft.type === "update" && d.draft.programSlug
+              ? `${d.draft.programSlug} (draft)`
+              : `Draft (${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })})`
+            return (
+              <box
+                key={`draft-${d.name}`}
+                paddingX={1}
+                backgroundColor={isSelected ? "#333333" : undefined}
+              >
+                <text>
+                  <span fg="#e0af68">{"* "}</span>
+                  <span fg="#e0af68">{label}</span>
+                </text>
+              </box>
+            )
+          })}
+          {programs.map((p, i) => {
+            const isSelected = programsFocused && (i + draftsCount) === selectedIndex
             return (
               <box
                 key={p.name}
@@ -297,7 +359,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
           })}
         </scrollbox>
       )}
-      {programsFocused && programs[selectedIndex]?.hasActiveRun && (
+      {programsFocused && selectedIndex >= draftsCount && programs[selectedIndex - draftsCount]?.hasActiveRun && (
         <box paddingX={1}>
           <text fg="#666666">Cannot edit/delete while run is active</text>
         </box>

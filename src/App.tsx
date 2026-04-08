@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   useKeyboard,
   useRenderer,
@@ -14,6 +14,7 @@ import { PostUpdatePrompt } from "./components/PostUpdatePrompt.tsx"
 import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.ts"
 import { loadProjectConfig, configExists, DEFAULT_CONFIG, type ProjectConfig } from "./lib/config.ts"
 import { isRunActive } from "./lib/run.ts"
+import type { DraftSession } from "./lib/drafts.ts"
 
 const cwd = process.cwd()
 
@@ -30,6 +31,8 @@ export function App() {
   const [autoFinalize, setAutoFinalize] = useState(false)
   const [updateProgramSlug, setUpdateProgramSlug] = useState<string | null>(null)
   const [showPostUpdatePrompt, setShowPostUpdatePrompt] = useState(false)
+  const [draftName, setDraftName] = useState<string | null>(null)
+  const draftSavedExitRef = useRef(false)
 
   useEffect(() => {
     getProjectRoot(cwd).then(setProjectRoot).catch(() => {})
@@ -67,7 +70,7 @@ export function App() {
 
   const footerText =
     screen === "home"
-      ? " n: new | e: edit | d: delete | f: finalize | s: settings | Tab: switch | Enter: run | Esc: quit"
+      ? " n: new/resume | e: edit | d: delete | f: finalize | s: settings | Tab: switch | Enter: run | Esc: quit"
       : screen === "execution"
         ? " Escape: detach (daemon continues) | Tab: switch panel | s: settings | q: stop | Ctrl+C: abort"
         : screen === "settings"
@@ -129,8 +132,21 @@ export function App() {
               setScreen("execution")
             }}
             onUpdateProgram={(slug) => {
+              draftSavedExitRef.current = false
               setUpdateProgramSlug(slug)
               setSelectedProgram(slug)
+              setDraftName(null)
+              setScreen("setup")
+            }}
+            onResumeDraft={(name: string, draft: DraftSession) => {
+              draftSavedExitRef.current = false
+              setDraftName(name)
+              if (draft.type === "update" && draft.programSlug) {
+                setUpdateProgramSlug(draft.programSlug)
+                setSelectedProgram(draft.programSlug)
+              } else {
+                setUpdateProgramSlug(null)
+              }
               setScreen("setup")
             }}
           />
@@ -139,16 +155,24 @@ export function App() {
           <SetupScreen
             cwd={projectRoot}
             navigate={(s) => {
-              if (updateProgramSlug && s === "home") {
+              const draftSavedOnExit = draftSavedExitRef.current && s === "home"
+              draftSavedExitRef.current = false
+              if (updateProgramSlug && s === "home" && !draftSavedOnExit) {
                 // Leaving update mode — show post-update prompt
                 setShowPostUpdatePrompt(true)
               } else {
                 setUpdateProgramSlug(null)
+                setDraftName(null)
                 setScreen(s)
               }
             }}
             modelConfig={projectConfig.supportModel}
             programSlug={updateProgramSlug ?? undefined}
+            draftName={draftName ?? undefined}
+            onDraftSaved={(name) => {
+              draftSavedExitRef.current = true
+              setDraftName(name)
+            }}
           />
         )}
         {screen === "setup" && showPostUpdatePrompt && selectedProgram && (
@@ -157,11 +181,13 @@ export function App() {
             onStartRun={() => {
               setShowPostUpdatePrompt(false)
               setUpdateProgramSlug(null)
+              setDraftName(null)
               setScreen("pre-run")
             }}
             onGoHome={() => {
               setShowPostUpdatePrompt(false)
               setUpdateProgramSlug(null)
+              setDraftName(null)
               setScreen("home")
             }}
           />
@@ -202,6 +228,7 @@ export function App() {
             readOnly={attachReadOnly}
             autoFinalize={autoFinalize}
             onUpdateProgram={(slug) => {
+              draftSavedExitRef.current = false
               setPreRunOverrides(null)
               setAttachRunId(null)
               setAttachReadOnly(false)

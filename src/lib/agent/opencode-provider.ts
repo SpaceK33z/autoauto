@@ -118,6 +118,7 @@ class OpenCodeSession implements AgentSession {
   private signalHandler?: () => void
   private closed = false
   private sessionID: string | null = null
+  readonly sessionId = undefined
 
   constructor(
     private provider: OpenCodeProvider,

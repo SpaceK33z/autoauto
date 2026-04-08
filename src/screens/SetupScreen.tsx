@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { mkdir } from "node:fs/promises"
 import { dirname } from "node:path"
 import { useKeyboard } from "@opentui/react"
@@ -10,6 +10,7 @@ import { loadProgramSummaries, getProgramDir, type Screen, type ProgramSummary }
 import { buildUpdateRunContext } from "../lib/run-context.ts"
 import { formatModelLabel, type ModelSlot } from "../lib/config.ts"
 import { formatShellError } from "../lib/git.ts"
+import { saveDraft, loadDraft, draftFileName, type DraftSession, type DraftMessage } from "../lib/drafts.ts"
 
 type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
 
@@ -36,9 +37,13 @@ interface SetupScreenProps {
   modelConfig: ModelSlot
   /** When set, enters update mode for an existing program */
   programSlug?: string
+  /** When set, resume an existing draft session */
+  draftName?: string
+  /** Called after a draft is saved to disk */
+  onDraftSaved?: (name: string) => void
 }
 
-export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupScreenProps) {
+export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName, onDraftSaved }: SetupScreenProps) {
   const isUpdate = Boolean(programSlug)
   const [existingPrograms, setExistingPrograms] = useState<ProgramSummary[]>([])
 
@@ -87,18 +92,92 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
     })
   }, [cwd, programSlug])
 
+  // --- Draft resume state ---
   const [mode, setMode] = useState<SetupMode>(isUpdate ? "chat" : "choose")
   const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined)
+  const [resumeMessages, setResumeMessages] = useState<DraftMessage[] | undefined>(undefined)
+  const [resumeSessionId, setResumeSessionId] = useState<string | undefined>(undefined)
+  const [draftLoaded, setDraftLoaded] = useState(!draftName) // true immediately if no draft to load
+
+  // Mutable refs for draft saving (avoids re-renders)
+  const messagesRef = useRef<DraftMessage[]>([])
+  const sdkSessionIdRef = useRef<string | null>(null)
+  const currentDraftNameRef = useRef<string | null>(draftName ?? null)
+
+  // Load draft on mount
+  useEffect(() => {
+    if (!draftName) return
+    loadDraft(cwd, draftName).then((draft) => {
+      if (draft) {
+        setMode(draft.mode)
+        if (draft.initialMessage) setInitialMessage(draft.initialMessage)
+        if (draft.messages.length > 0) {
+          setResumeMessages(draft.messages)
+          messagesRef.current = draft.messages
+        }
+        if (draft.sdkSessionId) {
+          setResumeSessionId(draft.sdkSessionId)
+          sdkSessionIdRef.current = draft.sdkSessionId
+        }
+      }
+      setDraftLoaded(true)
+    }).catch(() => setDraftLoaded(true))
+  }, [cwd, draftName])
+
+  const [saving, setSaving] = useState(false)
+
+  const persistAndNavigate = useCallback(() => {
+    if (mode === "choose" || (mode === "scope" && messagesRef.current.length === 0)) {
+      navigate("home")
+      return
+    }
+
+    const name = currentDraftNameRef.current ?? draftFileName({
+      type: isUpdate ? "update" : "setup",
+      programSlug: programSlug ?? null,
+    })
+    currentDraftNameRef.current = name
+
+    const draft: DraftSession = {
+      type: isUpdate ? "update" : "setup",
+      programSlug: programSlug ?? null,
+      createdAt: new Date().toISOString(),
+      provider: modelConfig.provider,
+      model: modelConfig.model,
+      effort: modelConfig.effort,
+      sdkSessionId: sdkSessionIdRef.current,
+      mode,
+      initialMessage: initialMessage ?? null,
+      messages: messagesRef.current,
+    }
+
+    setSaving(true)
+    saveDraft(cwd, name, draft)
+      .then(() => onDraftSaved?.(name))
+      .catch(() => {})
+      .finally(() => navigate("home"))
+  }, [cwd, isUpdate, programSlug, modelConfig, mode, initialMessage, onDraftSaved, navigate])
 
   useKeyboard((key) => {
+    if (saving) return
     if (key.name === "escape") {
       if (mode === "scope") {
         setMode("choose")
+      } else if (mode === "chat" && messagesRef.current.length > 0) {
+        persistAndNavigate()
       } else {
         navigate("home")
       }
     }
   })
+
+  const handleSessionId = useCallback((id: string) => {
+    sdkSessionIdRef.current = id
+  }, [])
+
+  const handleMessagesChange = useCallback((msgs: Array<{ role: "user" | "assistant"; content: string }>) => {
+    messagesRef.current = msgs
+  }, [])
 
   const handleModeSelect = useCallback((_index: number, option: { value?: unknown } | null) => {
     if (!option) return
@@ -121,6 +200,18 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
   }, []) as
     & ((event: OpenTUISubmitEvent) => void)
     & ((value: string) => void)
+
+  if (!draftLoaded) {
+    return (
+      <box flexDirection="column" flexGrow={1}>
+        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Resuming...">
+          <box flexGrow={1} justifyContent="center" alignItems="center">
+            <text fg="#888888">Loading session...</text>
+          </box>
+        </box>
+      </box>
+    )
+  }
 
   if (isUpdate && updateLoadError) {
     return (
@@ -201,6 +292,7 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
   }
 
   const modelLabel = formatModelLabel(modelConfig)
+  const isResuming = (resumeMessages?.length ?? 0) > 0
 
   return (
     <Chat
@@ -218,7 +310,11 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
       inputPlaceholder={isUpdate
         ? 'e.g. "fix the measurement script" or "widen the scope"'
         : (!initialMessage ? 'e.g. "I want to reduce the homepage load time"' : undefined)}
-      title={`${isUpdate ? "Update" : "Setup"} · ${modelLabel}`}
+      title={`${isUpdate ? "Update" : "Setup"}${isResuming ? " (resumed)" : ""} · ${modelLabel}`}
+      resumeMessages={resumeMessages}
+      resumeSessionId={resumeSessionId}
+      onSessionId={handleSessionId}
+      onMessagesChange={handleMessagesChange}
     />
   )
 }

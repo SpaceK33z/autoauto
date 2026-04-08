@@ -196,6 +196,7 @@ class CodexSession implements AgentSession {
   private closed = false
   private thread: Thread
   private turnCount = 0
+  readonly sessionId = undefined
 
   constructor(
     codex: Codex,

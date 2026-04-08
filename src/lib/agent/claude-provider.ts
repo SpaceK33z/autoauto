@@ -104,6 +104,7 @@ class ClaudeSession implements AgentSession {
   private queryIterable: Query
   private externalSignal?: AbortSignal
   private signalHandler?: () => void
+  sessionId: string | undefined
 
   constructor(config: AgentSessionConfig) {
     // Link external signal to our abort controller
@@ -129,9 +130,10 @@ class ClaudeSession implements AgentSession {
         effort: config.effort as "low" | "medium" | "high" | "max" | undefined,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
-        persistSession: false,
+        persistSession: true,
         includePartialMessages: true,
         abortController: this.abortController,
+        ...(config.resumeSessionId ? { resume: config.resumeSessionId } : {}),
       },
     })
   }
@@ -162,6 +164,12 @@ class ClaudeSession implements AgentSession {
     try {
       for await (const message of this.queryIterable as AsyncIterable<SDKMessage>) {
         if (this.abortController.signal.aborted) break
+
+        // Capture session ID from first message that carries one
+        if (!this.sessionId) {
+          const sid = (message as { session_id?: string }).session_id
+          if (sid) this.sessionId = sid
+        }
 
         if (message.type === "stream_event") {
           const partial = message as unknown as SDKPartialAssistantMessage

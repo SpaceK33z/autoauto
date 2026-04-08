@@ -38,10 +38,14 @@ export interface AgentSessionConfig {
   signal?: AbortSignal
   /** Escape hatch for provider-specific options (e.g. temperature, reasoning_effort). */
   providerOptions?: Record<string, unknown>
+  /** Resume a previously persisted session by ID (provider-specific). */
+  resumeSessionId?: string
 }
 
 /** A running agent session that yields events and accepts user messages. */
 export interface AgentSession extends AsyncIterable<AgentEvent> {
+  /** Provider-assigned session ID, available when persistence is supported. */
+  readonly sessionId?: string
   /** Push a user message into the conversation. */
   pushMessage(content: string): void
   /** Signal that no more input will be sent (one-shot mode). */
