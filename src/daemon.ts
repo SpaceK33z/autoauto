@@ -81,6 +81,7 @@ async function main() {
   if (!runConfig?.max_experiments) throw new Error("run-config.json must specify max_experiments")
   const maxExperiments = runConfig.max_experiments
   const ideasBacklogEnabled = runConfig?.ideas_backlog_enabled ?? true
+  const carryForward = runConfig?.carry_forward ?? true
 
   // 3. Stop/abort signals
   let stopRequested = false
@@ -229,6 +230,7 @@ async function main() {
           signal: abortController.signal,
           stopRequested: () => stopRequested,
           ideasBacklogEnabled,
+          carryForward,
           baselineDiagnostics: baseline.diagnostics,
         },
       )
@@ -248,6 +250,7 @@ async function main() {
           signal: abortController.signal,
           stopRequested: () => stopRequested,
           ideasBacklogEnabled,
+          carryForward,
         },
       )
     }

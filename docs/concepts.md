@@ -83,6 +83,7 @@ Each experiment agent starts fresh. Instead of chat history, it gets a structure
 - Diffs from recently discarded experiments (so it doesn't retry failed ideas)
 - Git log of kept changes
 - The ideas backlog
+- Previous run context (if carry-forward is enabled)
 
 This design keeps context small, prevents agents from building up false narratives, and ensures every experiment is evaluated independently.
 
@@ -96,6 +97,19 @@ An optional `ideas.md` file that accumulates notes across experiments:
 - What to avoid
 
 This is the agent's institutional memory. Without it, agents waste cycles retrying discarded approaches — one real-world case saw a test fix go through four different approaches before finding one that held, and the backlog prevented retrying the three that failed.
+
+## Carry forward (cross-run memory)
+
+When you run a program multiple times, each new run can **carry forward** context from previous completed runs:
+
+- **Previous results** — kept experiment summaries from earlier runs (what worked, how much it improved)
+- **Previous ideas** — the ideas backlog from the most recent completed run (what was tried, what failed, what to try next)
+
+This gives the agent institutional memory across runs, not just within a single run. It's especially useful after an **Update** — the revised program benefits from knowing what the previous run already explored.
+
+Carry forward is enabled by default. You can disable it in the PreRun screen ("Previous Run Context" toggle) or via CLI (`--no-carry-forward`). It's automatically skipped when no previous runs exist.
+
+**Important:** Previous run code changes are NOT merged into the working tree. The agent is told to treat previous results as guidance, not as existing code.
 
 ## Agents
 

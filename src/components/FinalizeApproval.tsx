@@ -144,6 +144,10 @@ export function FinalizeApproval({
   }, [actions.length, selectedAction])
 
   useEffect(() => {
+    setSelectedAction(0)
+  }, [hasGroups])
+
+  useEffect(() => {
     if (isRefining) setInputFocused(false)
   }, [isRefining])
 

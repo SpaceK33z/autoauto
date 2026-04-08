@@ -6,7 +6,7 @@ import {
   getProgramDir,
   loadProgramConfig,
 } from "../lib/programs.ts"
-import { getLatestRun, readAllResults, getAvgMeasurementDuration } from "../lib/run.ts"
+import { readAllResults, getAvgMeasurementDuration, listRuns } from "../lib/run.ts"
 import {
   type ModelSlot,
   cycleChoice,
@@ -25,6 +25,7 @@ export interface PreRunOverrides {
   modelConfig: ModelSlot
   maxExperiments: number
   useWorktree: boolean
+  carryForward: boolean
 }
 
 interface PreRunScreenProps {
@@ -35,17 +36,20 @@ interface PreRunScreenProps {
   onStart: (overrides: PreRunOverrides) => void
 }
 
-// 0=maxExperiments, 1=provider, 2=model, 3=effort, 4=runMode
-const FIELD_COUNT = 5
+// 0=maxExperiments, 1=provider, 2=model, 3=effort, 4=runMode, 5=carryForward (if previous runs exist)
+const BASE_FIELD_COUNT = 5
 
 export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, onStart }: PreRunScreenProps) {
   const [selected, setSelected] = useState(0)
   const [maxExpText, setMaxExpText] = useState("")
   const [modelSlot, setModelSlot] = useState<ModelSlot>(defaultModelConfig)
   const [useWorktree, setUseWorktree] = useState(true)
+  const [carryForward, setCarryForward] = useState(true)
+  const [hasPreviousRuns, setHasPreviousRuns] = useState(false)
   const [pickingModel, setPickingModel] = useState(false)
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
   const [avgDurationMs, setAvgDurationMs] = useState<number | null>(null)
+  const fieldCount = hasPreviousRuns ? BASE_FIELD_COUNT + 1 : BASE_FIELD_COUNT
 
   useEffect(() => {
     const programDir = getProgramDir(cwd, programSlug)
@@ -55,17 +59,24 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
         setMaxExpText(String(config.max_experiments))
       }
     })
-    getLatestRun(programDir).then(async (run) => {
-      if (!run) return
-      const results = await readAllResults(run.run_dir)
-      setAvgDurationMs(getAvgMeasurementDuration(results))
+    listRuns(programDir).then(async (runs) => {
+      const completedRuns = runs.filter((r) => r.state?.phase === "complete")
+      setHasPreviousRuns(completedRuns.length > 0)
+      const latest = completedRuns[0] ?? null
+      if (!latest) return
+      try {
+        const results = await readAllResults(latest.run_dir)
+        setAvgDurationMs(getAvgMeasurementDuration(results))
+      } catch {
+        setHasPreviousRuns(false)
+      }
     })
   }, [cwd, programSlug])
 
   function handleStart() {
     const parsed = parseInt(maxExpText, 10)
     if (isNaN(parsed) || parsed < 1) return // require a valid limit
-    onStart({ modelConfig: modelSlot, maxExperiments: parsed, useWorktree })
+    onStart({ modelConfig: modelSlot, maxExperiments: parsed, useWorktree, carryForward })
   }
 
   function handleCycleProvider(direction: -1 | 1) {
@@ -99,7 +110,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
     // Navigation
     if (key.name === "tab" || key.name === "down" || key.name === "j") {
-      setSelected((s) => Math.min(FIELD_COUNT - 1, s + 1))
+      setSelected((s) => Math.min(fieldCount - 1, s + 1))
       return
     }
     if (key.name === "shift-tab" || key.name === "up" || key.name === "k") {
@@ -122,6 +133,10 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     } else if (selected === 4) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setUseWorktree((v) => !v)
+      }
+    } else if (selected === 5 && hasPreviousRuns) {
+      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
+        setCarryForward((v) => !v)
       }
     }
   })
@@ -180,6 +195,10 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
           <text fg="#ff5555">{"    All uncommitted changes will be destroyed between experiments."}</text>
           <text fg="#ff5555">{"    Your branch will be changed. Only use on a clean, throwaway branch."}</text>
         </box>
+      )}
+
+      {hasPreviousRuns && (
+        <CycleField label="Previous Run Context" value={carryForward ? "On" : "Off"} description={carryForward ? "Feed previous run results and ideas into experiments" : "Start fresh without previous run context"} isFocused={selected === 5} />
       )}
 
       <box height={1} />
