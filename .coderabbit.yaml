@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!**/*.gif"
+    - "!**/*.mp4"
+    - "!**/*.png"
+    - "!**/references/**"
+  path_instructions:
+    - path: "src/**/*.{ts,tsx}"
+      instructions: |
+        This project uses Bun (not Node), TypeScript strict mode, and OpenTUI React for the TUI.
+        Prefer Bun APIs (Bun.$, Bun.file(), Bun.write()) over Node equivalents.
+        Layout props are direct props, not style objects.
+    - path: "src/lib/**"
+      instructions: |
+        Shared types live in programs.ts. results.tsv is append-only.
+        Two-root path model: cwd (worktree) vs programDir (main root).
+chat:
+  auto_reply: true
