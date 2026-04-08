@@ -46,6 +46,8 @@ interface ExecutionScreenProps {
   /** If set, attach to an existing run instead of starting a new one */
   attachRunId?: string
   readOnly?: boolean
+  /** Called when user chooses to update the program (from run complete or error screen) */
+  onUpdateProgram?: (programSlug: string) => void
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -76,7 +78,7 @@ function Divider({ width, label }: { width: number; label?: string }) {
   return <text fg="#565f89">{"─".repeat(innerWidth)}</text>
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, useWorktree = true, attachRunId, readOnly = false }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, useWorktree = true, attachRunId, readOnly = false, onUpdateProgram }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
@@ -278,19 +280,21 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     }
   }, [cwd, programSlug, modelConfig, maxExperiments, useWorktree, attachRunId, ideasBacklogEnabled])
 
-  const handleAbandon = useCallback(async () => {
+  const cleanupRunEnvironment = useCallback(async () => {
     if (runState?.in_place) {
-      // In-place mode: restore original branch
       if (runState.original_branch) {
         const { checkoutBranch } = await import("../lib/git.ts")
         await checkoutBranch(cwd, runState.original_branch).catch(() => {})
       }
     } else if (runState?.worktree_path) {
-      // Worktree mode: remove the worktree
       await removeWorktree(cwd, runState.worktree_path).catch(() => {})
     }
+  }, [cwd, runState])
+
+  const handleAbandon = useCallback(async () => {
+    await cleanupRunEnvironment()
     navigate("home")
-  }, [cwd, runState, navigate])
+  }, [cleanupRunEnvironment, navigate])
 
   const handleFinalize = useCallback(async () => {
     if (!runState || !runDir || !programConfig) return
@@ -332,10 +336,24 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     }
   }, [cwd, programSlug, runDir, runState, programConfig, supportModelConfig])
 
+  const handleUpdateProgram = useCallback(async () => {
+    await cleanupRunEnvironment()
+    onUpdateProgram?.(programSlug)
+  }, [cleanupRunEnvironment, programSlug, onUpdateProgram])
+
   useKeyboard((key) => {
-    if (phase === "finalize_complete" || phase === "error") {
+    if (phase === "finalize_complete") {
       if (key.name === "escape") {
         navigate("home")
+      }
+      return
+    }
+
+    if (phase === "error") {
+      if (key.name === "escape") {
+        navigate("home")
+      } else if (key.name === "u" && runState && !readOnly && onUpdateProgram) {
+        handleUpdateProgram()
       }
       return
     }
@@ -624,11 +642,12 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       {phase === "complete" && runState && !readOnly && (
         <RunCompletePrompt
           state={runState}
-          direction={programConfig?.direction ?? "higher"}
+          direction={programConfig?.direction ?? "lower"}
           terminationReason={terminationReason}
           error={null}
           onFinalize={handleFinalize}
           onAbandon={handleAbandon}
+          onUpdateProgram={handleUpdateProgram}
         />
       )}
 
@@ -696,7 +715,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             <text fg="#ff5555" selectable>{lastError ?? "Unknown error"}</text>
           </box>
           <box padding={1}>
-            <text fg="#888888">Press Escape to go back</text>
+            <text fg="#888888">
+              {runState && !readOnly && onUpdateProgram
+                ? "Press u to update program · Escape to go back"
+                : "Press Escape to go back"}
+            </text>
           </box>
         </box>
       )}

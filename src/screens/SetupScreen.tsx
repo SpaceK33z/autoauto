@@ -5,7 +5,9 @@ import { useKeyboard } from "@opentui/react"
 import type { TextareaOptions } from "@opentui/core"
 import { Chat } from "../components/Chat.tsx"
 import { getSetupSystemPrompt } from "../lib/system-prompts/index.ts"
-import { loadProgramSummaries, type Screen, type ProgramSummary } from "../lib/programs.ts"
+import { getUpdateSystemPrompt } from "../lib/system-prompts/update.ts"
+import { loadProgramSummaries, getProgramDir, type Screen, type ProgramSummary } from "../lib/programs.ts"
+import { buildUpdateRunContext } from "../lib/run-context.ts"
 import type { ModelSlot } from "../lib/config.ts"
 
 type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
@@ -32,26 +34,59 @@ interface SetupScreenProps {
   cwd: string
   navigate: (screen: Screen) => void
   modelConfig: ModelSlot
+  /** When set, enters update mode for an existing program */
+  programSlug?: string
 }
 
-export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
+export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupScreenProps) {
+  const isUpdate = Boolean(programSlug)
   const [existingPrograms, setExistingPrograms] = useState<ProgramSummary[]>([])
 
   useEffect(() => {
-    loadProgramSummaries(cwd).then(setExistingPrograms).catch(() => {})
-  }, [cwd])
+    if (!isUpdate) {
+      loadProgramSummaries(cwd).then(setExistingPrograms).catch(() => {})
+    }
+  }, [cwd, isUpdate])
 
-  const { systemPrompt, referencePath, referenceContent } = useMemo(
-    () => getSetupSystemPrompt(cwd, existingPrograms),
-    [cwd, existingPrograms],
+  // Setup mode: system prompt from setup.ts
+  const setupResult = useMemo(
+    () => isUpdate ? null : getSetupSystemPrompt(cwd, existingPrograms),
+    [cwd, existingPrograms, isUpdate],
   )
 
   useEffect(() => {
-    mkdir(dirname(referencePath), { recursive: true })
-      .then(() => Bun.write(referencePath, referenceContent))
-      .catch(() => {})
-  }, [referencePath, referenceContent])
-  const [mode, setMode] = useState<SetupMode>("choose")
+    if (setupResult) {
+      mkdir(dirname(setupResult.referencePath), { recursive: true })
+        .then(() => Bun.write(setupResult.referencePath, setupResult.referenceContent))
+        .catch(() => {})
+    }
+  }, [setupResult])
+
+  const [updateSystemPrompt, setUpdateSystemPrompt] = useState<string | null>(null)
+  const [updateInitialMessage, setUpdateInitialMessage] = useState<string | null>(null)
+  const [updateLoadError, setUpdateLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!programSlug) return
+    const programDir = getProgramDir(cwd, programSlug)
+
+    Promise.all([
+      getUpdateSystemPrompt(cwd, programSlug, programDir).then((result) => {
+        mkdir(dirname(result.referencePath), { recursive: true })
+          .then(() => Bun.write(result.referencePath, result.referenceContent))
+          .catch(() => {})
+        return result.systemPrompt
+      }),
+      buildUpdateRunContext(programDir),
+    ]).then(([prompt, context]) => {
+      setUpdateSystemPrompt(prompt)
+      setUpdateInitialMessage(context)
+    }).catch((err: unknown) => {
+      setUpdateLoadError(err instanceof Error ? err.message : String(err))
+    })
+  }, [cwd, programSlug])
+
+  const [mode, setMode] = useState<SetupMode>(isUpdate ? "chat" : "choose")
   const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined)
 
   useKeyboard((key) => {
@@ -85,6 +120,30 @@ export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
   }, []) as
     & ((event: OpenTUISubmitEvent) => void)
     & ((value: string) => void)
+
+  if (isUpdate && updateLoadError) {
+    return (
+      <box flexDirection="column" flexGrow={1}>
+        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`Update: ${programSlug}`}>
+          <box flexGrow={1} justifyContent="center" alignItems="center">
+            <text fg="#ff5555">Failed to load program: {updateLoadError}</text>
+          </box>
+        </box>
+      </box>
+    )
+  }
+
+  if (isUpdate && (!updateSystemPrompt || !updateInitialMessage)) {
+    return (
+      <box flexDirection="column" flexGrow={1}>
+        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`Update: ${programSlug}`}>
+          <box flexGrow={1} justifyContent="center" alignItems="center">
+            <text fg="#888888">Loading program context...</text>
+          </box>
+        </box>
+      </box>
+    )
+  }
 
   if (mode === "choose") {
     return (
@@ -130,16 +189,20 @@ export function SetupScreen({ cwd, navigate, modelConfig }: SetupScreenProps) {
   return (
     <Chat
       cwd={cwd}
-      systemPrompt={systemPrompt}
+      systemPrompt={isUpdate ? updateSystemPrompt! : setupResult!.systemPrompt}
       tools={SETUP_TOOLS}
       allowedTools={SETUP_TOOLS}
       maxTurns={SETUP_MAX_TURNS}
       provider={modelConfig.provider}
       model={modelConfig.model}
       effort={modelConfig.effort}
-      initialMessage={initialMessage}
-      emptyStateHint={!initialMessage ? 'Describe what you want to optimize — e.g. "reduce bundle size", "improve API latency", "increase test coverage".' : undefined}
-      inputPlaceholder={!initialMessage ? 'e.g. "I want to reduce the homepage load time"' : undefined}
+      initialMessage={isUpdate ? updateInitialMessage! : initialMessage}
+      emptyStateHint={isUpdate
+        ? "Describe what you'd like to change about this program."
+        : (!initialMessage ? 'Describe what you want to optimize — e.g. "reduce bundle size", "improve API latency", "increase test coverage".' : undefined)}
+      inputPlaceholder={isUpdate
+        ? 'e.g. "fix the measurement script" or "widen the scope"'
+        : (!initialMessage ? 'e.g. "I want to reduce the homepage load time"' : undefined)}
     />
   )
 }

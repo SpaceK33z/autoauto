@@ -62,14 +62,15 @@ src/
     RunsTable.tsx        # Runs table for HomeScreen
     StatsHeader.tsx      # Run stats + metric sparkline
     AgentPanel.tsx       # Live agent streaming output OR experiment detail view
-    RunCompletePrompt.tsx # Post-run prompt (finalize or abandon)
+    RunCompletePrompt.tsx # Post-run prompt (finalize, update, or abandon)
+    PostUpdatePrompt.tsx # Post-update prompt (start run or go home)
     CycleField.tsx       # Reusable cycle-through field component
     ModelPicker.tsx      # Model selection UI with provider-specific lists
     RunSettingsOverlay.tsx # Inline max-experiments editor overlay
   screens/
     FirstSetupScreen.tsx # First-time setup (provider/model + auth check)
     HomeScreen.tsx       # Two-panel: programs list + runs table
-    SetupScreen.tsx      # Setup flow (chat wrapper + agent config)
+    SetupScreen.tsx      # Setup flow + update mode (chat wrapper + agent config)
     PreRunScreen.tsx     # Pre-run config (model/effort/max/worktree overrides)
     ExecutionScreen.tsx  # Three-panel experiment dashboard
     SettingsScreen.tsx   # Model configuration (execution + support slots)
@@ -90,7 +91,7 @@ src/
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     run.ts               # Run lifecycle (branch, baseline, state, locking)
-    system-prompts.ts    # Agent system prompts (setup, experiment, finalize)
+    system-prompts.ts    # Agent system prompts (setup, update, experiment, finalize)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
     experiment.ts          # Experiment agent spawning, context packets, lock detection
@@ -103,6 +104,7 @@ src/
     finalize.ts            # Post-run finalize: agent review, group branches, squash fallback
     daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (per-experiment stream log writes)
     daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
+    run-context.ts         # Build update agent context from previous run data
     daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
 ```
 

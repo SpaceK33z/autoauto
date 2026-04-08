@@ -11,6 +11,7 @@ interface RunCompletePromptProps {
   error: string | null
   onFinalize: () => void
   onAbandon: () => void
+  onUpdateProgram: () => void
 }
 
 export function RunCompletePrompt({
@@ -20,20 +21,24 @@ export function RunCompletePrompt({
   error,
   onFinalize,
   onAbandon,
+  onUpdateProgram,
 }: RunCompletePromptProps) {
   const [selected, setSelected] = useState(0)
   const stats = getRunStats(state, direction)
 
   useKeyboard((key) => {
     if (key.name === "up" || key.name === "k") {
-      setSelected(0)
+      setSelected((s) => Math.max(0, s - 1))
     } else if (key.name === "down" || key.name === "j") {
-      setSelected(1)
+      setSelected((s) => Math.min(2, s + 1))
     } else if (key.name === "return") {
       if (selected === 0) onFinalize()
+      else if (selected === 1) onUpdateProgram()
       else onAbandon()
     } else if (key.name === "f") {
       onFinalize()
+    } else if (key.name === "u") {
+      onUpdateProgram()
     } else if (key.name === "a") {
       onAbandon()
     }
@@ -73,6 +78,10 @@ export function RunCompletePrompt({
         </text>
         <text fg={selected === 1 ? "#ffffff" : "#888888"}>
           {selected === 1 ? " > " : "   "}
+          Update Program (edit config/scripts)
+        </text>
+        <text fg={selected === 2 ? "#ffffff" : "#888888"}>
+          {selected === 2 ? " > " : "   "}
           Abandon (keep branch as-is)
         </text>
       </box>

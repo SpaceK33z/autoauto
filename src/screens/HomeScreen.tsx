@@ -8,7 +8,7 @@ import {
   type ProgramConfig,
   type Screen,
 } from "../lib/programs.ts"
-import { listRuns, isRunActive, deleteRun, type RunInfo } from "../lib/run.ts"
+import { listRuns, isRunActive, deleteRun, deleteProgram, type RunInfo } from "../lib/run.ts"
 import { RunsTable } from "../components/RunsTable.tsx"
 
 interface HomeScreenProps {
@@ -16,6 +16,7 @@ interface HomeScreenProps {
   navigate: (screen: Screen) => void
   onSelectProgram: (slug: string) => void
   onSelectRun: (run: RunInfo) => void
+  onUpdateProgram: (slug: string) => void
 }
 
 interface HomeData {
@@ -86,7 +87,7 @@ async function loadHomeData(cwd: string): Promise<HomeData> {
 
 type Panel = "programs" | "runs"
 
-export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun }: HomeScreenProps) {
+export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpdateProgram }: HomeScreenProps) {
   const { width } = useTerminalDimensions()
   const [data, setData] = useState<HomeData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -95,6 +96,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun }: Home
   const [selectedRunIndex, setSelectedRunIndex] = useState(0)
   const [focusedPanel, setFocusedPanel] = useState<Panel>("programs")
   const [confirmDelete, setConfirmDelete] = useState<RunInfo | null>(null)
+  const [confirmDeleteProgram, setConfirmDeleteProgram] = useState<ProgramInfo | null>(null)
   const [deleting, setDeleting] = useState(false)
 
   const sideBySide = width >= SIDE_BY_SIDE_MIN_WIDTH
@@ -131,8 +133,35 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun }: Home
       })
   }
 
+  const performDeleteProgram = (program: ProgramInfo) => {
+    setDeleting(true)
+    deleteProgram(cwd, program.name)
+      .then(() => {
+        setConfirmDeleteProgram(null)
+        setDeleting(false)
+        loadHomeData(cwd).then((newData) => {
+          setData(newData)
+          setSelectedIndex((i) => Math.min(i, Math.max(0, newData.programs.length - 1)))
+          const newSelectableRuns = (newData.allRuns ?? []).filter((r) => r.state != null)
+          setSelectedRunIndex((i) => Math.min(i, Math.max(0, newSelectableRuns.length - 1)))
+        })
+      })
+      .catch(() => {
+        setConfirmDeleteProgram(null)
+        setDeleting(false)
+      })
+  }
+
   useKeyboard((key) => {
     // Confirmation dialog intercepts all keys
+    if (confirmDeleteProgram) {
+      if (key.name === "return") {
+        performDeleteProgram(confirmDeleteProgram)
+      } else if (key.name === "escape" || key.name === "n") {
+        setConfirmDeleteProgram(null)
+      }
+      return
+    }
     if (confirmDelete) {
       if (key.name === "return") {
         performDelete(confirmDelete)
@@ -162,6 +191,16 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun }: Home
         setSelectedIndex((i) => Math.min(programs.length - 1, i + 1))
       } else if (key.name === "return") {
         onSelectProgram(programs[selectedIndex].name)
+      } else if (key.name === "e") {
+        const program = programs[selectedIndex]
+        if (program && !program.hasActiveRun) {
+          onUpdateProgram(program.name)
+        }
+      } else if (key.name === "d") {
+        const program = programs[selectedIndex]
+        if (program && !program.hasActiveRun) {
+          setConfirmDeleteProgram(program)
+        }
       }
     } else if (focusedPanel === "runs" && selectableRuns.length > 0) {
       if (key.name === "up" || key.name === "k") {
@@ -241,6 +280,11 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun }: Home
           })}
         </scrollbox>
       )}
+      {programsFocused && programs[selectedIndex]?.hasActiveRun && (
+        <box paddingX={1}>
+          <text fg="#565f89">Cannot edit/delete while run is active</text>
+        </box>
+      )}
     </box>
   )
 
@@ -295,12 +339,42 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun }: Home
     </box>
   ) : null
 
+  const deleteProgramDialog = confirmDeleteProgram ? (
+    <box
+      position="absolute"
+      top="40%"
+      left="30%"
+      width="40%"
+      flexDirection="column"
+      border
+      borderStyle="rounded"
+      borderColor="#ff5555"
+      backgroundColor="#1a1b26"
+      padding={1}
+      title="Delete Program"
+    >
+      <text fg="#ff5555"><strong>Delete this program?</strong></text>
+      <box height={1} />
+      <text fg="#c0caf5">{confirmDeleteProgram.name}</text>
+      <text fg="#565f89">
+        {confirmDeleteProgram.totalRuns} run{confirmDeleteProgram.totalRuns !== 1 ? "s" : ""} will also be deleted
+      </text>
+      <box height={1} />
+      <text fg="#565f89">
+        {deleting ? "Deleting..." : "This will remove all program files, runs, worktrees, and branches."}
+      </text>
+      <box height={1} />
+      <text fg="#888888">Enter to confirm · Esc to cancel</text>
+    </box>
+  ) : null
+
   if (sideBySide) {
     return (
       <box flexGrow={1} flexDirection="row">
         {programsPanel}
         {runsPanel}
         {deleteDialog}
+        {deleteProgramDialog}
       </box>
     )
   }
@@ -309,6 +383,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun }: Home
     <box flexGrow={1}>
       {focusedPanel === "programs" ? programsPanel : runsPanel}
       {deleteDialog}
+      {deleteProgramDialog}
     </box>
   )
 }

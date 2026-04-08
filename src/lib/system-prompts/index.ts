@@ -1,4 +1,5 @@
 export { getSetupSystemPrompt, type SetupPromptResult } from "./setup.ts"
+export { getUpdateSystemPrompt, type UpdatePromptResult } from "./update.ts"
 export { getExperimentSystemPrompt } from "./experiment.ts"
 export { getFinalizeSystemPrompt } from "./finalize.ts"
 

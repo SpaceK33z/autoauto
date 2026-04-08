@@ -10,6 +10,7 @@ import { SettingsScreen } from "./screens/SettingsScreen.tsx"
 import { ExecutionScreen } from "./screens/ExecutionScreen.tsx"
 import { PreRunScreen, type PreRunOverrides } from "./screens/PreRunScreen.tsx"
 import { FirstSetupScreen } from "./screens/FirstSetupScreen.tsx"
+import { PostUpdatePrompt } from "./components/PostUpdatePrompt.tsx"
 import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.ts"
 import { loadProjectConfig, configExists, DEFAULT_CONFIG, type ProjectConfig } from "./lib/config.ts"
 import { isRunActive } from "./lib/run.ts"
@@ -26,6 +27,8 @@ export function App() {
   const [preRunOverrides, setPreRunOverrides] = useState<PreRunOverrides | null>(null)
   const [attachRunId, setAttachRunId] = useState<string | null>(null)
   const [attachReadOnly, setAttachReadOnly] = useState(false)
+  const [updateProgramSlug, setUpdateProgramSlug] = useState<string | null>(null)
+  const [showPostUpdatePrompt, setShowPostUpdatePrompt] = useState(false)
 
   useEffect(() => {
     getProjectRoot(cwd).then(setProjectRoot).catch(() => {})
@@ -63,7 +66,7 @@ export function App() {
 
   const footerText =
     screen === "home"
-      ? " n: new program | s: settings | Tab: switch panel | Enter: run | Escape: quit"
+      ? " n: new | e: edit | d: delete | s: settings | Tab: switch panel | Enter: run | Escape: quit"
       : screen === "execution"
         ? " Escape: detach (daemon continues) | q: stop | Ctrl+C: abort"
         : screen === "settings"
@@ -114,13 +117,42 @@ export function App() {
               setAttachReadOnly(!isRunActive(run))
               setScreen("execution")
             }}
+            onUpdateProgram={(slug) => {
+              setUpdateProgramSlug(slug)
+              setSelectedProgram(slug)
+              setScreen("setup")
+            }}
           />
         )}
-        {screen === "setup" && (
+        {screen === "setup" && !showPostUpdatePrompt && (
           <SetupScreen
             cwd={projectRoot}
-            navigate={setScreen}
+            navigate={(s) => {
+              if (updateProgramSlug && s === "home") {
+                // Leaving update mode — show post-update prompt
+                setShowPostUpdatePrompt(true)
+              } else {
+                setUpdateProgramSlug(null)
+                setScreen(s)
+              }
+            }}
             modelConfig={projectConfig.supportModel}
+            programSlug={updateProgramSlug ?? undefined}
+          />
+        )}
+        {screen === "setup" && showPostUpdatePrompt && selectedProgram && (
+          <PostUpdatePrompt
+            programSlug={selectedProgram}
+            onStartRun={() => {
+              setShowPostUpdatePrompt(false)
+              setUpdateProgramSlug(null)
+              setScreen("pre-run")
+            }}
+            onGoHome={() => {
+              setShowPostUpdatePrompt(false)
+              setUpdateProgramSlug(null)
+              setScreen("home")
+            }}
           />
         )}
         {screen === "settings" && (
@@ -157,6 +189,14 @@ export function App() {
             useWorktree={preRunOverrides?.useWorktree ?? true}
             attachRunId={attachRunId ?? undefined}
             readOnly={attachReadOnly}
+            onUpdateProgram={(slug) => {
+              setPreRunOverrides(null)
+              setAttachRunId(null)
+              setAttachReadOnly(false)
+              setUpdateProgramSlug(slug)
+              setSelectedProgram(slug)
+              setScreen("setup")
+            }}
           />
         )}
       </box>
