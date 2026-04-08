@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { renderTui, type TuiHarness } from "./helpers.ts"
 import { FirstSetupScreen } from "../screens/FirstSetupScreen.tsx"
-import { createTestFixture, type TestFixture } from "./fixture.ts"
+import { createTestFixture, type TestFixture, registerMockProviders } from "./fixture.ts"
 import { resetProjectRoot } from "../lib/programs.ts"
 import type { Screen } from "../lib/programs.ts"
 import type { ProjectConfig } from "../lib/config.ts"
@@ -12,13 +12,7 @@ let fixture: TestFixture
 let harness: TuiHarness | null = null
 
 beforeAll(async () => {
-  setProvider("claude", new MockProvider())
-  setProvider("codex", new MockProvider([], { authenticated: true, account: { email: "test@example.com" } }, [
-    { provider: "codex", model: "default", label: "Codex Default", isDefault: true },
-  ]))
-  setProvider("opencode", new MockProvider([], { authenticated: true, account: { email: "test@example.com" } }, [
-    { provider: "opencode", model: "default", label: "OpenCode Default", isDefault: true },
-  ]))
+  registerMockProviders()
   fixture = await createTestFixture()
 })
 
@@ -26,6 +20,8 @@ afterEach(async () => {
   await harness?.destroy()
   harness = null
   resetProjectRoot()
+  // Restore default mock provider in case a test replaced it
+  setProvider("claude", new MockProvider())
 })
 
 afterAll(async () => {
@@ -59,7 +55,6 @@ describe("FirstSetupScreen E2E", () => {
       />,
     )
     await harness.frame()
-    // Move to model row
     await harness.press("j")
     const frame = await harness.frame()
     expect(frame).toContain("Model")
@@ -74,10 +69,8 @@ describe("FirstSetupScreen E2E", () => {
       />,
     )
     await harness.frame()
-    // On provider row, press right to cycle
     await harness.press("l")
     const frame = await harness.frame()
-    // Should have cycled away from Claude
     expect(frame).toContain("Codex")
   })
 
@@ -92,14 +85,11 @@ describe("FirstSetupScreen E2E", () => {
       />,
     )
     await harness.frame()
-    // Navigate to Continue row (row 3 with effort visible for Claude)
     await harness.press("j")
     await harness.press("j")
     await harness.press("j")
     await harness.enter()
-    // Wait for async auth check to complete
     await harness.waitForText("setup", 3000).catch(() => {})
-    // Give it a moment for the callback to fire
     await harness.flush(300)
     expect(lastNav).toBe("setup")
     expect(savedConfig).not.toBeNull()
@@ -107,7 +97,6 @@ describe("FirstSetupScreen E2E", () => {
   })
 
   test("shows auth error on failure", async () => {
-    // Register a failing auth provider
     setProvider("claude", new MockProvider(
       [],
       { authenticated: false, error: "Invalid API key" },
@@ -120,15 +109,11 @@ describe("FirstSetupScreen E2E", () => {
       />,
     )
     await harness.frame()
-    // Navigate to Continue and press Enter
     await harness.press("j")
     await harness.press("j")
     await harness.press("j")
     await harness.enter()
     const frame = await harness.waitForText("Auth failed", 3000)
     expect(frame).toContain("Invalid API key")
-
-    // Restore working provider for other tests
-    setProvider("claude", new MockProvider())
   })
 })

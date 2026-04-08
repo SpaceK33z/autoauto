@@ -6,11 +6,7 @@
 import { testRender } from "@opentui/react/test-utils"
 import { act } from "react"
 
-type TestSetup = Awaited<ReturnType<typeof testRender>>
-
 export interface TuiHarness {
-  /** The underlying OpenTUI test setup */
-  setup: TestSetup
   /** Render one frame and return the captured text */
   frame: () => Promise<string>
   /** Wait for async effects to settle, then render and return frame */
@@ -103,9 +99,10 @@ export async function renderTui(
   }
 
   async function type(text: string): Promise<void> {
-    for (const char of text) {
-      await press(char)
-    }
+    await act(async () => {
+      await setup.mockInput.typeText(text)
+      await setup.renderOnce()
+    })
   }
 
   async function arrow(dir: "up" | "down" | "left" | "right"): Promise<void> {
@@ -138,5 +135,5 @@ export async function renderTui(
     })
   }
 
-  return { setup, frame, flush, press, enter, escape, tab, backspace, type, arrow, waitForText, destroy }
+  return { frame, flush, press, enter, escape, tab, backspace, type, arrow, waitForText, destroy }
 }

@@ -1,12 +1,13 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { renderTui, type TuiHarness } from "./helpers.ts"
 import { SetupScreen } from "../screens/SetupScreen.tsx"
-import { createTestFixture, type TestFixture } from "./fixture.ts"
+import { createTestFixture, type TestFixture, registerMockProviders } from "./fixture.ts"
 import { resetProjectRoot } from "../lib/programs.ts"
 import type { Screen } from "../lib/programs.ts"
+import { DEFAULT_CONFIG } from "../lib/config.ts"
 import type { AgentEvent } from "../lib/agent/types.ts"
-import { setProvider } from "../lib/agent/index.ts"
-import { MockProvider } from "../lib/agent/mock-provider.ts"
+
+const MODEL = DEFAULT_CONFIG.executionModel
 
 /** Realistic agent event sequence for a setup conversation. */
 const SETUP_EVENTS: AgentEvent[] = [
@@ -39,7 +40,7 @@ let fixture: TestFixture
 let harness: TuiHarness | null = null
 
 beforeAll(async () => {
-  setProvider("claude", new MockProvider(SETUP_EVENTS))
+  registerMockProviders(SETUP_EVENTS)
   fixture = await createTestFixture()
 })
 
@@ -53,15 +54,19 @@ afterAll(async () => {
   await fixture.cleanup()
 })
 
+function renderSetup(navigateFn: (s: Screen) => void = () => {}) {
+  return renderTui(
+    <SetupScreen
+      cwd={fixture.cwd}
+      navigate={navigateFn}
+      modelConfig={MODEL}
+    />,
+  )
+}
+
 describe("SetupScreen E2E", () => {
   test("shows mode chooser on initial render", async () => {
-    harness = await renderTui(
-      <SetupScreen
-        cwd={fixture.cwd}
-        navigate={() => {}}
-        modelConfig={{ provider: "claude", model: "sonnet", effort: "high" }}
-      />,
-    )
+    harness = await renderSetup()
     const frame = await harness.frame()
     expect(frame).toContain("New Program")
     expect(frame).toContain("Analyze my codebase")
@@ -69,88 +74,46 @@ describe("SetupScreen E2E", () => {
   })
 
   test("selecting 'Analyze' shows scope input", async () => {
-    harness = await renderTui(
-      <SetupScreen
-        cwd={fixture.cwd}
-        navigate={() => {}}
-        modelConfig={{ provider: "claude", model: "sonnet", effort: "high" }}
-      />,
-    )
+    harness = await renderSetup()
     await harness.frame()
-    // Select "Analyze my codebase" (first option, already focused)
     await harness.enter()
     const frame = await harness.waitForText("focus")
     expect(frame).toContain("area")
   })
 
   test("selecting 'I know what I want' goes to chat", async () => {
-    harness = await renderTui(
-      <SetupScreen
-        cwd={fixture.cwd}
-        navigate={() => {}}
-        modelConfig={{ provider: "claude", model: "sonnet", effort: "high" }}
-      />,
-    )
+    harness = await renderSetup()
     await harness.frame()
-    // Move down to second option and select it
     await harness.press("j")
     await harness.enter()
-    // Chat should appear — wait for it to initialize
-    const frame = await harness.waitForText("Setup", 3000)
-    expect(frame).toContain("Setup")
+    await harness.waitForText("Setup", 3000)
   })
 
   test("Escape from chooser navigates home", async () => {
     let lastNav: Screen | null = null
-    harness = await renderTui(
-      <SetupScreen
-        cwd={fixture.cwd}
-        navigate={(s) => { lastNav = s }}
-        modelConfig={{ provider: "claude", model: "sonnet", effort: "high" }}
-      />,
-    )
+    harness = await renderSetup((s) => { lastNav = s })
     await harness.frame()
     await harness.escape()
     expect(lastNav).toBe("home")
   })
 
   test("scope input submits and enters chat mode", async () => {
-    harness = await renderTui(
-      <SetupScreen
-        cwd={fixture.cwd}
-        navigate={() => {}}
-        modelConfig={{ provider: "claude", model: "sonnet", effort: "high" }}
-      />,
-    )
+    harness = await renderSetup()
     await harness.frame()
-    // Select "Analyze"
     await harness.enter()
     await harness.waitForText("area", 2000)
-    // Type a scope and submit
     await harness.type("API server")
     await harness.enter()
-    // Should transition to chat mode
-    const frame = await harness.waitForText("Setup", 3000)
-    expect(frame).toContain("Setup")
+    await harness.waitForText("Setup", 3000)
   })
 
   test("chat mode streams agent responses", async () => {
-    // Go directly to chat mode by selecting "I know what I want"
-    harness = await renderTui(
-      <SetupScreen
-        cwd={fixture.cwd}
-        navigate={() => {}}
-        modelConfig={{ provider: "claude", model: "sonnet", effort: "high" }}
-      />,
-    )
+    harness = await renderSetup()
     await harness.frame()
     await harness.press("j")
     await harness.enter()
-    // Wait for chat to load
     await harness.waitForText("Setup", 3000)
-    // The mock events should stream through — wait for the assistant's text
-    const frame = await harness.waitForText("optimization", 5000).catch(() => harness!.flush(500))
-    // Even if streaming is too fast, the chat UI should be functional
-    expect(frame).toBeTruthy()
+    const frame = await harness.waitForText("optimization", 5000)
+    expect(frame).toContain("Bundle size")
   })
 })

@@ -7,6 +7,9 @@ import { mkdtemp, rm, mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { $ } from "bun"
+import { DEFAULT_CONFIG } from "../lib/config.ts"
+import { setProvider } from "../lib/agent/index.ts"
+import { MockProvider } from "../lib/agent/mock-provider.ts"
 
 export interface TestFixture {
   /** Root directory of the temp git repo */
@@ -71,10 +74,21 @@ const DEFAULT_PROGRAM_CONFIG: ProgramFixtureConfig = {
 }
 
 const DEFAULT_PROJECT_CONFIG: ProjectConfigFixture = {
-  executionModel: { provider: "claude", model: "sonnet", effort: "high" },
-  supportModel: { provider: "claude", model: "sonnet", effort: "high" },
-  ideasBacklogEnabled: true,
-  notificationCommand: null,
+  executionModel: { ...DEFAULT_CONFIG.executionModel },
+  supportModel: { ...DEFAULT_CONFIG.supportModel },
+  ideasBacklogEnabled: DEFAULT_CONFIG.ideasBacklogEnabled,
+  notificationCommand: DEFAULT_CONFIG.notificationCommand,
+}
+
+/** Register mock providers for all three agent backends. */
+export function registerMockProviders(events: import("../lib/agent/types.ts").AgentEvent[] = []): void {
+  setProvider("claude", new MockProvider(events))
+  setProvider("codex", new MockProvider([], { authenticated: true, account: { email: "test@example.com" } }, [
+    { provider: "codex", model: "default", label: "Codex Default", isDefault: true },
+  ]))
+  setProvider("opencode", new MockProvider([], { authenticated: true, account: { email: "test@example.com" } }, [
+    { provider: "opencode", model: "default", label: "OpenCode Default", isDefault: true },
+  ]))
 }
 
 export async function createTestFixture(): Promise<TestFixture> {

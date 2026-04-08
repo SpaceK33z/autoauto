@@ -1,14 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { renderTui, type TuiHarness } from "./helpers.ts"
 import { ExecutionScreen } from "../screens/ExecutionScreen.tsx"
-import { createTestFixture, type TestFixture, type ResultFixture } from "./fixture.ts"
+import { createTestFixture, type TestFixture, type ResultFixture, registerMockProviders } from "./fixture.ts"
 import { resetProjectRoot } from "../lib/programs.ts"
 import type { Screen } from "../lib/programs.ts"
-import type { ModelSlot } from "../lib/config.ts"
-import { setProvider } from "../lib/agent/index.ts"
-import { MockProvider } from "../lib/agent/mock-provider.ts"
+import { DEFAULT_CONFIG } from "../lib/config.ts"
 
-const MODEL: ModelSlot = { provider: "claude", model: "sonnet", effort: "high" }
+const MODEL = DEFAULT_CONFIG.executionModel
 
 const RESULTS: ResultFixture[] = [
   { experiment_number: 1, commit: "abc1111", metric_value: 95, status: "keep", description: "Optimize hot path" },
@@ -22,7 +20,7 @@ let fixture: TestFixture
 let harness: TuiHarness | null = null
 
 beforeAll(async () => {
-  setProvider("claude", new MockProvider())
+  registerMockProviders()
   fixture = await createTestFixture()
 
   await fixture.createProgram("perf-opt", {
@@ -54,105 +52,51 @@ afterAll(async () => {
   await fixture.cleanup()
 })
 
+function renderExecution(navigateFn: (s: Screen) => void = () => {}) {
+  return renderTui(
+    <ExecutionScreen
+      cwd={fixture.cwd}
+      programSlug="perf-opt"
+      modelConfig={MODEL}
+      supportModelConfig={MODEL}
+      ideasBacklogEnabled={false}
+      navigate={navigateFn}
+      maxExperiments={10}
+      attachRunId="20260401-100000"
+      readOnly
+    />,
+    { width: 140, height: 40 },
+  )
+}
+
 describe("ExecutionScreen E2E — attach to completed run", () => {
   test("displays completed run with results", async () => {
-    harness = await renderTui(
-      <ExecutionScreen
-        cwd={fixture.cwd}
-        programSlug="perf-opt"
-        modelConfig={MODEL}
-        supportModelConfig={MODEL}
-        ideasBacklogEnabled={false}
-        navigate={() => {}}
-        maxExperiments={10}
-        attachRunId="20260401-100000"
-        readOnly
-      />,
-      { width: 140, height: 40 },
-    )
-    // Wait for state reconstruction from filesystem
-    const frame = await harness.waitForText("perf-opt", 5000)
-    expect(frame).toContain("perf-opt")
-  })
-
-  test("shows experiment results in table", async () => {
-    harness = await renderTui(
-      <ExecutionScreen
-        cwd={fixture.cwd}
-        programSlug="perf-opt"
-        modelConfig={MODEL}
-        supportModelConfig={MODEL}
-        ideasBacklogEnabled={false}
-        navigate={() => {}}
-        maxExperiments={10}
-        attachRunId="20260401-100000"
-        readOnly
-      />,
-      { width: 140, height: 40 },
-    )
+    harness = await renderExecution()
+    // Wait for state reconstruction — results only appear after async load
     const frame = await harness.waitForText("Optimize hot path", 5000)
     expect(frame).toContain("keep")
     expect(frame).toContain("discard")
   })
 
-  test("shows best metric and stats", async () => {
-    harness = await renderTui(
-      <ExecutionScreen
-        cwd={fixture.cwd}
-        programSlug="perf-opt"
-        modelConfig={MODEL}
-        supportModelConfig={MODEL}
-        ideasBacklogEnabled={false}
-        navigate={() => {}}
-        maxExperiments={10}
-        attachRunId="20260401-100000"
-        readOnly
-      />,
-      { width: 140, height: 40 },
-    )
-    const frame = await harness.waitForText("85", 5000)
-    expect(frame).toContain("85")
+  test("shows stats header with experiment counts", async () => {
+    harness = await renderExecution()
+    const frame = await harness.waitForText("kept 3", 5000)
+    expect(frame).toContain("disc 2")
   })
 
-  test("Tab focuses the results table", async () => {
-    harness = await renderTui(
-      <ExecutionScreen
-        cwd={fixture.cwd}
-        programSlug="perf-opt"
-        modelConfig={MODEL}
-        supportModelConfig={MODEL}
-        ideasBacklogEnabled={false}
-        navigate={() => {}}
-        maxExperiments={10}
-        attachRunId="20260401-100000"
-        readOnly
-      />,
-      { width: 140, height: 40 },
-    )
-    await harness.waitForText("perf-opt", 5000)
+  test("Tab then j navigates results table", async () => {
+    harness = await renderExecution()
+    await harness.waitForText("Optimize hot path", 5000)
     await harness.tab()
+    await harness.press("j")
     const frame = await harness.frame()
-    // Table should be focused — j/k should navigate rows
-    expect(frame).toBeTruthy()
+    expect(frame).toContain("Optimize hot path")
   })
 
   test("Escape navigates home from completed run", async () => {
     let lastNav: Screen | null = null
-    harness = await renderTui(
-      <ExecutionScreen
-        cwd={fixture.cwd}
-        programSlug="perf-opt"
-        modelConfig={MODEL}
-        supportModelConfig={MODEL}
-        ideasBacklogEnabled={false}
-        navigate={(s) => { lastNav = s }}
-        maxExperiments={10}
-        attachRunId="20260401-100000"
-        readOnly
-      />,
-      { width: 140, height: 40 },
-    )
-    await harness.waitForText("perf-opt", 5000)
+    harness = await renderExecution((s) => { lastNav = s })
+    await harness.waitForText("kept 3", 5000)
     await harness.escape()
     expect(lastNav).toBe("home")
   })

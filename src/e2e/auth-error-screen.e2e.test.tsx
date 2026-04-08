@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { renderTui, type TuiHarness } from "./helpers.ts"
 import { AuthErrorScreen } from "../screens/AuthErrorScreen.tsx"
+import { resetProjectRoot } from "../lib/programs.ts"
 
 let harness: TuiHarness | null = null
 
 afterEach(async () => {
   await harness?.destroy()
   harness = null
+  resetProjectRoot()
 })
 
 describe("AuthErrorScreen E2E", () => {

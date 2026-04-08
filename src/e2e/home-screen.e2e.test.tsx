@@ -58,7 +58,6 @@ describe("HomeScreen E2E", () => {
       />,
     )
     const frame = await harness.waitForText("perf-benchmark")
-    expect(frame).toContain("perf-benchmark")
     expect(frame).toContain("accuracy-test")
   })
 
