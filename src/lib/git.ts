@@ -98,28 +98,6 @@ export async function getDiffBetween(cwd: string, fromSha: string, toSha: string
   return await $`git diff ${fromSha} ${toSha}`.cwd(cwd).text()
 }
 
-/** Squashes all commits between baselineSha and HEAD into a single commit.
- *  Uses git reset --soft + commit. Rolls back on failure. Returns the new SHA. */
-export async function squashCommits(
-  cwd: string,
-  baselineSha: string,
-  commitMessage: string,
-): Promise<string> {
-  const savedHead = await getFullSha(cwd)
-
-  await $`git reset --soft ${baselineSha}`.cwd(cwd).quiet()
-
-  try {
-    await $`git commit -m ${commitMessage}`.cwd(cwd).quiet()
-  } catch (err) {
-    // Rollback: restore HEAD to where it was before the reset
-    await $`git reset --soft ${savedHead}`.cwd(cwd).quiet()
-    throw err
-  }
-
-  return getFullSha(cwd)
-}
-
 /** Creates a group branch from baseline, applying only the specified files from headSha.
  *  Used by finalize to split kept experiments into independent, mergeable branches.
  *  Returns the new commit SHA. */

@@ -818,10 +818,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   </box>
                 ))}
               </>
-            ) : finalizeResult.squashedSha ? (
-              <text fg="#9ece6a" selectable>Commits squashed into {finalizeResult.squashedSha.slice(0, 7)}</text>
             ) : (
-              <text fg="#888888" selectable>No changes to squash (0 keeps)</text>
+              <text fg="#888888" selectable>No group branches created</text>
             )}
             <box height={1} />
             <text fg="#ffffff">Summary saved to run directory. Press Escape to go back.</text>

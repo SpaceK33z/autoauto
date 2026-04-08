@@ -9,7 +9,6 @@ import {
   getDiffBetween,
   getRecentLog,
   getFilesChangedBetween,
-  squashCommits,
   createGroupBranch,
   checkoutBranch,
   resetHard,
@@ -40,9 +39,8 @@ export interface FinalizeGroupResult {
 
 export interface FinalizeResult {
   summary: string
-  mode: "grouped" | "squashed"
+  mode: "grouped" | "summary-only"
   groups: FinalizeGroupResult[]
-  squashedSha: string | null
   cost?: ExperimentCost
 }
 
@@ -397,19 +395,6 @@ export function generateSummaryReport(
 
 // --- Main Entry Point ---
 
-const FALLBACK_COMMIT_MESSAGE = "chore: squash autoauto experiment commits"
-
-/** Extract a commit message from agent text for the squash fallback. */
-function extractCommitMessage(text: string): string {
-  // Try the old <commit_message> format too, in case the agent includes one
-  const match = text.match(/<commit_message>\s*([\s\S]*?)\s*<\/commit_message>/)
-  if (match) {
-    const msg = match[1].trim()
-    if (msg.length > 0) return msg
-  }
-  return FALLBACK_COMMIT_MESSAGE
-}
-
 export async function runFinalize(
   projectRoot: string,
   programSlug: string,
@@ -486,14 +471,14 @@ export async function runFinalize(
           await resetHard(gitCwd, savedHead).catch(() => {})
 
           if (createdGroups.length === 0) {
-            // Total failure — fall through to squash fallback below
-            return squashFallback(gitCwd, state, results, config, summary, runDir, cost)
+            // Total failure — fall through to summary-only below
+            return summaryOnly(state, results, config, summary, runDir, cost)
           }
 
           // Partial success — return what we have
           const report = generateSummaryReport(state, results, config, summary, createdGroups, cost)
           await Bun.write(join(runDir, "summary.md"), report)
-          return { summary: report, mode: "grouped", groups: createdGroups, squashedSha: null, cost }
+          return { summary: report, mode: "grouped", groups: createdGroups, cost }
         }
 
         // Restore worktree to original experiment branch
@@ -502,17 +487,16 @@ export async function runFinalize(
 
         const report = generateSummaryReport(state, results, config, summary, createdGroups, cost)
         await Bun.write(join(runDir, "summary.md"), report)
-        return { summary: report, mode: "grouped", groups: createdGroups, squashedSha: null, cost }
+        return { summary: report, mode: "grouped", groups: createdGroups, cost }
       }
     }
   }
 
-  // Squash fallback — single commit (same as old cleanup)
-  return squashFallback(gitCwd, state, results, config, summary, runDir, cost)
+  // Summary-only — no grouping possible, just generate the report
+  return summaryOnly(state, results, config, summary, runDir, cost)
 }
 
-async function squashFallback(
-  gitCwd: string,
+async function summaryOnly(
   state: RunState,
   results: ExperimentResult[],
   config: ProgramConfig,
@@ -520,15 +504,8 @@ async function squashFallback(
   runDir: string,
   cost?: ExperimentCost,
 ): Promise<FinalizeResult> {
-  const commitMessage = extractCommitMessage(agentSummary)
-
-  let squashedSha: string | null = null
-  if (state.total_keeps > 0) {
-    squashedSha = await squashCommits(gitCwd, state.original_baseline_sha, commitMessage)
-  }
-
   const report = generateSummaryReport(state, results, config, agentSummary, undefined, cost)
   await Bun.write(join(runDir, "summary.md"), report)
 
-  return { summary: report, mode: "squashed", groups: [], squashedSha, cost }
+  return { summary: report, mode: "summary-only", groups: [], cost }
 }
