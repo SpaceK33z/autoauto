@@ -28,12 +28,19 @@ const theme: ThemeTokenStyle[] = [
   { scope: ["tag"], style: { foreground: "#f7768e" } },
 
   // Markdown-specific
-  { scope: ["markup.heading"], style: { foreground: "#7aa2f7", bold: true } },
+  { scope: ["markup.heading", "markup.heading.1", "markup.heading.2", "markup.heading.3", "markup.heading.4", "markup.heading.5", "markup.heading.6"], style: { foreground: "#7aa2f7", bold: true } },
   { scope: ["markup.italic"], style: { italic: true } },
-  { scope: ["markup.bold"], style: { bold: true } },
+  { scope: ["markup.bold", "markup.strong"], style: { bold: true } },
+  { scope: ["markup.strikethrough"], style: { dim: true } },
+  { scope: ["markup.quote"], style: { foreground: "#565f89", italic: true } },
   { scope: ["markup.link"], style: { foreground: "#7aa2f7", underline: true } },
+  { scope: ["markup.link.url"], style: { foreground: "#565f89", dim: true } },
   { scope: ["markup.raw"], style: { foreground: "#9ece6a" } },
   { scope: ["markup.list"], style: { foreground: "#ff7b72" } },
+  { scope: ["markup.list.checked"], style: { foreground: "#9ece6a" } },
+  { scope: ["markup.list.unchecked"], style: { foreground: "#565f89", dim: true } },
+  { scope: ["punctuation.special"], style: { foreground: "#565f89" } },
+  { scope: ["character.special"], style: { foreground: "#ff9e64" } },
 ]
 
 export const syntaxStyle = SyntaxStyle.fromTheme(theme)
