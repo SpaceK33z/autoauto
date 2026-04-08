@@ -8,13 +8,9 @@ Prompts are well above average. The Experiment Agent is particularly strong — 
 
 ## Improvements
 
-### 1. Setup Agent: progressive disclosure (prompt length)
+### 1. ~~Setup Agent: progressive disclosure (prompt length)~~ ✓ DONE
 
-The Setup Agent is ~388 lines with everything upfront: artifact formats, CV% tables, noise causes, autoresearch expertise. The agent doesn't need the CV% interpretation table at conversation start, or saving instructions until step 9.
-
-**Fix:** Move reference material (artifact formats, CV% tables, noise causes, autoresearch expertise) into a file the agent reads when it reaches that step. Or at minimum, move reference sections to the bottom — models pay most attention to beginning and end of prompts.
-
-Source: Anthropic context engineering blog ("find the smallest possible set of high-signal tokens"), Augment technique #10 (attention priority: beginning > end > middle).
+Implemented in commits `90b7eda` and `34f47b3`. Reference material (artifact formats, CV% tables, noise causes) moved to a just-in-time file that the agent reads when it reaches that step.
 
 ### 2. Experiment Agent: add environment context
 
