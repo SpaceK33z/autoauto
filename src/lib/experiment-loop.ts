@@ -7,10 +7,10 @@ import {
   readState,
   writeState,
   appendResult,
-  unlockMeasurement,
   serializeSecondaryValues,
   serializeDiffStats,
 } from "./run.ts"
+import { unlockMeasurement, MEASUREMENT_FILES } from "./run-setup.ts"
 import {
   getFullSha,
   resetHard,
@@ -67,6 +67,8 @@ export interface LoopOptions {
   stopRequested?: () => boolean
   /** Durable ideas.md experiment memory. Disable to use results.tsv/git history only. */
   ideasBacklogEnabled?: boolean
+  /** Diagnostics from the baseline measurement, to pass to the first experiment */
+  baselineDiagnostics?: string
 }
 
 // --- Helpers ---
@@ -82,7 +84,7 @@ interface MeasurementFileSnapshot {
 async function readMeasurementSnapshot(
   programDir: string,
 ): Promise<MeasurementFileSnapshot[]> {
-  const paths = [join(programDir, "measure.sh"), join(programDir, "config.json"), join(programDir, "build.sh")]
+  const paths = MEASUREMENT_FILES.map((f) => join(programDir, f))
   const results = await Promise.all(paths.map(async (path) => {
     try {
       const file = Bun.file(path)
@@ -203,7 +205,7 @@ async function runMeasurementAndDecide(
   callbacks: LoopCallbacks,
   recordBacklog: (result: ExperimentResult) => Promise<void>,
   signal?: AbortSignal,
-): Promise<{ state: RunState; kept: boolean }> {
+): Promise<{ state: RunState; kept: boolean; diagnostics?: string }> {
 
   const diffStatsStr = serializeDiffStats(diffStats)
 
@@ -245,7 +247,7 @@ async function runMeasurementAndDecide(
       updated_at: now(),
     }
     await writeState(runDir, finalState)
-    return { state: finalState, kept: false }
+    return { state: finalState, kept: false, diagnostics: series.diagnostics }
   }
 
   // 3. Check quality gates
@@ -278,7 +280,7 @@ async function runMeasurementAndDecide(
       updated_at: now(),
     }
     await writeState(runDir, finalState)
-    return { state: finalState, kept: false }
+    return { state: finalState, kept: false, diagnostics: series.diagnostics }
   }
 
   // 4. Compare against baseline
@@ -339,7 +341,7 @@ async function runMeasurementAndDecide(
       updated_at: now(),
     }
     await writeState(runDir, finalState)
-    return { state: finalState, kept: true }
+    return { state: finalState, kept: true, diagnostics: rebaseline.success ? rebaseline.diagnostics : series.diagnostics }
   }
 
   // DISCARD (regressed or noise without simplification)
@@ -375,7 +377,7 @@ async function runMeasurementAndDecide(
     updated_at: now(),
   }
   await writeState(runDir, finalState)
-  return { state: finalState, kept: false }
+  return { state: finalState, kept: false, diagnostics: series.diagnostics }
 }
 
 // --- Main Experiment Loop ---
@@ -397,6 +399,7 @@ export async function runExperimentLoop(
   const buildShPath = join(programDir, "build.sh")
   let state = await readState(runDir)
   let consecutiveDiscards = 0
+  let lastDiagnostics: string | undefined = options.baselineDiagnostics
   const ideasBacklogEnabled = options.ideasBacklogEnabled ?? true
   const maxConsecutiveDiscards = config.max_consecutive_discards ?? DEFAULT_MAX_CONSECUTIVE_DISCARDS
 
@@ -455,7 +458,7 @@ export async function runExperimentLoop(
 
     // --- Build context packet ---
     const packet = await buildContextPacket(
-      cwd, programDir, runDir, state, config, { ideasBacklogEnabled, consecutiveDiscards, maxConsecutiveDiscards },
+      cwd, programDir, runDir, state, config, { ideasBacklogEnabled, consecutiveDiscards, maxConsecutiveDiscards, measurementDiagnostics: lastDiagnostics },
     )
     const systemPrompt = getExperimentSystemPrompt(packet.program_md, { ideasBacklogEnabled })
     const userPrompt = buildExperimentPrompt(packet)
@@ -637,6 +640,7 @@ export async function runExperimentLoop(
     }
 
     state = measurementResult.state
+    lastDiagnostics = measurementResult.diagnostics
     if (measurementResult.kept) {
       consecutiveDiscards = 0
     } else {

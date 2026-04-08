@@ -276,6 +276,32 @@ Requirements:
 - All secondary metric fields MUST be present in the JSON output as finite numbers
 - Do NOT include build/compile steps — the orchestrator runs build.sh separately before measuring
 
+#### Optional: Diagnostics Sidecar File
+
+If measure.sh produces rich diagnostic information beyond the metric scores (e.g., individual Lighthouse audit results, detailed test failure messages, profiler output), it can write a file at \`$PWD/.autoauto-diagnostics\`. The orchestrator reads this file after each measurement and passes its contents to the experiment agent as context. This helps the agent make targeted changes instead of guessing.
+
+Example for a Lighthouse measurement script — extract failing audits from the same JSON report used for scoring:
+\`\`\`bash
+# After computing scores from $TMPFILE, extract failing audits for the experiment agent
+node -e "
+  const d = JSON.parse(require('fs').readFileSync('$TMPFILE', 'utf8'));
+  const failing = [];
+  for (const [id, audit] of Object.entries(d.audits)) {
+    if (audit.score !== null && audit.score < 1 && audit.details?.type) {
+      const items = (audit.details.items || []).slice(0, 3).map(i => '    ' + JSON.stringify(i)).join('\\n');
+      failing.push(id + ' (score: ' + audit.score + '): ' + audit.title + (items ? '\\n' + items : ''));
+    }
+  }
+  if (failing.length) require('fs').writeFileSync('.autoauto-diagnostics', failing.join('\\n\\n') + '\\n');
+"
+\`\`\`
+
+Guidelines:
+- Write to \`$PWD/.autoauto-diagnostics\` (the file is automatically deleted after reading)
+- Keep output concise and actionable — focus on what's failing and why, not a full dump
+- The file is optional: if measure.sh doesn't write it, nothing changes
+- Use this whenever the measurement tool produces richer information than the numeric scores alone
+
 ### config.json Format
 
 \`\`\`json

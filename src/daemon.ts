@@ -12,7 +12,8 @@ import { join } from "node:path"
 import { closeProviders } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
 import { loadProgramConfig } from "./lib/programs.ts"
-import { readState, writeState, lockMeasurement, unlockMeasurement, appendResult, serializeSecondaryValues } from "./lib/run.ts"
+import { readState, writeState, appendResult, serializeSecondaryValues } from "./lib/run.ts"
+import { lockMeasurement, unlockMeasurement } from "./lib/run-setup.ts"
 import type { RunState } from "./lib/run.ts"
 import { runExperimentLoop } from "./lib/experiment-loop.ts"
 import { runMeasurementSeries } from "./lib/measure.ts"
@@ -226,6 +227,7 @@ async function main() {
           signal: abortController.signal,
           stopRequested: () => stopRequested,
           ideasBacklogEnabled,
+          baselineDiagnostics: baseline.diagnostics,
         },
       )
     } else {

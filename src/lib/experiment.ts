@@ -41,6 +41,7 @@ export interface ContextPacket {
   secondary_metrics?: Record<string, { direction: "lower" | "higher"; last_kept_value?: number }>
   consecutive_discards: number
   max_consecutive_discards: number
+  measurement_diagnostics?: string
 }
 
 /** Cost and usage data from an agent session. */
@@ -67,7 +68,7 @@ export async function buildContextPacket(
   runDir: string,
   state: RunState,
   config: { metric_field: string; direction: "lower" | "higher"; secondary_metrics?: Record<string, { direction: "lower" | "higher" }> },
-  options: { ideasBacklogEnabled?: boolean; consecutiveDiscards?: number; maxConsecutiveDiscards?: number } = {},
+  options: { ideasBacklogEnabled?: boolean; consecutiveDiscards?: number; maxConsecutiveDiscards?: number; measurementDiagnostics?: string } = {},
 ): Promise<ContextPacket> {
   const [programMd, resultsRaw, recentGitLog] = await Promise.all([
     Bun.file(join(programDir, "program.md")).text(),
@@ -146,6 +147,7 @@ export async function buildContextPacket(
     secondary_metrics: secondaryMetrics,
     consecutive_discards: options.consecutiveDiscards ?? 0,
     max_consecutive_discards: options.maxConsecutiveDiscards ?? 10,
+    measurement_diagnostics: options.measurementDiagnostics,
   }
 }
 
@@ -220,6 +222,13 @@ ${packet.recent_git_log}
 
 ## Recently Discarded Experiments
 ${packet.discarded_diffs || "(none yet)"}
+${packet.measurement_diagnostics ? `
+## Measurement Diagnostics
+Detailed diagnostic output from the last measurement run. Use this to identify exactly which audits, tests, or checks are underperforming — do NOT guess from code inspection alone.
+\`\`\`
+${packet.measurement_diagnostics}
+\`\`\`
+` : ""}
 ${packet.ideas_backlog ? `
 ## Ideas Backlog
 ${packet.ideas_backlog}

@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process"
+import { join } from "node:path"
+import { unlink } from "node:fs/promises"
 import type { ProgramConfig } from "./programs.ts"
 
 // --- Helpers ---
@@ -16,7 +18,7 @@ function killProcessGroup(proc: ChildProcess, signal: NodeJS.Signals = "SIGTERM"
 // --- Types ---
 
 export type MeasurementResult =
-  | { success: true; output: Record<string, unknown>; duration_ms: number }
+  | { success: true; output: Record<string, unknown>; duration_ms: number; diagnostics?: string }
   | { success: false; error: string; duration_ms: number }
 
 export interface MeasurementSeriesResult {
@@ -29,6 +31,7 @@ export interface MeasurementSeriesResult {
   individual_runs: MeasurementResult[]
   duration_ms: number
   failure_reason?: string
+  diagnostics?: string
 }
 
 // --- Helpers ---
@@ -59,6 +62,21 @@ function computeMedians(fieldValues: Record<string, number[]>): Record<string, n
     result[field] = median(values)
   }
   return result
+}
+
+// --- Diagnostics Sidecar ---
+
+const DIAGNOSTICS_FILENAME = ".autoauto-diagnostics"
+
+async function readAndCleanDiagnostics(cwd: string): Promise<string | undefined> {
+  const diagnosticsPath = join(cwd, DIAGNOSTICS_FILENAME)
+  try {
+    const content = await Bun.file(diagnosticsPath).text()
+    await unlink(diagnosticsPath).catch(() => {})
+    return content.trim() || undefined
+  } catch {
+    return undefined
+  }
 }
 
 // --- Measurement Execution ---
@@ -115,17 +133,22 @@ export async function runMeasurement(
       signal?.removeEventListener("abort", onAbort)
       const duration_ms = Math.round(performance.now() - start)
 
+      // Failure paths: fire-and-forget cleanup so the sidecar doesn't leak
+      // as an untracked file, but resolve immediately without blocking on I/O.
       if (signal?.aborted) {
+        readAndCleanDiagnostics(cwd)
         resolve({ success: false, error: "aborted", duration_ms })
         return
       }
 
       if (timedOut) {
+        readAndCleanDiagnostics(cwd)
         resolve({ success: false, error: `Measurement timed out after ${timeoutLimit}ms`, duration_ms })
         return
       }
 
       if (exitCode !== 0) {
+        readAndCleanDiagnostics(cwd)
         resolve({
           success: false,
           error: `exit code ${exitCode}${stderr ? `: ${stderr.trim().slice(0, 200)}` : ""}`,
@@ -138,6 +161,7 @@ export async function runMeasurement(
       try {
         parsed = JSON.parse(stdout.trim())
       } catch {
+        readAndCleanDiagnostics(cwd)
         resolve({
           success: false,
           error: `invalid JSON on stdout: ${stdout.trim().slice(0, 200)}`,
@@ -147,6 +171,7 @@ export async function runMeasurement(
       }
 
       if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        readAndCleanDiagnostics(cwd)
         resolve({
           success: false,
           error: `stdout must be a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`,
@@ -155,7 +180,12 @@ export async function runMeasurement(
         return
       }
 
-      resolve({ success: true, output: parsed as Record<string, unknown>, duration_ms })
+      // Success path: await diagnostics before resolving
+      readAndCleanDiagnostics(cwd).then((diagnostics) => {
+        resolve({ success: true, output: parsed as Record<string, unknown>, duration_ms, diagnostics })
+      }).catch(() => {
+        resolve({ success: true, output: parsed as Record<string, unknown>, duration_ms })
+      })
     })
 
     proc.on("error", (err) => {
@@ -402,6 +432,10 @@ export async function runMeasurementSeries(
 
   const gateCheck = checkQualityGates(medianGates, config)
 
+  // All runs succeeded at this point (partial failures exit above),
+  // so the last run's diagnostics are the most recent.
+  const lastRun = runs.at(-1) as Extract<MeasurementResult, { success: true }>
+
   return {
     success: true,
     median_metric: medianMetric,
@@ -411,6 +445,7 @@ export async function runMeasurementSeries(
     gate_violations: gateCheck.violations,
     individual_runs: runs,
     duration_ms,
+    diagnostics: lastRun.diagnostics,
   }
 }
 
