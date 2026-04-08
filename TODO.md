@@ -19,24 +19,12 @@ TODO: queueing, do a run when another run is finished
 
 TODO: with the markdown rendering, i think we don't even do anything special for a header like # or ## is that possible? can we make it at least bold
 
-TODO: finalize crash
-
-TODO: use this fancy skill to generate graph
-
 TODO: create a LITERATURE.md doc that references all the knowledge we implemented in prompts or code with quotes, and refers to sources - also refer to this in README.md
-
-TODO: enhance finalize: have it identify risky changes (specifically user-facing) and make it easy to revert
-
-TODO: finalize should work on multiple runs not just one (how does the other one do it?)
 
 TODO: add way for notifications, have a free form field + test it + support templating
 
 TODO: add gif/video
 
----
-
-Next up:
-* see how many things it can identify on the tango-web codebase
-  * does it see automatix? if not we need to improve prompt
-  * ehh should also be some other things it should spot
-* run it on modulaser-v2, focus on performance
+Manually test:
+* notifications
+* finalize

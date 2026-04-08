@@ -51,7 +51,9 @@ Autoresearch looks simple — "just loop an agent and measure" — but real impl
 - **Variance** — A "3% improvement" means nothing if your measurement has 5% noise. AutoAuto validates measurement stability during setup, runs median-of-N measurements, and uses a noise threshold to filter false improvements.
 - **Agent drift** — Without constraints, agents rewrite your architecture or add dependencies you never wanted. AutoAuto's `program.md` defines exactly what's in scope and off-limits.
 - **Narrative momentum** — Long-running agents convince themselves their approach is working and resist changing direction. AutoAuto spawns a fresh agent per experiment with no memory except a structured context packet.
-- **Recovery** — One bad experiment shouldn't corrupt the run. AutoAuto uses `git reset --hard` for clean rollback after every failure, re-baselines to detect environment drift, and auto-stops after prolonged stagnation.
+- **Context loss** — A fresh agent per experiment solves momentum but creates the opposite problem: forgetting what was already tried. AutoAuto builds a structured context packet for each experiment — current baseline, recent results, diffs from discarded attempts, and an ideas backlog — so agents learn from history without inheriting bias.
+- **Stagnation** — auto-stops after consecutive non-improving experiments, and as the discard count climbs it injects escalating directives pushing the agent to try radically different approaches before giving up.
+- **Fault tolerance** — The daemon can crash, get killed, or lose power mid-experiment. On restart it detects the interrupted phase, rolls back to the last known good commit, and resumes. Every experiment resets cleanly on failure with post-reset verification. State is checkpointed atomically so a crash never corrupts it.
 
 ## Quick start
 

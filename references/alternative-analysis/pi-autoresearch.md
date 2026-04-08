@@ -36,7 +36,7 @@ After the autoresearch loop produces a messy branch of interleaved keep/discard 
 
 This is the biggest gap. Our loop produces a linear chain of kept commits, but there's no workflow for turning that into reviewable, independently-mergeable PRs. Users have to manually cherry-pick and group changes.
 
-**Actionable:** Build a cleanup/finalize phase (phase 3 in IDEA.md mentions this). Could be agent-driven: after the loop, a cleanup agent reads the experiment log + git history, proposes groupings, and creates branches. The finalize.sh approach of validating no file overlaps and verifying union = HEAD is a solid algorithm we could adapt.
+**Actionable:** Build a cleanup/finalize phase (now documented in `docs/concepts.md`). Could be agent-driven: after the loop, a cleanup agent reads the experiment log + git history, proposes groupings, and creates branches. The finalize.sh approach of validating no file overlaps and verifying union = HEAD is a solid algorithm we could adapt.
 
 ### 2. Session resumability via plain files
 
