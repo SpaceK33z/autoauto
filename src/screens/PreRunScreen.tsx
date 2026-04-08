@@ -34,12 +34,14 @@ interface PreRunScreenProps {
   defaultModelConfig: ModelSlot
   navigate: (screen: Screen) => void
   onStart: (overrides: PreRunOverrides) => void
+  onAddToQueue?: (overrides: PreRunOverrides) => void
+  programHasQueueEntries?: boolean
 }
 
 // 0=maxExperiments, 1=provider, 2=model, 3=effort, 4=runMode, 5=carryForward (if previous runs exist)
 const BASE_FIELD_COUNT = 5
 
-export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, onStart }: PreRunScreenProps) {
+export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, onStart, onAddToQueue, programHasQueueEntries = false }: PreRunScreenProps) {
   const [selected, setSelected] = useState(0)
   const [maxExpText, setMaxExpText] = useState("")
   const [modelSlot, setModelSlot] = useState<ModelSlot>(defaultModelConfig)
@@ -73,10 +75,22 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     })
   }, [cwd, programSlug])
 
-  function handleStart() {
+  function buildOverrides(): PreRunOverrides | null {
     const parsed = parseInt(maxExpText, 10)
-    if (isNaN(parsed) || parsed < 1) return // require a valid limit
-    onStart({ modelConfig: modelSlot, maxExperiments: parsed, useWorktree, carryForward })
+    if (isNaN(parsed) || parsed < 1) return null
+    return { modelConfig: modelSlot, maxExperiments: parsed, useWorktree, carryForward }
+  }
+
+  function handleStart() {
+    if (programHasQueueEntries) return
+    const overrides = buildOverrides()
+    if (overrides) onStart(overrides)
+  }
+
+  function handleAddToQueue() {
+    if (!onAddToQueue) return
+    const overrides = buildOverrides()
+    if (overrides) onAddToQueue(overrides)
   }
 
   function handleCycleProvider(direction: -1 | 1) {
@@ -97,6 +111,10 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     if (pickingModel) return
     if (key.name === "escape") {
       navigate("home")
+      return
+    }
+    if (key.name === "a" && onAddToQueue && selected !== 0) {
+      handleAddToQueue()
       return
     }
     if (key.name === "return") {
@@ -147,6 +165,11 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const maxExp = parseInt(maxExpText, 10)
   const hasMaxExp = !isNaN(maxExp) && maxExp > 0
   const effortDisplay = formatEffortSlot(modelSlot)
+  const footerHint = onAddToQueue
+    ? programHasQueueEntries
+      ? "  a: add to queue | Escape: back | Tab: next field"
+      : "  Enter: start/open model picker | a: add to queue | Escape: back | Tab: next field"
+    : "  Enter: start/open model picker | Escape: back | Tab: next field"
 
   if (pickingModel) {
     return (
@@ -219,7 +242,10 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
       <box flexGrow={1} />
 
-      <text fg="#666666">{"  Enter: start/open model picker | Escape: back | Tab: next field"}</text>
+      {programHasQueueEntries && (
+        <text fg="#ff9e64">{"  \u26A0 This program has queued runs. Use 'a' to add to queue."}</text>
+      )}
+      <text fg="#666666">{footerHint}</text>
     </box>
   )
 }

@@ -15,6 +15,7 @@ import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.t
 import { loadProjectConfig, configExists, DEFAULT_CONFIG, type ProjectConfig } from "./lib/config.ts"
 import { isRunActive } from "./lib/run.ts"
 import type { DraftSession } from "./lib/drafts.ts"
+import { readQueue, appendToQueue, startNextFromQueue, programHasQueueEntries } from "./lib/queue.ts"
 
 const cwd = process.cwd()
 
@@ -33,6 +34,7 @@ export function App() {
   const [showPostUpdatePrompt, setShowPostUpdatePrompt] = useState(false)
   const [draftName, setDraftName] = useState<string | null>(null)
   const draftSavedExitRef = useRef(false)
+  const [queueHasProgram, setQueueHasProgram] = useState(false)
 
   useEffect(() => {
     getProjectRoot(cwd).then(setProjectRoot).catch(() => {})
@@ -45,9 +47,20 @@ export function App() {
   // Load project config + reload when returning to home
   useEffect(() => {
     if (screen === "home") {
-      loadProjectConfig(cwd).then(setProjectConfig)
+      loadProjectConfig(cwd).then(async (config) => {
+        setProjectConfig(config)
+        // Queue fallback: if queue has pending items but nothing running, resume
+        try {
+          await startNextFromQueue(projectRoot, config.ideasBacklogEnabled)
+        } catch {}
+      })
     }
-  }, [screen])
+    if (screen === "pre-run" && selectedProgram) {
+      readQueue(projectRoot).then((queue) => {
+        setQueueHasProgram(programHasQueueEntries(queue, selectedProgram))
+      })
+    }
+  }, [screen, projectRoot, selectedProgram])
 
   useKeyboard((key) => {
     if (key.name === "escape") {
@@ -70,7 +83,7 @@ export function App() {
 
   const footerText =
     screen === "home"
-      ? " n: new/resume | e: edit | d: delete | f: finalize | s: settings | Tab: switch | Enter: run | Esc: quit"
+      ? " n: new/resume | e: edit | d: delete | f: finalize | s: settings | Tab: cycle | Enter: run | Esc: quit"
       : screen === "execution"
         ? " Escape: detach (daemon continues) | Tab: switch panel | s: settings | q: stop | Ctrl+C: abort"
         : screen === "settings"
@@ -211,6 +224,19 @@ export function App() {
               setAttachRunId(null)
               setAttachReadOnly(false)
               setScreen("execution")
+            }}
+            programHasQueueEntries={queueHasProgram}
+            onAddToQueue={async (overrides) => {
+              const { wasEmpty } = await appendToQueue(projectRoot, {
+                programSlug: selectedProgram,
+                modelConfig: overrides.modelConfig,
+                maxExperiments: overrides.maxExperiments,
+                useWorktree: overrides.useWorktree,
+              })
+              if (wasEmpty) {
+                await startNextFromQueue(projectRoot, projectConfig.ideasBacklogEnabled)
+              }
+              setScreen("home")
             }}
           />
         )}

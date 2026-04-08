@@ -32,6 +32,8 @@ import {
   waitForDaemonStub,
   killChildProcessTree,
 } from "./lib/daemon-lifecycle.ts"
+import { startNextFromQueue } from "./lib/queue.ts"
+import { removeWorktree } from "./lib/worktree.ts"
 
 // --- Parse CLI args ---
 
@@ -82,6 +84,7 @@ async function main() {
   const maxExperiments = runConfig.max_experiments
   const ideasBacklogEnabled = runConfig?.ideas_backlog_enabled ?? true
   const carryForward = runConfig?.carry_forward ?? true
+  const source = runConfig?.source ?? "manual"
 
   // 3. Stop/abort signals
   let stopRequested = false
@@ -154,6 +157,7 @@ async function main() {
         in_place: inPlace || undefined,
         error: null,
         error_phase: null,
+        source,
       }
       await writeState(runDir, baselineState)
 
@@ -262,17 +266,53 @@ async function main() {
     await unlockMeasurement(programDir).catch(() => {})
 
     // Send notification if configured
+    let projectConfig: Awaited<ReturnType<typeof loadProjectConfig>> | null = null
+    let programConfig: Awaited<ReturnType<typeof loadProgramConfig>> | null = null
     try {
-      const [projectConfig, programConfig, finalState] = await Promise.all([
+      const [pc, pgc, finalState] = await Promise.all([
         loadProjectConfig(mainRoot),
         loadProgramConfig(programDir),
         readState(runDir),
       ])
-      if (projectConfig.notificationCommand) {
-        await sendNotification(projectConfig.notificationCommand, finalState, programConfig.direction)
+      projectConfig = pc
+      programConfig = pgc
+      if (pc.notificationCommand) {
+        await sendNotification(pc.notificationCommand, finalState, pgc.direction)
       }
     } catch (err) {
       process.stderr.write(`[notify] Error: ${err}\n`)
+    }
+
+    // Queue: clean up worktree and chain to next run
+    if (source === "queue") {
+      if (worktreePath && worktreePath !== mainRoot) {
+        await removeWorktree(mainRoot, worktreePath).catch((err) => {
+          process.stderr.write(`[queue] Worktree cleanup failed: ${err}\n`)
+        })
+      }
+
+      const cfg = projectConfig ?? await loadProjectConfig(mainRoot).catch(() => null)
+      if (cfg) {
+        try {
+          const result = await startNextFromQueue(mainRoot, cfg.ideasBacklogEnabled)
+          if (result.started) {
+            process.stderr.write(`[queue] Started next: ${result.entry.programSlug} (run ${result.runId})\n`)
+          }
+        } catch (err) {
+          process.stderr.write(`[queue] Chain failed: ${err}\n`)
+          if (cfg.notificationCommand) {
+            try {
+              const failState = await readState(runDir).catch(() => null)
+              if (failState) {
+                await sendNotification(cfg.notificationCommand, {
+                  ...failState,
+                  error: `Queue chain failed: ${err}`,
+                }, programConfig?.direction ?? "higher")
+              }
+            } catch {}
+          }
+        }
+      }
     }
   }
 }

@@ -12,6 +12,7 @@ import { listRuns, isRunActive, deleteRun, deleteProgram, type RunInfo } from ".
 import { RunsTable } from "../components/RunsTable.tsx"
 import { formatShellError } from "../lib/git.ts"
 import { listDrafts, deleteDraft, type DraftSession, type DraftEntry } from "../lib/drafts.ts"
+import { readQueue, removeFromQueue, clearQueue, type QueueFile } from "../lib/queue.ts"
 
 interface HomeScreenProps {
   cwd: string
@@ -28,6 +29,7 @@ interface HomeData {
   allRuns: RunInfo[]
   programConfigs: Record<string, ProgramConfig>
   drafts: DraftEntry[]
+  queue: QueueFile
 }
 
 const MAX_RUNS = 50
@@ -48,7 +50,7 @@ function relativeTime(iso: string): string {
 
 /** Single-pass loader: iterates programs once to build program info, all runs, and configs. */
 async function loadHomeData(cwd: string): Promise<HomeData> {
-  const [programs, drafts] = await Promise.all([listPrograms(cwd), listDrafts(cwd)])
+  const [programs, drafts, queue] = await Promise.all([listPrograms(cwd), listDrafts(cwd), readQueue(cwd)])
   const allRuns: RunInfo[] = []
   const programInfos: ProgramInfo[] = []
   const programConfigs: Record<string, ProgramConfig> = {}
@@ -98,10 +100,11 @@ async function loadHomeData(cwd: string): Promise<HomeData> {
     allRuns: allRuns.slice(0, MAX_RUNS),
     programConfigs,
     drafts,
+    queue,
   }
 }
 
-type Panel = "programs" | "runs"
+type Panel = "programs" | "runs" | "queue"
 
 export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpdateProgram, onFinalizeRun, onResumeDraft }: HomeScreenProps) {
   const { width } = useTerminalDimensions()
@@ -113,6 +116,8 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   const [focusedPanel, setFocusedPanel] = useState<Panel>("programs")
   const [confirmDelete, setConfirmDelete] = useState<RunInfo | null>(null)
   const [confirmDeleteProgram, setConfirmDeleteProgram] = useState<ProgramInfo | null>(null)
+  const [confirmClearQueue, setConfirmClearQueue] = useState(false)
+  const [selectedQueueIndex, setSelectedQueueIndex] = useState(0)
   const [deleting, setDeleting] = useState(false)
 
   const sideBySide = width >= SIDE_BY_SIDE_MIN_WIDTH
@@ -131,6 +136,8 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   const draftsCount = drafts.length
   const totalProgramItems = draftsCount + programs.length
   const selectableRuns = (data?.allRuns ?? []).filter((r) => r.state != null)
+  const queueEntries = data?.queue?.entries ?? []
+  const hasQueueItems = queueEntries.length > 0
 
   const performDeleteDraft = (draftEntry: DraftEntry) => {
     setDeleting(true)
@@ -189,7 +196,22 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   }
 
   useKeyboard((key) => {
-    // Confirmation dialog intercepts all keys
+    // Confirmation dialogs intercept all keys
+    if (confirmClearQueue) {
+      if (key.name === "return") {
+        clearQueue(cwd).then(() => {
+          setConfirmClearQueue(false)
+          loadHomeData(cwd).then((newData) => {
+            setData(newData)
+            setSelectedQueueIndex(0)
+            setFocusedPanel("programs")
+          })
+        })
+      } else if (key.name === "escape" || key.name === "n") {
+        setConfirmClearQueue(false)
+      }
+      return
+    }
     if (confirmDeleteProgram) {
       if (key.name === "return") {
         performDeleteProgram(confirmDeleteProgram)
@@ -222,7 +244,11 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       return
     }
     if (key.name === "tab") {
-      setFocusedPanel((p) => (p === "programs" ? "runs" : "programs"))
+      setFocusedPanel((p) => {
+        if (p === "programs") return "runs"
+        if (p === "runs") return hasQueueItems ? "queue" : "programs"
+        return "programs" // queue → programs
+      })
       return
     }
 
@@ -276,6 +302,26 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
           setConfirmDelete(run)
         }
       }
+    } else if (focusedPanel === "queue" && hasQueueItems) {
+      if (key.name === "up" || key.name === "k") {
+        setSelectedQueueIndex((i) => Math.max(0, i - 1))
+      } else if (key.name === "down" || key.name === "j") {
+        setSelectedQueueIndex((i) => Math.min(queueEntries.length - 1, i + 1))
+      } else if (key.name === "d") {
+        const entry = queueEntries[selectedQueueIndex]
+        if (entry) {
+          removeFromQueue(cwd, entry.id).then(() => {
+            loadHomeData(cwd).then((newData) => {
+              setData(newData)
+              const newLen = newData.queue.entries.length
+              setSelectedQueueIndex((i) => Math.min(i, Math.max(0, newLen - 1)))
+              if (newLen === 0) setFocusedPanel("programs")
+            })
+          })
+        }
+      } else if (key.name === "c") {
+        setConfirmClearQueue(true)
+      }
     }
   })
 
@@ -297,6 +343,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
 
   const programsFocused = focusedPanel === "programs"
   const runsFocused = focusedPanel === "runs"
+  const queueFocused = focusedPanel === "queue"
 
   const programsPanel = (
     <box
@@ -447,22 +494,79 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     </box>
   ) : null
 
+  const queuePanel = hasQueueItems ? (
+    <box
+      flexDirection="column"
+      height={Math.min(queueEntries.length + 2, 8)}
+      border
+      borderStyle="rounded"
+      borderColor={queueFocused ? "#7aa2f7" : "#666666"}
+      title={`Queue (${queueEntries.length})`}
+    >
+      <scrollbox flexGrow={1}>
+        {queueEntries.map((entry, i) => {
+          const isSelected = queueFocused && i === selectedQueueIndex
+          return (
+            <box key={entry.id} paddingX={1} backgroundColor={isSelected ? "#333333" : undefined}>
+              <text>
+                <span fg={i === 0 ? "#7aa2f7" : "#ffffff"}>{i === 0 ? "\u25B6 " : "  "}</span>
+                <span fg="#ffffff">{entry.programSlug}</span>
+                <span fg="#666666">{` ${entry.maxExperiments}exp \u00B7 ${entry.modelConfig.model}`}</span>
+                {entry.retryCount > 0 && <span fg="#ff5555">{` (retry ${entry.retryCount})`}</span>}
+              </text>
+            </box>
+          )
+        })}
+      </scrollbox>
+    </box>
+  ) : null
+
+  const clearQueueDialog = confirmClearQueue ? (
+    <box
+      position="absolute"
+      top="40%"
+      left="30%"
+      width="40%"
+      flexDirection="column"
+      border
+      borderStyle="rounded"
+      borderColor="#ff5555"
+      backgroundColor="#1a1b26"
+      padding={1}
+      title="Clear Queue"
+    >
+      <text fg="#ff5555"><strong>Clear all queued runs?</strong></text>
+      <box height={1} />
+      <text fg="#ffffff">{queueEntries.length} run{queueEntries.length !== 1 ? "s" : ""} will be removed from the queue.</text>
+      <box height={1} />
+      <text fg="#888888">Enter to confirm · Esc to cancel</text>
+    </box>
+  ) : null
+
   if (sideBySide) {
     return (
-      <box flexGrow={1} flexDirection="row">
-        {programsPanel}
-        {runsPanel}
+      <box flexGrow={1} flexDirection="column">
+        <box flexGrow={1} flexDirection="row">
+          {programsPanel}
+          {runsPanel}
+        </box>
+        {queuePanel}
         {deleteDialog}
         {deleteProgramDialog}
+        {clearQueueDialog}
       </box>
     )
   }
 
   return (
-    <box flexGrow={1}>
-      {focusedPanel === "programs" ? programsPanel : runsPanel}
+    <box flexGrow={1} flexDirection="column">
+      <box flexGrow={1}>
+        {focusedPanel === "queue" ? null : (focusedPanel === "programs" ? programsPanel : runsPanel)}
+      </box>
+      {queuePanel}
       {deleteDialog}
       {deleteProgramDialog}
+      {clearQueueDialog}
     </box>
   )
 }

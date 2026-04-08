@@ -66,6 +66,8 @@ export interface RunState {
   error?: string | null
   /** Which phase the error occurred in */
   error_phase?: RunPhase | null
+  /** Whether this run was started manually or from the queue */
+  source?: "manual" | "queue"
 }
 
 /** A single row in results.tsv */

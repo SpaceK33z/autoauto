@@ -26,6 +26,7 @@ export interface RunConfig {
   ideas_backlog_enabled?: boolean
   in_place?: boolean
   carry_forward?: boolean
+  source?: "manual" | "queue"
 }
 
 export interface ControlAction {

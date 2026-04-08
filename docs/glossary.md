@@ -32,4 +32,7 @@ Quick reference for the core AutoAuto terms.
 | **Results TSV** | Append-only `results.tsv` log of experiment outcomes. |
 | **Diff stats** | Added/removed line counts recorded per experiment. |
 | **Daemon** | Background process that runs the loop detached from the TUI. |
+| **Queue** | Sequential list of pending runs in `.autoauto/queue.json`. Drains automatically via daemon chaining. |
+| **Queue chaining** | Completing daemon pops the next queue entry and spawns a new daemon for it. |
+| **Program exclusivity** | A program is either queue-managed or manually run, never both at the same time. |
 | **Finalize Agent** | Post-run reviewer that summarizes the run and can group changed files into reviewable branches. |
