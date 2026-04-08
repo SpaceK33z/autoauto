@@ -121,6 +121,7 @@ src/
     measure.ts           # Measurement execution, validation, comparison
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
+    queue.ts               # Sequential run queue: persistence, manipulation, daemon chaining
     run.ts               # Run state persistence, types, results I/O, previous run context
     run-setup.ts         # Run bootstrap: directory init, measurement locking
     system-prompts/      # Agent system prompts
