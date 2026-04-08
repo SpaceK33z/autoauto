@@ -125,9 +125,11 @@ export function Chat({
             case "text_delta":
               setStreamingText((prev) => prev + event.text)
               setToolStatus(null)
+              setIsStreaming(true)
               break
             case "tool_use":
               setToolStatus(formatToolEvent(event.tool, event.input ?? {}))
+              setIsStreaming(true)
               break
             case "assistant_complete":
               // Skip tool-only turns that produced no visible text
