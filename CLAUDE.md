@@ -90,7 +90,8 @@ src/
     measure.ts           # Measurement execution, validation, comparison
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
-    run.ts               # Run lifecycle (branch, baseline, state, locking)
+    run.ts               # Run state persistence, types, results I/O
+    run-setup.ts         # Run bootstrap: directory init, measurement locking
     system-prompts.ts    # Agent system prompts (setup, update, experiment, finalize)
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
@@ -105,7 +106,10 @@ src/
     daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (per-experiment stream log writes)
     daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
     run-context.ts         # Build update agent context from previous run data
-    daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
+    daemon-client.ts       # Barrel re-export for daemon-spawn, daemon-watcher, daemon-status
+    daemon-spawn.ts        # TUI-side: prepare environment and spawn detached daemon process
+    daemon-watcher.ts      # TUI-side: file watching with delta reads, debouncing, heartbeat
+    daemon-status.ts       # TUI-side: daemon status, state reconstruction, control, config
 ```
 
 ## Bun-Native API Conventions
