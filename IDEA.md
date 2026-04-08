@@ -18,9 +18,9 @@ Interactive, agent-guided chat to configure an optimization program. The Setup A
 
 The orchestrator loop. Establishes a baseline, then spawns a fresh Experiment Agent per iteration with a compact context packet (baseline, recent results, discarded diffs). Agent makes one change and commits. AutoAuto measures (median of N runs), keeps improvements beyond noise threshold (with quality gates), discards failures via `git reset --hard`, and loops. Runs in a background daemon inside an AutoAuto-owned git worktree, surviving terminal close.
 
-### 3. Cleanup (planned)
+### 3. Finalize
 
-Review and package results: run a Cleanup Agent over the accumulated diff, squash into clean commits, generate a summary report, flag risky changes.
+Review and package results: the Finalize Agent reviews the accumulated diff, groups changes into independent branches (or squashes as fallback), and produces a summary.
 
 ## Key Safeguards
 
@@ -45,14 +45,11 @@ See `docs/failure-patterns.md` for the full catalog of failure modes and mitigat
 
 ## Future Ideas
 
-- **Fix Agent** — on crash, spawn a focused agent with error output + the diff, 1-2 fix attempts before discarding
 - **Configurable agent output detail** — toggle between thinking-only, thinking + tool calls, or full raw output during execution
 - **Parallel experiments** — run multiple programs simultaneously via git worktrees, with deduplication to prevent the same idea being tried in parallel
-- **Codex / OpenCode agent support** — alternative agent backends beyond Claude
 - **Quota fallback** — switch to a different CLI/agent when API quota is reached
 - **Rich visualizations** — detailed charts and tables for completed runs
 - **Re-profiling** — separate profiling step (e.g. flame graphs, trace analysis) that feeds structured data to the experiment agent
-- **Learnings persistence** — explore a `learnings.md` that accumulates qualitative insights across iterations (why things failed, not just that they did), to complement the results.tsv + git history approach
 - **Creativity ceiling / local optima** — after ~50-80 experiments agents tend to get stuck in local search. Explore meta-prompt optimization: a second agent reviews results and rewrites `program.md` to push exploration in new directions. Also consider diversity directives and periodic resets from earlier checkpoints.
 - **Human nudges** — during a run, nudge the agent to explore something else
 
