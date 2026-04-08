@@ -25,6 +25,7 @@ export interface ProgramConfig {
   secondary_metrics?: Record<string, SecondaryMetric>
   max_experiments: number
   max_consecutive_discards?: number
+  max_turns?: number
 }
 
 export type Screen = "home" | "setup" | "settings" | "program-detail" | "pre-run" | "execution" | "first-setup"
@@ -73,6 +74,14 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
       config.max_consecutive_discards < 1)
   ) {
     throw new Error("config.json: max_consecutive_discards must be an integer >= 1")
+  }
+  if (
+    config.max_turns !== undefined &&
+    (typeof config.max_turns !== "number" ||
+      !Number.isInteger(config.max_turns) ||
+      config.max_turns < 1)
+  ) {
+    throw new Error("config.json: max_turns must be an integer >= 1")
   }
   if (typeof config.quality_gates !== "object" || config.quality_gates === null || Array.isArray(config.quality_gates)) {
     throw new Error("config.json: quality_gates must be an object")

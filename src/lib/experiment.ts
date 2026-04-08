@@ -257,8 +257,9 @@ export async function runExperimentAgent(
   onStreamText?: (text: string) => void,
   onToolStatus?: (status: string) => void,
   signal?: AbortSignal,
+  maxTurns = 50,
 ): Promise<ExperimentOutcome> {
-  const raw = await runExperimentAgentRaw(cwd, systemPrompt, userPrompt, modelConfig, startSha, onStreamText, onToolStatus, signal)
+  const raw = await runExperimentAgentRaw(cwd, systemPrompt, userPrompt, modelConfig, startSha, onStreamText, onToolStatus, signal, maxTurns)
   return { ...raw.outcome, notes: parseExperimentNotes(raw.assistantText) }
 }
 
@@ -271,6 +272,7 @@ async function runExperimentAgentRaw(
   onStreamText?: (text: string) => void,
   onToolStatus?: (status: string) => void,
   signal?: AbortSignal,
+  maxTurns = 50,
 ): Promise<{ outcome: ExperimentOutcome; assistantText: string }> {
   if (signal?.aborted) {
     return { outcome: { type: "agent_error", error: "aborted before start" }, assistantText: "" }
@@ -284,7 +286,7 @@ async function runExperimentAgentRaw(
       systemPrompt,
       tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
       allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-      maxTurns: 30,
+      maxTurns,
       cwd,
       model: modelConfig.model,
       effort: modelConfig.provider !== "opencode" ? modelConfig.effort : undefined,

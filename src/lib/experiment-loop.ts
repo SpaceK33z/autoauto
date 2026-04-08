@@ -473,6 +473,7 @@ export async function runExperimentLoop(
       (text) => callbacks.onAgentStream(text),
       (status) => callbacks.onAgentToolUse(status),
       options.signal,
+      config.max_turns ?? 50,
     )
 
     // Log cost data if available + accumulate tokens on run state
