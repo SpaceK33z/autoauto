@@ -1,7 +1,31 @@
 {
-  "name": "autoauto",
+  "name": "@spacek33z/autoauto",
   "version": "0.0.1",
+  "description": "TUI tool for autoresearch — autonomous experiment loops on any codebase",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SpaceK33z/autoauto.git"
+  },
+  "author": "Kees Kluskens",
+  "homepage": "https://github.com/SpaceK33z/autoauto",
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "keywords": [
+    "autoresearch",
+    "tui",
+    "ai",
+    "automation",
+    "experiments",
+    "claude",
+    "codex"
+  ],
+  "files": [
+    "src/",
+    "tsconfig.json"
+  ],
   "scripts": {
     "dev": "bun run src/index.tsx",
     "build": "bun build --compile src/index.tsx --outfile dist/autoauto",
@@ -12,11 +36,11 @@
     "autoauto": "./src/index.tsx"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "latest",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.92",
     "@openai/codex-sdk": "^0.118.0",
     "@opencode-ai/sdk": "^1.3.17",
-    "@opentui/core": "latest",
-    "@opentui/react": "latest"
+    "@opentui/core": "^0.1.97",
+    "@opentui/react": "^0.1.97"
   },
   "devDependencies": {
     "@types/bun": "^1.3.11",
