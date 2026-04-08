@@ -22,6 +22,8 @@ Quick reference for the core AutoAuto terms.
 | **CV%** | Coefficient of variation. Setup-time stability grade for a measurement. |
 | **Context packet** | One-shot experiment input: baseline, recent results, discarded diffs, git history, backlog notes. |
 | **Ideas backlog** | Optional `ideas.md` file with what was tried, why it worked or failed, and what to try next. |
+| **Carry forward** | Cross-run memory: previous run results and ideas fed into new experiments. Enabled by default; disable with `--no-carry-forward`. |
+| **Previous run context** | Kept experiment summaries + ideas backlog from earlier completed runs of the same program. |
 | **Simplicity criterion** | Within-noise experiments with net-negative LOC can be auto-kept. |
 | **Worktree** | AutoAuto-owned git worktree used for isolated experiment execution. |
 | **In-place mode** | Optional mode that skips worktree isolation and runs directly in the main checkout. |

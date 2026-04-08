@@ -25,6 +25,7 @@ export interface RunConfig {
   max_experiments: number
   ideas_backlog_enabled?: boolean
   in_place?: boolean
+  carry_forward?: boolean
 }
 
 export interface ControlAction {

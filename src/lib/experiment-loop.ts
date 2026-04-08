@@ -1,6 +1,6 @@
 import { chmod } from "node:fs/promises"
 import { join, relative } from "node:path"
-import type { RunState, ExperimentResult, TerminationReason } from "./run.ts"
+import type { RunState, ExperimentResult, TerminationReason, PreviousRunContext } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
 import type { ModelSlot } from "./config.ts"
 import {
@@ -9,6 +9,7 @@ import {
   appendResult,
   serializeSecondaryValues,
   serializeDiffStats,
+  readPreviousRunContext,
 } from "./run.ts"
 import { unlockMeasurement, MEASUREMENT_FILES } from "./run-setup.ts"
 import {
@@ -67,6 +68,8 @@ export interface LoopOptions {
   stopRequested?: () => boolean
   /** Durable ideas.md experiment memory. Disable to use results.tsv/git history only. */
   ideasBacklogEnabled?: boolean
+  /** Feed previous run results and ideas into the experiment agent context. */
+  carryForward?: boolean
   /** Diagnostics from the baseline measurement, to pass to the first experiment */
   baselineDiagnostics?: string
 }
@@ -403,6 +406,19 @@ export async function runExperimentLoop(
   const ideasBacklogEnabled = options.ideasBacklogEnabled ?? true
   const maxConsecutiveDiscards = config.max_consecutive_discards ?? DEFAULT_MAX_CONSECUTIVE_DISCARDS
 
+  // Read previous run context once at startup (if carry-forward enabled)
+  let previousRunContext: PreviousRunContext | undefined
+  if (options.carryForward !== false) {
+    try {
+      previousRunContext = await readPreviousRunContext(programDir, state.run_id)
+      if (!previousRunContext.previousResults && !previousRunContext.previousIdeas) {
+        previousRunContext = undefined
+      }
+    } catch {
+      previousRunContext = undefined
+    }
+  }
+
   // Re-read from run-config.json each iteration to support mid-run TUI changes
   let effectiveMaxExperiments = options.maxExperiments
 
@@ -458,7 +474,7 @@ export async function runExperimentLoop(
 
     // --- Build context packet ---
     const packet = await buildContextPacket(
-      cwd, programDir, runDir, state, config, { ideasBacklogEnabled, consecutiveDiscards, maxConsecutiveDiscards, measurementDiagnostics: lastDiagnostics },
+      cwd, programDir, runDir, state, config, { ideasBacklogEnabled, consecutiveDiscards, maxConsecutiveDiscards, measurementDiagnostics: lastDiagnostics, previousRunContext },
     )
     const systemPrompt = getExperimentSystemPrompt(packet.program_md, { ideasBacklogEnabled })
     const userPrompt = buildExperimentPrompt(packet)

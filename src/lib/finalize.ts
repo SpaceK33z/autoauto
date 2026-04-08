@@ -626,6 +626,7 @@ export async function saveSummaryOnly(
   return { summary: report, mode: "summary-only", groups: [], cost }
 }
 
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return
   throwAbortError(signal)
@@ -633,7 +634,10 @@ function throwIfAborted(signal?: AbortSignal): void {
 
 function throwAbortError(signal?: AbortSignal): never {
   const reason = signal?.reason
-  if (reason instanceof Error) throw reason
+  if (reason instanceof Error) {
+    reason.name = "AbortError"
+    throw reason
+  }
   const error = new Error(typeof reason === "string" && reason.length > 0 ? reason : "Finalize aborted")
   error.name = "AbortError"
   throw error

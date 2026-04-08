@@ -1,5 +1,5 @@
 import { join } from "node:path"
-import type { RunState } from "./run.ts"
+import type { RunState, PreviousRunContext } from "./run.ts"
 import type { ModelSlot } from "./config.ts"
 import { formatRecentResults, parseLastResult, parseLastKeepResult, parseDiscardedShas, parseSecondaryValues } from "./run.ts"
 import {
@@ -43,6 +43,8 @@ export interface ContextPacket {
   consecutive_discards: number
   max_consecutive_discards: number
   measurement_diagnostics?: string
+  previous_results: string
+  previous_ideas: string
 }
 
 /** Cost and usage data from an agent session. */
@@ -69,7 +71,7 @@ export async function buildContextPacket(
   runDir: string,
   state: RunState,
   config: { metric_field: string; direction: "lower" | "higher"; secondary_metrics?: Record<string, { direction: "lower" | "higher" }> },
-  options: { ideasBacklogEnabled?: boolean; consecutiveDiscards?: number; maxConsecutiveDiscards?: number; measurementDiagnostics?: string } = {},
+  options: { ideasBacklogEnabled?: boolean; consecutiveDiscards?: number; maxConsecutiveDiscards?: number; measurementDiagnostics?: string; previousRunContext?: PreviousRunContext } = {},
 ): Promise<ContextPacket> {
   const [programMd, resultsRaw, recentGitLog] = await Promise.all([
     Bun.file(join(programDir, "program.md")).text(),
@@ -129,6 +131,10 @@ export async function buildContextPacket(
     }
   }
 
+  // Adaptive budget: drop previous ideas if current backlog is already large
+  const prev = options.previousRunContext
+  const previousIdeas = (prev?.previousIdeas && ideasBacklog.length <= 3000) ? prev.previousIdeas : ""
+
   return {
     experiment: state.experiment_number,
     current_baseline: state.current_baseline,
@@ -149,6 +155,8 @@ export async function buildContextPacket(
     consecutive_discards: options.consecutiveDiscards ?? 0,
     max_consecutive_discards: options.maxConsecutiveDiscards ?? 10,
     measurement_diagnostics: options.measurementDiagnostics,
+    previous_results: prev?.previousResults ?? "",
+    previous_ideas: previousIdeas,
   }
 }
 
@@ -200,6 +208,24 @@ ${lines.join("\n")}
 `
   }
 
+  let previousRunSection = ""
+  if (packet.previous_results) {
+    previousRunSection += `
+## Previous Runs
+The results below are from previous runs on separate branches. The code changes were NOT merged into your working tree. Do not assume these optimizations exist in the current codebase. Use this as guidance for what approaches to try or avoid.
+\`\`\`
+${packet.previous_results}
+\`\`\`
+`
+  }
+  if (packet.previous_ideas) {
+    previousRunSection += `
+## Previous Run Ideas
+Learnings from the most recent previous run. These reference code as it was during that run — the codebase may have changed since.
+${packet.previous_ideas}
+`
+  }
+
   return `You are experiment ${packet.experiment} of an autoresearch loop.
 
 ## Current State
@@ -207,7 +233,7 @@ ${lines.join("\n")}
 - Original baseline: ${packet.original_baseline}
 - Best achieved: ${packet.best_metric} (experiment #${packet.best_experiment})
 - Total: ${packet.total_keeps} keeps, ${packet.total_discards} discards
-${secondarySection}
+${secondarySection}${previousRunSection}
 ## Last Outcome
 ${packet.last_outcome}
 
@@ -237,7 +263,7 @@ ${packet.ideas_backlog}
 
 ${getExplorationDirective(packet.consecutive_discards, packet.max_consecutive_discards)}
 
-Review the recent results and discarded experiments${packet.ideas_backlog ? ", and ideas backlog" : ""} above. Focus on what was tried, why it failed, and what should be tried next.
+Review the recent results and discarded experiments${packet.ideas_backlog ? ", ideas backlog" : ""}${packet.previous_results || packet.previous_ideas ? ", and previous run history" : ""} above. Focus on what was tried, why it failed, and what should be tried next.
 Implement ONE change, validate, and commit. Then stop.`
 }
 
