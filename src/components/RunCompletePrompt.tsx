@@ -39,7 +39,7 @@ export function RunCompletePrompt({
       onFinalize()
     } else if (key.name === "u") {
       onUpdateProgram()
-    } else if (key.name === "a") {
+    } else if (key.name === "d") {
       onAbandon()
     }
   })
@@ -82,8 +82,10 @@ export function RunCompletePrompt({
         </text>
         <text fg={selected === 2 ? "#ffffff" : "#888888"}>
           {selected === 2 ? " > " : "   "}
-          Abandon (keep branch as-is)
+          Done (keep branch as-is)
         </text>
+        <box height={1} />
+        <text fg="#888888">j/k move · Enter select · f finalize · u update · d done</text>
       </box>
     </box>
   )

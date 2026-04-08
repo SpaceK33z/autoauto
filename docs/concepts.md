@@ -1,0 +1,165 @@
+# Concepts
+
+How AutoAuto works, from first setup to finished results. For quick term definitions, see the [Glossary](glossary.md).
+
+## The autoresearch pattern
+
+Autoresearch is an autonomous experiment loop: define a metric, let an AI agent iteratively change your code, measure the result, keep improvements, discard failures, repeat. The pattern was pioneered by [Karpathy](https://github.com/karpathy/autoresearch) for ML training, but it works anywhere you have code and a measurable metric.
+
+AutoAuto wraps this pattern into a tool that handles the tricky parts — measurement validation, scope enforcement, crash recovery, and result packaging — so you can focus on defining what to optimize.
+
+## Programs
+
+A **program** is a reusable optimization target. It defines what to optimize, how to measure it, and what the agent is allowed to do. Programs live in `.autoauto/programs/<name>/` and contain:
+
+| File | Purpose |
+|------|---------|
+| `program.md` | Agent instructions: goal, scope constraints, rules, step-by-step approach |
+| `measure.sh` | Measurement script that outputs a JSON object with your metric |
+| `config.json` | Metric field, direction (lower/higher), noise threshold, repeats, quality gates |
+| `build.sh` | Optional one-time build step before measurement |
+
+You create programs through the Setup Agent — an interactive chat that inspects your repo, helps you define what to optimize, generates all the artifacts, and validates that the measurement is stable before you can start.
+
+Programs are reusable. You can run the same program multiple times, and you can **update** a program after a run to refine the approach based on what the previous run found.
+
+## Runs
+
+A **run** is one execution of a program — a session of autonomous experiments. Each run:
+
+- Gets its own git branch (`autoauto-<program>-<timestamp>`)
+- Runs in an isolated git worktree (your main checkout stays clean)
+- Produces a `results.tsv` log, per-experiment agent output, and a final summary
+- Runs as a background daemon that survives terminal close
+
+Run state is persisted atomically to `state.json`, so runs can recover from crashes.
+
+## Experiments
+
+An **experiment** is a single iteration of the loop:
+
+1. A fresh agent receives a **context packet** — baseline metric, recent results, diffs from failed attempts, and an ideas backlog
+2. The agent makes one change and commits
+3. AutoAuto measures the result (median of N runs of `measure.sh`)
+4. Decision:
+   - **Keep** — metric improved beyond the noise threshold and all quality gates passed
+   - **Discard** — metric regressed, was within noise, or a quality gate failed (reverted via `git reset --hard`)
+   - **Crash** — agent error, timeout, or invalid output
+
+Each experiment uses a fresh agent with no memory beyond the context packet. This prevents narrative momentum — where an agent becomes attached to a failing approach — and enables clean recovery from any failure.
+
+## Measurement
+
+The measurement system is the heart of AutoAuto. Your `measure.sh` script outputs a JSON object:
+
+```json
+{
+  "lcp_ms": 1230,
+  "cls": 0.05,
+  "tbt_ms": 180
+}
+```
+
+### Key measurement concepts
+
+**Metric field and direction.** One field is the primary metric to optimize. It has a direction: `"lower"` (e.g., latency) or `"higher"` (e.g., accuracy).
+
+**Noise threshold.** The minimum relative improvement (as a decimal fraction, e.g., 0.02 = 2%) to accept a change. Improvements below this are considered noise and discarded. AutoAuto helps you set this during setup by measuring your script's variance.
+
+**Repeats.** How many times `measure.sh` runs per experiment (typically 3-5). AutoAuto uses the median value for comparison, filtering out outliers.
+
+**Quality gates.** Secondary metrics with hard thresholds that must not be violated. For example, while optimizing LCP, you might require CLS to stay below 0.1. An experiment that improves LCP but breaks CLS is discarded.
+
+**Simplicity criterion.** Experiments that are within noise but reduce lines of code are auto-kept. This rewards code simplification even without a metric gain.
+
+**Re-baselining.** After every kept experiment, AutoAuto re-measures the baseline on the new code. It also re-measures after consecutive discards to detect environment drift.
+
+## Context packets
+
+Each experiment agent starts fresh. Instead of chat history, it gets a structured **context packet**:
+
+- Current baseline metric value
+- Recent experiment results (status, metric, description)
+- Diffs from recently discarded experiments (so it doesn't retry failed ideas)
+- Git log of kept changes
+- The ideas backlog
+
+This design keeps context small, prevents agents from building up false narratives, and ensures every experiment is evaluated independently.
+
+## Ideas backlog
+
+An optional `ideas.md` file that accumulates notes across experiments:
+
+- What the agent tried and why
+- Whether it worked or failed
+- What to try next
+- What to avoid
+
+This is the agent's institutional memory. Without it, agents waste cycles retrying discarded approaches — one real-world case saw a test fix go through four different approaches before finding one that held, and the backlog prevented retrying the three that failed.
+
+## Agents
+
+AutoAuto uses AI agents at specific points in the workflow. The app controls flow; agents provide intelligence.
+
+| Agent | Role | Session type |
+|-------|------|-------------|
+| **Setup Agent** | Inspect repo, define program, generate and validate measurement | Multi-turn chat |
+| **Update Agent** | Review previous run results and revise program artifacts | Multi-turn chat |
+| **Experiment Agent** | Make one code change and commit | One-shot (fresh per experiment) |
+| **Finalize Agent** | Review accumulated diff and group changes into branches | One-shot |
+
+AutoAuto supports multiple agent providers: **Claude** (Agent SDK), **Codex** (CLI), and **OpenCode**. You can configure different models for execution (experiments) vs. support (setup/finalize).
+
+## Worktree isolation
+
+Experiments run in an AutoAuto-owned git worktree, not your main checkout. This means:
+
+- Your working directory is never touched
+- `git reset --hard` (used to discard failed experiments) is safe — it only affects the worktree
+- The `.autoauto/` directory doesn't exist in the worktree (it's gitignored), preventing agents from tampering with their own config
+
+An optional in-place mode skips worktree creation for simpler setups.
+
+## Daemon mode
+
+The experiment loop runs as a background daemon, detached from the TUI. This means:
+
+- Runs survive terminal close — you can quit the TUI and come back later
+- The TUI watches the run directory for updates and renders the dashboard in real time
+- Stop/abort is graceful: `q` stops after the current experiment finishes; `Ctrl+C` aborts immediately
+
+All communication between the TUI and daemon happens through the filesystem (state files, stream logs, control files) — no sockets, no IPC.
+
+## Finalize
+
+When a run completes, you have three options:
+
+- **Finalize** — a Finalize Agent reviews the accumulated diff, groups changes into independent branches (one per logical changeset), and produces a summary report
+- **Update** — revise `program.md` and run again with an updated approach
+- **Done** — skip finalize and leave the run branch as-is for manual review
+
+The finalize flow supports multi-turn refinement: review the proposed groups, provide feedback, and the agent revises until you're satisfied. Each group becomes its own branch for clean review and merge.
+
+## Data model
+
+All AutoAuto state lives in `.autoauto/` inside your project, which is automatically added to `.gitignore`:
+
+```
+.autoauto/
+  config.json                     # Project config (models, provider)
+  worktrees/
+    20260407-143022/              # Git worktree for an active run
+  programs/
+    homepage-lcp/
+      program.md                  # Agent instructions + scope
+      measure.sh                  # Measurement script
+      config.json                 # Metric config
+      build.sh                    # Optional build step
+      runs/
+        20260407-143022/
+          state.json              # Run checkpoint
+          results.tsv             # Experiment outcomes (append-only)
+          ideas.md                # Ideas backlog
+          stream-001.log          # Per-experiment agent output
+          summary.md              # Final report (after finalize)
+```
