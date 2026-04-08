@@ -222,12 +222,18 @@ export async function ensureAutoAutoDir(cwd: string): Promise<void> {
 
   const gitignorePath = join(root, ".gitignore")
   const gitignoreFile = Bun.file(gitignorePath)
+  let gitignoreChanged = false
   if (await gitignoreFile.exists()) {
     const existing = await gitignoreFile.text()
     if (!existing.includes(AUTOAUTO_DIR)) {
       await Bun.write(gitignorePath, existing.trimEnd() + `\n${AUTOAUTO_DIR}/\n`)
+      gitignoreChanged = true
     }
   } else {
     await Bun.write(gitignorePath, `${AUTOAUTO_DIR}/\n`)
+    gitignoreChanged = true
+  }
+  if (gitignoreChanged) {
+    await $`git add .gitignore`.cwd(root).quiet()
   }
 }
