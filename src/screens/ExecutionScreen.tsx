@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import type { Screen, ProgramConfig } from "../lib/programs.ts"
 import { getProgramDir } from "../lib/programs.ts"
-import { formatModelSlot, isEffortConfigurable, type ModelSlot } from "../lib/config.ts"
+import { formatModelLabel, type ModelSlot } from "../lib/config.ts"
 import type { RunState, ExperimentResult, TerminationReason } from "../lib/run.ts"
 import { getRunStats } from "../lib/run.ts"
 import { removeWorktree } from "../lib/worktree.ts"
@@ -48,6 +48,8 @@ interface ExecutionScreenProps {
   readOnly?: boolean
   /** Called when user chooses to update the program (from run complete or error screen) */
   onUpdateProgram?: (programSlug: string) => void
+  /** If true, automatically start finalize when the run is loaded as complete */
+  autoFinalize?: boolean
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -68,10 +70,7 @@ function getPhaseLabel(phase: RunState["phase"], error?: string | null, isStoppi
   return PHASE_LABELS[phase] ?? phase
 }
 
-function formatHeaderModelLabel(slot: ModelSlot): string {
-  const model = formatModelSlot(slot, true)
-  return isEffortConfigurable(slot) ? `${model}/${slot.effort}` : model
-}
+const formatHeaderModelLabel = formatModelLabel
 
 function getRunModelConfig(state: RunState | null, fallback: ModelSlot): ModelSlot {
   if (
@@ -88,7 +87,7 @@ function IdeasPanel({ text }: { text: string }) {
   return (
     <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
       <box paddingX={1} flexDirection="column">
-        <markdown content={text} syntaxStyle={syntaxStyle} />
+        <markdown content={text} syntaxStyle={syntaxStyle} conceal />
       </box>
     </scrollbox>
   )
@@ -104,7 +103,7 @@ function Divider({ width, label }: { width: number; label?: string }) {
   return <text fg="#666666">{"─".repeat(innerWidth)}</text>
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, useWorktree = true, attachRunId, readOnly = false, onUpdateProgram }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, useWorktree = true, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
@@ -390,6 +389,15 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     onUpdateProgram?.(programSlug)
   }, [cleanupRunEnvironment, programSlug, onUpdateProgram])
 
+  // Auto-finalize: trigger finalize immediately when attaching to a completed run with autoFinalize
+  const autoFinalizeTriggered = useRef(false)
+  useEffect(() => {
+    if (autoFinalize && phase === "complete" && !autoFinalizeTriggered.current) {
+      autoFinalizeTriggered.current = true
+      handleFinalize()
+    }
+  }, [autoFinalize, phase, handleFinalize])
+
   useKeyboard((key) => {
     if (phase === "finalize_complete") {
       if (key.name === "escape") {
@@ -417,7 +425,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     }
 
     if (phase === "complete") {
-      // RunCompletePrompt handles its own keyboard
+      // Escape navigates home; RunCompletePrompt handles the rest
+      if (key.name === "escape") {
+        navigate("home")
+        return
+      }
       return
     }
 
@@ -615,32 +627,42 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 onSelect={setSelectedResult}
               />
 
-              <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
-
               {ideasVisible ? (
-                <box flexDirection="row" flexGrow={1}>
-                  <box flexDirection="column" flexGrow={3}>
-                    <AgentPanel
-                      streamingText={agentStreamText}
-                      toolStatus={toolStatus}
-                      isRunning={phase === "running"}
-                      selectedResult={selectedResult}
-                      secondaryMetrics={secondaryMetricsConfig}
-                    />
+                <>
+                  <box flexDirection="row">
+                    <box flexGrow={3}>
+                      <Divider width={Math.ceil(termWidth * 0.6)} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
+                    </box>
+                    <box flexGrow={2}>
+                      <Divider width={Math.floor(termWidth * 0.4)} label="Ideas" />
+                    </box>
                   </box>
-                  <box flexDirection="column" flexGrow={2}>
-                    <Divider width={Math.floor(termWidth * 0.38)} label="Ideas" />
-                    <IdeasPanel text={ideasText} />
+                  <box flexDirection="row" flexGrow={1}>
+                    <box flexDirection="column" flexGrow={3}>
+                      <AgentPanel
+                        streamingText={agentStreamText}
+                        toolStatus={toolStatus}
+                        isRunning={phase === "running"}
+                        selectedResult={selectedResult}
+                        secondaryMetrics={secondaryMetricsConfig}
+                      />
+                    </box>
+                    <box flexDirection="column" flexGrow={2}>
+                      <IdeasPanel text={ideasText} />
+                    </box>
                   </box>
-                </box>
+                </>
               ) : (
-                <AgentPanel
-                  streamingText={agentStreamText}
-                  toolStatus={toolStatus}
-                  isRunning={phase === "running"}
-                  selectedResult={selectedResult}
-                  secondaryMetrics={secondaryMetricsConfig}
-                />
+                <>
+                  <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
+                  <AgentPanel
+                    streamingText={agentStreamText}
+                    toolStatus={toolStatus}
+                    isRunning={phase === "running"}
+                    selectedResult={selectedResult}
+                    secondaryMetrics={secondaryMetricsConfig}
+                  />
+                </>
               )}
             </>
           )}

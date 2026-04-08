@@ -60,6 +60,8 @@ interface ChatProps {
   emptyStateHint?: string
   /** Placeholder text for the input field */
   inputPlaceholder?: string
+  /** Title shown on the scrollbox border */
+  title?: string
 }
 
 export function Chat({
@@ -74,6 +76,7 @@ export function Chat({
   initialMessage,
   emptyStateHint,
   inputPlaceholder,
+  title,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streamingText, setStreamingText] = useState("")
@@ -203,7 +206,7 @@ export function Chat({
     textarea.onSubmit = handleTextareaSubmit
     textarea.onContentChange = () => {
       // +2 for top/bottom border
-      const h = Math.min(8, Math.max(3, textarea.virtualLineCount + 2))
+      const h = Math.min(8, Math.max(3, Math.max(textarea.lineCount, textarea.virtualLineCount) + 2))
       setInputBoxHeight(h)
     }
     // Reset height on remount (after submit clears content)
@@ -232,6 +235,7 @@ export function Chat({
         borderStyle="rounded"
         stickyScroll
         stickyStart="bottom"
+        title={title}
       >
         {messages.length === 0 && !streamingText ? (
           <text fg="#888888">
@@ -240,8 +244,8 @@ export function Chat({
         ) : (
           <box flexDirection="column">
             {messages.map((msg) => (
-              <box key={msg.id} flexDirection="column">
-                <text fg={msg.role === "user" ? "#7aa2f7" : "#9ece6a"}>
+              <box key={msg.id} flexDirection="column" backgroundColor={msg.role === "user" ? "#1a1a2e" : undefined}>
+                <text fg={msg.role === "user" ? "#ffffff" : "#9ece6a"}>
                   <strong>{msg.role === "user" ? "You" : "AutoAuto"}</strong>
                 </text>
                 {msg.role === "assistant" ? (

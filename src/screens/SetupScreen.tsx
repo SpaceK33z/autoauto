@@ -8,7 +8,7 @@ import { getSetupSystemPrompt } from "../lib/system-prompts/index.ts"
 import { getUpdateSystemPrompt } from "../lib/system-prompts/update.ts"
 import { loadProgramSummaries, getProgramDir, type Screen, type ProgramSummary } from "../lib/programs.ts"
 import { buildUpdateRunContext } from "../lib/run-context.ts"
-import type { ModelSlot } from "../lib/config.ts"
+import { formatModelLabel, type ModelSlot } from "../lib/config.ts"
 
 type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
 
@@ -200,6 +200,8 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
     )
   }
 
+  const modelLabel = formatModelLabel(modelConfig)
+
   return (
     <Chat
       cwd={cwd}
@@ -217,6 +219,7 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
       inputPlaceholder={isUpdate
         ? 'e.g. "fix the measurement script" or "widen the scope"'
         : (!initialMessage ? 'e.g. "I want to reduce the homepage load time"' : undefined)}
+      title={`${isUpdate ? "Update" : "Setup"} · ${modelLabel}`}
     />
   )
 }

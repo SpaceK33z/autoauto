@@ -93,6 +93,11 @@ export function formatModelSlot(slot: ModelSlot, compact = false): string {
   return compact ? `claude/${slot.model}` : `Claude / ${label}`
 }
 
+export function formatModelLabel(slot: ModelSlot): string {
+  const model = formatModelSlot(slot, true)
+  return isEffortConfigurable(slot) ? `${model}/${slot.effort}` : model
+}
+
 export function formatEffortSlot(slot: ModelSlot): { label: string; description: string } {
   if (!isEffortConfigurable(slot)) {
     return {
