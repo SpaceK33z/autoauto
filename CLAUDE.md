@@ -81,7 +81,7 @@ src/
     FirstSetupScreen.tsx # First-time setup (provider/model + auth check)
     HomeScreen.tsx       # Two-panel: programs list + runs table
     SetupScreen.tsx      # Setup flow + update mode (chat wrapper + agent config)
-    PreRunScreen.tsx     # Pre-run config (model/effort/max/worktree overrides)
+    PreRunScreen.tsx     # Pre-run config (model/effort/max/worktree/carry-forward overrides)
     ExecutionScreen.tsx  # Three-panel experiment dashboard
     SettingsScreen.tsx   # Model configuration (execution + support slots)
     AuthErrorScreen.tsx  # Auth error display with setup instructions
@@ -100,7 +100,7 @@ src/
     measure.ts           # Measurement execution, validation, comparison
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
-    run.ts               # Run state persistence, types, results I/O
+    run.ts               # Run state persistence, types, results I/O, previous run context
     run-setup.ts         # Run bootstrap: directory init, measurement locking
     system-prompts/      # Agent system prompts
       index.ts           # Re-exports prompt builders

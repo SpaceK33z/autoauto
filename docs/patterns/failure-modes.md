@@ -122,7 +122,7 @@ The agent forgets what it tried and wastes cycles re-attempting failed approache
 ### 5a. No centralized learnings lead to retry loops
 **What happened:** Without a record of what was tried, agents waste cycles retrying discarded hypotheses multiple times.
 **Source:** Cabral (reality vs. expectations)
-**How AutoAuto helps:** Context packets include recent discarded diffs with reasons. The ideas backlog forces the agent to document what to try next and what to avoid.
+**How AutoAuto helps:** Context packets include recent discarded diffs with reasons. The ideas backlog forces the agent to document what to try next and what to avoid. Carry forward extends this across runs — new runs receive the previous run's results and ideas, preventing cross-run repetition.
 
 ### 5b. Running out of ideas leads to micro-adjustments
 **What happened:** Late in long sessions, agents degrade to random seed changes, tiny parameter tweaks, and minor adjustments.

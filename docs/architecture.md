@@ -64,6 +64,7 @@ All agents use `permissionMode: "bypassPermissions"` and tools: Read, Write, Edi
 - Re-baselines after keeps and after 5 consecutive discards
 - Stagnation auto-stop after `max_consecutive_discards`
 - Ideas backlog appended per experiment when enabled
+- Carry-forward: reads previous run context once at startup via `readPreviousRunContext()`
 
 `src/lib/experiment.ts` — per-iteration agent sessions:
 
@@ -88,7 +89,7 @@ All agents use `permissionMode: "bypassPermissions"` and tools: Read, Write, Edi
 | File | Writer | Reader | Purpose |
 |------|--------|--------|---------|
 | `daemon.json` | TUI (initial), daemon (heartbeat) | TUI | Liveness detection |
-| `run-config.json` | TUI (once) | Daemon (once) | Per-run overrides |
+| `run-config.json` | TUI (once) | Daemon (once) | Per-run overrides (model, max experiments, carry_forward, etc.) |
 | `state.json` | Daemon (atomic) | TUI | Run state source of truth |
 | `results.tsv` | Daemon (append) | TUI | Experiment outcomes |
 | `stream-NNN.log` | Daemon (append) | TUI | Agent streaming text |
