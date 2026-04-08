@@ -77,5 +77,4 @@ See `docs/failure-patterns.md` for the full catalog of failure modes and mitigat
 ## References
 
 - `references/autoresearch/` — Karpathy's original autoresearch repository and program.md
-- `references/modulaser/` — manual autoresearch implementation with bash orchestrator, multiple optimization programs, measurement scripts, noise thresholds, quality gates, and re-profiling
 - `references/articles/` — collected articles about autoresearch
