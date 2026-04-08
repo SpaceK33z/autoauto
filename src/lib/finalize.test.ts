@@ -1,5 +1,145 @@
 import { describe, expect, test } from "bun:test"
-import { extractFinalizeGroups, validateGroups } from "./finalize.ts"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { $ } from "bun"
+import { setProvider } from "./agent/index.ts"
+import type { AgentEvent, AgentProvider, AgentSession, AgentSessionConfig, AuthResult } from "./agent/types.ts"
+import { MockProvider } from "./agent/mock-provider.ts"
+import { extractFinalizeGroups, refineFinalizeGroups, runFinalizeReview, validateGroups } from "./finalize.ts"
+import type { ModelSlot } from "./config.ts"
+import type { ProgramConfig } from "./programs.ts"
+import type { RunState } from "./run.ts"
+
+const TEST_MODEL: ModelSlot = { provider: "claude", model: "test-model", effort: "low" }
+
+const TEST_CONFIG: ProgramConfig = {
+  metric_field: "runtime_ms",
+  direction: "lower",
+  noise_threshold: 0.01,
+  repeats: 1,
+  quality_gates: {},
+  max_experiments: 5,
+}
+
+class ScriptedProvider implements AgentProvider {
+  readonly name = "scripted"
+
+  constructor(
+    private readonly events: AgentEvent[],
+    private readonly onRun?: (config: AgentSessionConfig) => Promise<void> | void,
+  ) {}
+
+  createSession(config: AgentSessionConfig): AgentSession {
+    return new ScriptedSession(this.events, this.onRun, config)
+  }
+
+  runOnce(_prompt: string, config: AgentSessionConfig): AgentSession {
+    return this.createSession(config)
+  }
+
+  async checkAuth(): Promise<AuthResult> {
+    return { authenticated: true, account: { email: "test@example.com" } }
+  }
+}
+
+class ScriptedSession implements AgentSession {
+  readonly sessionId = "test-session"
+  private closed = false
+
+  constructor(
+    private readonly events: AgentEvent[],
+    private readonly onRun: ((config: AgentSessionConfig) => Promise<void> | void) | undefined,
+    private readonly config: AgentSessionConfig,
+  ) {}
+
+  pushMessage(): void {}
+
+  endInput(): void {}
+
+  close(): void {
+    this.closed = true
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<AgentEvent> {
+    await this.onRun?.(this.config)
+    for (const event of this.events) {
+      if (this.closed) break
+      yield event
+    }
+  }
+}
+
+async function createFinalizeFixture(): Promise<{
+  cleanup: () => Promise<void>
+  projectRoot: string
+  runDir: string
+  state: RunState
+}> {
+  const projectRoot = await mkdtemp(join(tmpdir(), "autoauto-finalize-project-"))
+  const runDir = await mkdtemp(join(tmpdir(), "autoauto-finalize-run-"))
+
+  await $`git init`.cwd(projectRoot).quiet()
+  await $`git config user.name "AutoAuto Test"`.cwd(projectRoot).quiet()
+  await $`git config user.email "test@example.com"`.cwd(projectRoot).quiet()
+
+  await Bun.write(join(projectRoot, "feature.ts"), "export const value = 1\n")
+  await $`git add feature.ts`.cwd(projectRoot).quiet()
+  await $`git commit -m baseline`.cwd(projectRoot).quiet()
+
+  const baselineSha = (await $`git rev-parse HEAD`.cwd(projectRoot).text()).trim()
+  const branchName = (await $`git rev-parse --abbrev-ref HEAD`.cwd(projectRoot).text()).trim()
+
+  await Bun.write(join(projectRoot, "feature.ts"), "export const value = 2\n")
+  await $`git commit -am "improve metric"`.cwd(projectRoot).quiet()
+
+  const headSha = (await $`git rev-parse HEAD`.cwd(projectRoot).text()).trim()
+  await Bun.write(
+    join(runDir, "results.tsv"),
+    [
+      "experiment_number\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\tdiff_stats",
+      `1\t${headSha}\t90\t\tkeep\tImprove metric\t1000\t`,
+    ].join("\n") + "\n",
+  )
+
+  const now = new Date().toISOString()
+  const state: RunState = {
+    run_id: "20260408-000000",
+    program_slug: "demo",
+    phase: "complete",
+    experiment_number: 1,
+    original_baseline: 100,
+    current_baseline: 90,
+    best_metric: 90,
+    best_experiment: 1,
+    total_keeps: 1,
+    total_discards: 0,
+    total_crashes: 0,
+    branch_name: branchName,
+    original_baseline_sha: baselineSha,
+    last_known_good_sha: headSha,
+    candidate_sha: null,
+    started_at: now,
+    updated_at: now,
+    provider: "claude",
+    model: TEST_MODEL.model,
+    effort: TEST_MODEL.effort,
+    termination_reason: "max_experiments",
+    original_branch: branchName,
+    error: null,
+    error_phase: null,
+  }
+
+  return {
+    projectRoot,
+    runDir,
+    state,
+    cleanup: async () => {
+      await rm(projectRoot, { recursive: true, force: true })
+      await rm(runDir, { recursive: true, force: true })
+    },
+  }
+}
 
 describe("extractFinalizeGroups", () => {
   test("extracts valid groups", () => {
@@ -139,5 +279,74 @@ describe("validateGroups", () => {
     const result = validateGroups(groups, ["x.ts", "y.ts"])
     expect(result.valid).toBe(false)
     if (!result.valid) expect(result.reason).toContain("Duplicate")
+  })
+})
+
+describe("finalize agent safeguards", () => {
+  test("runFinalizeReview rejects when the agent dirties the repo", async () => {
+    const fixture = await createFinalizeFixture()
+    setProvider("claude", new ScriptedProvider(
+      [{ type: "result", success: true }],
+      async (config) => {
+        await Bun.write(join(config.cwd!, "rogue.txt"), "not allowed\n")
+      },
+    ) as AgentProvider)
+
+    try {
+      await expect(runFinalizeReview(
+        fixture.projectRoot,
+        fixture.runDir,
+        fixture.state,
+        TEST_CONFIG,
+        TEST_MODEL,
+        { onStreamText() {}, onToolStatus() {} },
+      )).rejects.toThrow("Finalize agent modified the repository")
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  test("refineFinalizeGroups rejects when the agent dirties the repo", async () => {
+    const fixture = await createFinalizeFixture()
+    setProvider("claude", new ScriptedProvider(
+      [{ type: "result", success: true }],
+      async (config) => {
+        await Bun.write(join(config.cwd!, "rogue.txt"), "not allowed\n")
+      },
+    ) as AgentProvider)
+
+    try {
+      await expect(refineFinalizeGroups(
+        "previous summary",
+        "split this differently",
+        ["feature.ts"],
+        TEST_MODEL,
+        fixture.projectRoot,
+        { onStreamText() {}, onToolStatus() {} },
+      )).rejects.toThrow("Finalize agent modified the repository")
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  test("runFinalizeReview throws AbortError when aborted before the agent runs", async () => {
+    const fixture = await createFinalizeFixture()
+    setProvider("claude", new MockProvider([]) as unknown as AgentProvider)
+    const controller = new AbortController()
+    controller.abort()
+
+    try {
+      await expect(runFinalizeReview(
+        fixture.projectRoot,
+        fixture.runDir,
+        fixture.state,
+        TEST_CONFIG,
+        TEST_MODEL,
+        { onStreamText() {}, onToolStatus() {} },
+        controller.signal,
+      )).rejects.toMatchObject({ name: "AbortError" })
+    } finally {
+      await fixture.cleanup()
+    }
   })
 })

@@ -12,6 +12,8 @@ import {
   createGroupBranch,
   checkoutBranch,
   resetHard,
+  getWorkingTreeStatus,
+  formatShellError,
 } from "./git.ts"
 import { getProvider } from "./agent/index.ts"
 import { formatToolEvent } from "./tool-events.ts"
@@ -227,27 +229,24 @@ async function runFinalizeAgent(
   callbacks: FinalizeCallbacks,
   signal?: AbortSignal,
 ): Promise<{ summary: string; cost?: ExperimentCost }> {
-  if (signal?.aborted) {
-    return { summary: "" }
-  }
+  throwIfAborted(signal)
 
   let fullText = ""
   let cost: ExperimentCost | undefined
+  const session = getProvider(modelConfig.provider).runOnce(userPrompt, {
+    systemPrompt,
+    tools: ["Read", "Bash", "Glob", "Grep"],
+    allowedTools: ["Read", "Bash", "Glob", "Grep"],
+    maxTurns: 10,
+    cwd: projectRoot,
+    model: modelConfig.model,
+    effort: modelConfig.provider !== "opencode" ? modelConfig.effort : undefined,
+    signal,
+  })
 
   try {
-    const session = getProvider(modelConfig.provider).runOnce(userPrompt, {
-      systemPrompt,
-      tools: ["Read", "Bash", "Glob", "Grep"],
-      allowedTools: ["Read", "Bash", "Glob", "Grep"],
-      maxTurns: 10,
-      cwd: projectRoot,
-      model: modelConfig.model,
-      effort: modelConfig.provider !== "opencode" ? modelConfig.effort : undefined,
-      signal,
-    })
-
     for await (const event of session) {
-      if (signal?.aborted) break
+      throwIfAborted(signal)
 
       switch (event.type) {
         case "text_delta":
@@ -262,11 +261,12 @@ async function runFinalizeAgent(
           break
       }
     }
+    throwIfAborted(signal)
   } catch (err: unknown) {
-    if (signal?.aborted) {
-      return { summary: fullText, cost }
-    }
+    if (isAbortError(err) || signal?.aborted) throwAbortError(signal)
     throw err
+  } finally {
+    session.close()
   }
 
   return { summary: fullText, cost }
@@ -437,6 +437,7 @@ export async function runFinalizeReview(
 
   const savedHead = await getFullSha(gitCwd)
   const preAgentSha = savedHead
+  const preAgentStatus = await getWorkingTreeStatus(gitCwd)
 
   const results = await readAllResults(runDir)
   const changedFiles = await getFilesChangedBetween(gitCwd, state.original_baseline_sha, "HEAD")
@@ -455,25 +456,15 @@ export async function runFinalizeReview(
 
   // Verify agent didn't modify the repo
   const postAgentSha = await getFullSha(gitCwd)
-  if (postAgentSha !== preAgentSha) {
+  const postAgentStatus = await getWorkingTreeStatus(gitCwd)
+  if (postAgentSha !== preAgentSha || postAgentStatus !== preAgentStatus) {
     throw new Error("Finalize agent modified the repository. Aborting.")
   }
 
-  // Try extracting groups
-  let proposedGroups: ProposedGroup[] | null = null
-  let validationError: string | null = null
-
-  if (state.total_keeps > 0 && changedFiles.length > 0) {
-    const proposed = extractFinalizeGroups(summary)
-    if (proposed && proposed.length > 0) {
-      const validation = validateGroups(proposed, changedFiles)
-      if (validation.valid) {
-        proposedGroups = validation.groups
-      } else {
-        validationError = validation.reason
-      }
-    }
-  }
+  const { proposedGroups, validationError } =
+    state.total_keeps > 0 && changedFiles.length > 0
+      ? extractAndValidateGroups(summary, changedFiles)
+      : { proposedGroups: null, validationError: null }
 
   return { summary, proposedGroups, validationError, changedFiles, savedHead, results, cost }
 }
@@ -498,6 +489,8 @@ export async function refineFinalizeGroups(
   worktreePath?: string,
 ): Promise<FinalizeRefineResult> {
   const gitCwd = worktreePath ?? projectRoot
+  const preAgentSha = await getFullSha(gitCwd)
+  const preAgentStatus = await getWorkingTreeStatus(gitCwd)
 
   const systemPrompt = `You are the AutoAuto Finalize Agent refining a changeset grouping based on user feedback.
 
@@ -533,20 +526,29 @@ Please revise the grouping based on this feedback. Include a brief explanation o
     signal,
   )
 
-  let proposedGroups: ProposedGroup[] | null = null
-  let validationError: string | null = null
-
-  const proposed = extractFinalizeGroups(summary)
-  if (proposed && proposed.length > 0) {
-    const validation = validateGroups(proposed, changedFiles)
-    if (validation.valid) {
-      proposedGroups = validation.groups
-    } else {
-      validationError = validation.reason
-    }
+  const postAgentSha = await getFullSha(gitCwd)
+  const postAgentStatus = await getWorkingTreeStatus(gitCwd)
+  if (postAgentSha !== preAgentSha || postAgentStatus !== preAgentStatus) {
+    throw new Error("Finalize agent modified the repository. Aborting.")
   }
 
+  const { proposedGroups, validationError } = extractAndValidateGroups(summary, changedFiles)
+
   return { summary, proposedGroups, validationError, cost }
+}
+
+// --- Shared Helpers ---
+
+function extractAndValidateGroups(
+  text: string,
+  changedFiles: string[],
+): { proposedGroups: ProposedGroup[] | null; validationError: string | null } {
+  const proposed = extractFinalizeGroups(text)
+  if (!proposed || proposed.length === 0) return { proposedGroups: null, validationError: null }
+
+  const validation = validateGroups(proposed, changedFiles)
+  if (validation.valid) return { proposedGroups: validation.groups, validationError: null }
+  return { proposedGroups: null, validationError: validation.reason }
 }
 
 // --- Phase 3: Apply ---
@@ -588,18 +590,15 @@ export async function applyFinalizeGroups(
         risk: group.risk,
       })
     }
-  } catch {
+  } catch (err: unknown) {
     // Partial failure — restore worktree to original state
     await checkoutBranch(gitCwd, state.branch_name).catch(() => {})
     await resetHard(gitCwd, savedHead).catch(() => {})
-
-    if (createdGroups.length === 0) {
-      return summaryOnly(state, results, config, agentSummary, runDir, cost)
-    }
-
-    const report = generateSummaryReport(state, results, config, agentSummary, createdGroups, cost)
-    await Bun.write(join(runDir, "summary.md"), report)
-    return { summary: report, mode: "grouped", groups: createdGroups, cost }
+    const partial =
+      createdGroups.length > 0
+        ? ` Partial branches kept: ${createdGroups.map((group) => group.branchName).join(", ")}.`
+        : ""
+    throw new Error(`${formatShellError(err, "Finalize branch creation failed")}.${partial}`, { cause: err })
   }
 
   // Restore worktree to original experiment branch
@@ -621,47 +620,28 @@ export async function saveSummaryOnly(
   runDir: string,
   cost?: ExperimentCost,
 ): Promise<FinalizeResult> {
-  return summaryOnly(state, results, config, agentSummary, runDir, cost)
-}
-
-// --- Legacy entry point (calls review + apply in one shot) ---
-
-export async function runFinalize(
-  projectRoot: string,
-  programSlug: string,
-  runDir: string,
-  state: RunState,
-  config: ProgramConfig,
-  modelConfig: ModelSlot,
-  callbacks: FinalizeCallbacks,
-  signal?: AbortSignal,
-  worktreePath?: string,
-): Promise<FinalizeResult> {
-  const review = await runFinalizeReview(
-    projectRoot, runDir, state, config, modelConfig, callbacks, signal, worktreePath,
-  )
-
-  if (review.proposedGroups && review.proposedGroups.length > 1) {
-    return applyFinalizeGroups(
-      projectRoot, programSlug, runDir, state, config,
-      review.proposedGroups, review.savedHead, review.summary, review.results,
-      worktreePath, review.cost,
-    )
-  }
-
-  return summaryOnly(state, review.results, config, review.summary, runDir, review.cost)
-}
-
-async function summaryOnly(
-  state: RunState,
-  results: ExperimentResult[],
-  config: ProgramConfig,
-  agentSummary: string,
-  runDir: string,
-  cost?: ExperimentCost,
-): Promise<FinalizeResult> {
   const report = generateSummaryReport(state, results, config, agentSummary, undefined, cost)
   await Bun.write(join(runDir, "summary.md"), report)
 
   return { summary: report, mode: "summary-only", groups: [], cost }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  throwAbortError(signal)
+}
+
+function throwAbortError(signal?: AbortSignal): never {
+  const reason = signal?.reason
+  if (reason instanceof Error) {
+    reason.name = "AbortError"
+    throw reason
+  }
+  const error = new Error(typeof reason === "string" && reason.length > 0 ? reason : "Finalize aborted")
+  error.name = "AbortError"
+  throw error
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError"
 }

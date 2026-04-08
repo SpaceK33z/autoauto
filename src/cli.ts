@@ -320,11 +320,12 @@ async function cmdStart(args: ParsedArgs) {
       : projectConfig.ideasBacklogEnabled
 
   const useWorktree = !hasFlag(args.flags, "in-place")
+  const carryForward = !hasFlag(args.flags, "no-carry-forward")
 
   // Spawn daemon
   let result: { runId: string; runDir: string; worktreePath: string | null; pid: number }
   try {
-    result = await spawnDaemon(root, slug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree)
+    result = await spawnDaemon(root, slug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward)
   } catch (err) {
     const msg = formatShellError(err)
     if (msg.includes("uncommitted changes")) die(msg)

@@ -224,6 +224,7 @@ export function App() {
             navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setAutoFinalize(false); setScreen(s) }}
             maxExperiments={preRunOverrides?.maxExperiments ?? 0}
             useWorktree={preRunOverrides?.useWorktree ?? true}
+            carryForward={preRunOverrides?.carryForward ?? true}
             attachRunId={attachRunId ?? undefined}
             readOnly={attachReadOnly}
             autoFinalize={autoFinalize}
