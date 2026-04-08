@@ -50,6 +50,7 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
         executionModel: { ...slot },
         supportModel: { ...slot },
         ideasBacklogEnabled: true,
+        notificationCommand: null,
       }
       await saveProjectConfig(cwd, config)
       onConfigChange(config)

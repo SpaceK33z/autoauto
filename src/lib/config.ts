@@ -15,14 +15,18 @@ export interface ProjectConfig {
   executionModel: ModelSlot
   supportModel: ModelSlot
   ideasBacklogEnabled: boolean
+  notificationCommand: string | null
 }
 
 const CONFIG_FILE = "config.json"
+
+export const DEFAULT_NOTIFICATION_COMMAND = `osascript -e 'display notification "{{program}}: {{status}} after {{experiments}} experiments ({{keeps}} kept, {{improvement_pct}} improvement)" with title "AutoAuto"'`
 
 export const DEFAULT_CONFIG: ProjectConfig = {
   executionModel: { provider: "claude", model: "sonnet", effort: "high" },
   supportModel: { provider: "claude", model: "sonnet", effort: "high" },
   ideasBacklogEnabled: true,
+  notificationCommand: null,
 }
 
 /** Effort levels available for each model */

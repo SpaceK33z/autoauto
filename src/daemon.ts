@@ -18,6 +18,8 @@ import type { RunState } from "./lib/run.ts"
 import { runExperimentLoop } from "./lib/experiment-loop.ts"
 import { runMeasurementSeries } from "./lib/measure.ts"
 import { getFullSha, getCurrentBranch, formatShellError } from "./lib/git.ts"
+import { loadProjectConfig } from "./lib/config.ts"
+import { sendNotification } from "./lib/notify.ts"
 import { createFileCallbacks } from "./lib/daemon-callbacks.ts"
 import {
   writeDaemonJson,
@@ -255,6 +257,20 @@ async function main() {
     await closeProviders()
     await releaseLock(programDir)
     await unlockMeasurement(programDir).catch(() => {})
+
+    // Send notification if configured
+    try {
+      const [projectConfig, programConfig, finalState] = await Promise.all([
+        loadProjectConfig(mainRoot),
+        loadProgramConfig(programDir),
+        readState(runDir),
+      ])
+      if (projectConfig.notificationCommand) {
+        await sendNotification(projectConfig.notificationCommand, finalState, programConfig.direction)
+      }
+    } catch (err) {
+      process.stderr.write(`[notify] Error: ${err}\n`)
+    }
   }
 }
 
