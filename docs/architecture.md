@@ -19,7 +19,7 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and pluggable agent p
 
 - **FirstSetupScreen** — first-time setup: provider/model selection with auth verification, creates initial `config.json`
 - **HomeScreen** — two-panel layout: programs list (left) + runs table (right, `RunsTable`), supports j/k navigation, `n` to create new, `s` for settings, Tab to switch panels, Enter to run/attach
-- **SetupScreen** — wraps the `Chat` component with configured support model, Escape to go back
+- **SetupScreen** — wraps the `Chat` component with configured support model; supports both new-program setup (analyze codebase or direct) and update mode (re-optimize existing program via `programSlug` prop), Escape to go back
 - **PreRunScreen** — pre-run configuration: model/provider/effort overrides, max experiments, worktree toggle
 - **ExecutionScreen** — three-panel experiment dashboard (see Execution Dashboard section)
 - **SettingsScreen** — model configuration for execution and support slots, keyboard-driven value cycling
@@ -32,7 +32,8 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and pluggable agent p
 - **RunsTable** (`src/components/RunsTable.tsx`) — Table of runs across programs, shown in the HomeScreen right panel.
 - **StatsHeader** (`src/components/StatsHeader.tsx`) — Run stats + metric sparkline.
 - **AgentPanel** (`src/components/AgentPanel.tsx`) — Live agent streaming output OR experiment detail view.
-- **RunCompletePrompt** (`src/components/RunCompletePrompt.tsx`) — Post-run prompt (finalize or abandon).
+- **RunCompletePrompt** (`src/components/RunCompletePrompt.tsx`) — Post-run prompt (finalize, update program, or abandon).
+- **PostUpdatePrompt** (`src/components/PostUpdatePrompt.tsx`) — Post-update prompt after editing a program (start new run or go home).
 - **CycleField** (`src/components/CycleField.tsx`) — Reusable keyboard-driven cycle-through field (← → to change value).
 - **ModelPicker** (`src/components/ModelPicker.tsx`) — Model selection UI with provider-specific model lists.
 - **RunSettingsOverlay** (`src/components/RunSettingsOverlay.tsx`) — Inline overlay for editing max experiments during a run.
@@ -68,7 +69,8 @@ src/
     RunsTable.tsx        # Runs table for HomeScreen
     StatsHeader.tsx      # Run stats + metric sparkline
     AgentPanel.tsx       # Live agent streaming output OR experiment detail view
-    RunCompletePrompt.tsx # Post-run prompt (finalize or abandon)
+    RunCompletePrompt.tsx # Post-run prompt (finalize, update, or abandon)
+    PostUpdatePrompt.tsx # Post-update prompt (start run or go home)
     CycleField.tsx       # Reusable cycle-through field component
     ModelPicker.tsx      # Model selection UI with provider-specific lists
     RunSettingsOverlay.tsx # Inline max-experiments editor overlay
@@ -96,7 +98,12 @@ src/
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     run.ts               # Run lifecycle (branch, baseline, state, locking)
-    system-prompts.ts    # Agent system prompts (setup, experiment, finalize)
+    system-prompts/      # Agent system prompts
+      index.ts           # Re-exports all prompt functions
+      setup.ts           # Setup agent system prompt
+      update.ts          # Update agent system prompt
+      experiment.ts      # Experiment agent system prompt
+      finalize.ts        # Finalize agent system prompt
     tool-events.ts       # Tool event display formatting
     validate-measurement.ts  # Standalone measurement validation script
     experiment.ts          # Experiment agent spawning, context packets, lock detection
@@ -107,6 +114,7 @@ src/
     syntax-theme.ts        # Tokyo Night syntax highlighting theme for code display
     worktree.ts            # Git worktree create/remove for run isolation
     finalize.ts            # Post-run finalize: agent review, group branches, squash fallback
+    run-context.ts         # Build update agent context from previous run data
     daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (per-experiment stream log writes)
     daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
     daemon-client.ts       # TUI-side: spawn daemon, watch files, send control, reconnect
@@ -148,7 +156,7 @@ AutoAuto uses an agent provider abstraction (`src/lib/agent/`) that decouples th
 - **`default-providers.ts`** — Registers all available providers at startup
 - **Provider registry** (`index.ts`): `setProvider(id, provider)` / `getProvider(id)`
 
-### Setup Agent (`src/lib/system-prompts.ts`)
+### Setup Agent (`src/lib/system-prompts/setup.ts`)
 
 - **Purpose:** Inspect repo, suggest targets, define scope, generate program artifacts
 - **Tools:** Read, Write, Edit, Bash, Glob, Grep
@@ -166,6 +174,16 @@ AutoAuto uses an agent provider abstraction (`src/lib/agent/`) that decouples th
   (`src/lib/validate-measurement.ts`) that executes measure.sh 5 times, computes variance
   statistics (CV%), and recommends noise_threshold + repeats. If measurements are unstable,
   the agent helps fix the script and re-validates.
+
+### Update Agent (`src/lib/system-prompts/update.ts`)
+
+- **Purpose:** Re-optimize an existing program — review previous run results, update program.md / measure.sh / config.json
+- **Tools:** Read, Write, Edit, Bash, Glob, Grep
+- **Permission mode:** `bypassPermissions`
+- **Working directory:** Target project root
+- **Context:** Previous run data assembled by `buildUpdateRunContext()` (`src/lib/run-context.ts`) — past results, metric history, and program artifacts
+- **System prompt:** Informed by the existing program artifacts and previous run analysis
+- **maxTurns:** 40
 
 ### Measurement Validation (`src/lib/validate-measurement.ts`)
 
@@ -236,9 +254,10 @@ Manages per-iteration experiment agent sessions:
 
 | Role | System Prompt | User Message | Session | File |
 |------|---------------|--------------|---------|------|
-| Setup Agent | `getSetupSystemPrompt()` | Interactive multi-turn | Long-lived | `system-prompts.ts` |
-| Experiment Agent | `getExperimentSystemPrompt()` | Context packet (one-shot) | Per-iteration | `experiment.ts` |
-| Finalize Agent | `getFinalizeSystemPrompt()` | Accumulated diff + results | One-shot | `finalize.ts` |
+| Setup Agent | `getSetupSystemPrompt()` | Interactive multi-turn | Long-lived | `system-prompts/setup.ts` |
+| Update Agent | `getUpdateSystemPrompt()` | Update context + interactive | Long-lived | `system-prompts/update.ts` |
+| Experiment Agent | `getExperimentSystemPrompt()` | Context packet (one-shot) | Per-iteration | `system-prompts/experiment.ts` |
+| Finalize Agent | `getFinalizeSystemPrompt()` | Accumulated diff + results | One-shot | `system-prompts/finalize.ts` |
 
 ## Execution Dashboard (`src/screens/ExecutionScreen.tsx`)
 
@@ -445,6 +464,7 @@ Key capabilities:
 - **Provider-specific model selection** — model picker UI queries each provider for available models
 - **First-setup flow** — new users go through provider/model selection + auth check before reaching home
 - **Pre-run configuration** — per-run overrides for model, effort, max experiments, and worktree toggle
+- **Program update mode** — re-optimize existing programs: Update Agent reviews previous run results (via `run-context.ts`), modifies program artifacts, and offers to start a new run
 - **In-place run mode** — optional mode that skips worktree isolation and runs experiments in the main checkout
 - **Simplicity criterion** — auto-keeps experiments that are within noise but simplify code (net-negative LOC)
 - **Ideas backlog** — optional `ideas.md` that accumulates per-experiment notes (hypothesis, failure reasons, next ideas)

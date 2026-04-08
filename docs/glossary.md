@@ -24,6 +24,7 @@
 | **Context packet** | One-shot message to the Experiment Agent: baseline, recent results, git log, discarded diffs, program.md. |
 | **Experiment Agent** | Short-lived one-shot Claude session. Receives context packet, makes one change, commits, exits. |
 | **Setup Agent** | Multi-turn Claude session that inspects the repo, generates program artifacts, and validates measurement stability. |
+| **Update Agent** | Multi-turn Claude session that reviews previous run results and updates program artifacts (program.md, measure.sh, config.json) for re-optimization. |
 | **Finalize Agent** | Reviews accumulated diff, groups changes into independent branches (or squashes as fallback), and produces a summary. |
 | **Model slot** | Provider + model + effort config. Two slots: `executionModel` (experiments) and `supportModel` (setup/finalize). |
 | **Measurement locking** | `chmod 444` on measure.sh/config.json before the loop. Prevents agent from gaming the metric. |
@@ -43,4 +44,6 @@
 | **Consecutive discards** | Counter of non-keep outcomes in a row. Triggers re-baselining every 5. |
 | **Scope constraints** | program.md rules defining what files/systems the agent may modify. |
 | **Build script** | Optional `build.sh` — runs once before the measurement series. |
+| **Worktree** | AutoAuto-owned git worktree (`.autoauto/worktrees/<runId>/`) used as the agent's isolated working directory during a run. |
+| **Daemon** | Background process (`src/daemon.ts`) that runs the experiment loop detached from the TUI, surviving terminal close. Communicates via filesystem IPC. |
 | **Measure script** | `measure.sh` — outputs a single JSON object with the metric and quality gate values. |
