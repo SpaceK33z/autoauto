@@ -1,6 +1,6 @@
 {
   "name": "@spacek33z/autoauto",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "TUI tool for autoresearch — autonomous experiment loops on any codebase",
   "type": "module",
   "license": "MIT",
