@@ -9,6 +9,7 @@ import {
   getFilesChangedBetween,
   getDiscardedDiffs,
   getDiffStats,
+  formatShellError,
   type DiffStats,
 } from "./git.ts"
 import { getProvider, type AgentCost } from "./agent/index.ts"
@@ -330,7 +331,7 @@ async function runExperimentAgentRaw(
       return { outcome: { type: "agent_error", error: "aborted", cost }, assistantText }
     }
     return {
-      outcome: { type: "agent_error", error: err instanceof Error ? err.message : String(err), cost },
+      outcome: { type: "agent_error", error: formatShellError(err), cost },
       assistantText,
     }
   }

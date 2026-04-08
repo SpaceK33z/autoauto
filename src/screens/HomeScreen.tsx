@@ -10,6 +10,7 @@ import {
 } from "../lib/programs.ts"
 import { listRuns, isRunActive, deleteRun, deleteProgram, type RunInfo } from "../lib/run.ts"
 import { RunsTable } from "../components/RunsTable.tsx"
+import { formatShellError } from "../lib/git.ts"
 
 interface HomeScreenProps {
   cwd: string
@@ -116,7 +117,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     loadHomeData(cwd)
       .then(setData)
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : String(err))
+        setError(formatShellError(err))
       })
       .finally(() => setLoading(false))
   }, [cwd])

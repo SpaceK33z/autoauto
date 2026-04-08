@@ -7,7 +7,7 @@ import { generateRunId } from "./run.ts"
 import { initRunDir } from "./run-setup.ts"
 import { getProgramDir } from "./programs.ts"
 import type { ModelSlot } from "./config.ts"
-import { isWorkingTreeClean } from "./git.ts"
+import { isWorkingTreeClean, formatShellError } from "./git.ts"
 import { createWorktree } from "./worktree.ts"
 import {
   acquireLock,
@@ -62,7 +62,11 @@ export async function spawnDaemon(
       // In-place mode: create experiment branch directly in main checkout
       const { $ } = await import("bun")
       const branchName = `autoauto-${programSlug}-${runId}`
-      await $`git checkout -b ${branchName}`.cwd(mainRoot).quiet()
+      try {
+        await $`git checkout -b ${branchName}`.cwd(mainRoot).quiet()
+      } catch (err) {
+        throw new Error(formatShellError(err, `git checkout -b ${branchName}`), { cause: err })
+      }
     }
 
     // 3. Init run dir in main root + write run-config.json

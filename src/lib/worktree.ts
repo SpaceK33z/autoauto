@@ -1,6 +1,7 @@
 import { $ } from "bun"
 import { join } from "node:path"
 import { mkdir } from "node:fs/promises"
+import { formatShellError } from "./git.ts"
 
 /**
  * Creates a git worktree for a run. The worktree is created inside
@@ -19,7 +20,11 @@ export async function createWorktree(
   const worktreePath = join(worktreesDir, runId)
   const branchName = `autoauto-${programSlug}-${runId}`
 
-  await $`git worktree add -b ${branchName} ${worktreePath}`.cwd(mainRoot).quiet()
+  try {
+    await $`git worktree add -b ${branchName} ${worktreePath}`.cwd(mainRoot).quiet()
+  } catch (err) {
+    throw new Error(formatShellError(err, `git worktree add (branch ${branchName})`), { cause: err })
+  }
 
   return worktreePath
 }

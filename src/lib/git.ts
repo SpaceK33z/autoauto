@@ -1,5 +1,21 @@
 import { $ } from "bun"
 
+/** Extract a meaningful message from a Bun ShellError (which has .stderr Buffer but a generic .message). */
+export function formatShellError(err: unknown, context?: string): string {
+  if (err instanceof Error) {
+    // Bun ShellError has .stderr as a Buffer
+    const shellErr = err as Error & { stderr?: Buffer; exitCode?: number }
+    const stderr = shellErr.stderr ? shellErr.stderr.toString().trim() : ""
+    const prefix = context ? `${context}: ` : ""
+    if (stderr) return `${prefix}${stderr}`
+    if (shellErr.message && !shellErr.message.startsWith("Failed with exit code")) {
+      return `${prefix}${shellErr.message}`
+    }
+    return `${prefix}exit code ${shellErr.exitCode ?? "unknown"}`
+  }
+  return context ? `${context}: ${String(err)}` : String(err)
+}
+
 export async function getFullSha(cwd: string): Promise<string> {
   return (await $`git rev-parse HEAD`.cwd(cwd).text()).trim()
 }
@@ -120,12 +136,24 @@ export async function createGroupBranch(
     await $`git branch -D ${branchName}`.cwd(cwd).quiet()
   }
 
-  await $`git checkout -b ${branchName} ${baselineSha}`.cwd(cwd).quiet()
+  try {
+    await $`git checkout -b ${branchName} ${baselineSha}`.cwd(cwd).quiet()
+  } catch (err) {
+    throw new Error(formatShellError(err, `git checkout -b ${branchName}`), { cause: err })
+  }
 
-  // Stage only this group's files from the final experiment state
-  await $`git checkout ${headSha} -- ${files}`.cwd(cwd).quiet()
+  try {
+    // Stage only this group's files from the final experiment state
+    await $`git checkout ${headSha} -- ${files}`.cwd(cwd).quiet()
+  } catch (err) {
+    throw new Error(formatShellError(err, `git checkout files from ${headSha.slice(0, 10)}`), { cause: err })
+  }
 
-  await $`git commit -m ${commitMessage}`.cwd(cwd).quiet()
+  try {
+    await $`git commit -m ${commitMessage}`.cwd(cwd).quiet()
+  } catch (err) {
+    throw new Error(formatShellError(err, `git commit for group "${branchName}"`), { cause: err })
+  }
 
   return getFullSha(cwd)
 }

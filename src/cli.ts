@@ -28,6 +28,7 @@ import { streamLogName } from "./lib/daemon-callbacks.ts"
 import { closeProviders, type AgentProviderID } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
 import { getDefaultModel } from "./lib/model-options.ts"
+import { formatShellError } from "./lib/git.ts"
 
 // --- Arg Parsing ---
 
@@ -325,7 +326,7 @@ async function cmdStart(args: ParsedArgs) {
   try {
     result = await spawnDaemon(root, slug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree)
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = formatShellError(err)
     if (msg.includes("uncommitted changes")) die(msg)
     if (msg.includes("already active")) die(msg)
     die(msg, 2)
@@ -764,8 +765,7 @@ export async function run(argv: string[]) {
   try {
     await handler(args)
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    die(msg, 2)
+    die(formatShellError(err), 2)
   } finally {
     await closeProviders()
   }

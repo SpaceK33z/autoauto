@@ -9,6 +9,7 @@ import { getUpdateSystemPrompt } from "../lib/system-prompts/update.ts"
 import { loadProgramSummaries, getProgramDir, type Screen, type ProgramSummary } from "../lib/programs.ts"
 import { buildUpdateRunContext } from "../lib/run-context.ts"
 import { formatModelLabel, type ModelSlot } from "../lib/config.ts"
+import { formatShellError } from "../lib/git.ts"
 
 type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
 
@@ -83,7 +84,7 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
       setUpdateSystemPrompt(prompt)
       setUpdateInitialMessage(context)
     }).catch((err: unknown) => {
-      setUpdateLoadError(err instanceof Error ? err.message : String(err))
+      setUpdateLoadError(formatShellError(err))
     })
   }, [cwd, programSlug])
 

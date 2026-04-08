@@ -17,7 +17,7 @@ import { lockMeasurement, unlockMeasurement } from "./lib/run-setup.ts"
 import type { RunState } from "./lib/run.ts"
 import { runExperimentLoop } from "./lib/experiment-loop.ts"
 import { runMeasurementSeries } from "./lib/measure.ts"
-import { getFullSha, getCurrentBranch } from "./lib/git.ts"
+import { getFullSha, getCurrentBranch, formatShellError } from "./lib/git.ts"
 import { createFileCallbacks } from "./lib/daemon-callbacks.ts"
 import {
   writeDaemonJson,
@@ -259,6 +259,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  process.stderr.write(`Daemon fatal error: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`)
+  process.stderr.write(`Daemon fatal error: ${formatShellError(err)}\n`)
   process.exit(1)
 })

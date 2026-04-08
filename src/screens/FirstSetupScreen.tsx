@@ -15,6 +15,7 @@ import {
   PROVIDER_LABELS,
 } from "../lib/config.ts"
 import { checkAuth } from "../lib/auth.ts"
+import { formatShellError } from "../lib/git.ts"
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
 
@@ -54,7 +55,7 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
       onConfigChange(config)
       navigate("home")
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(formatShellError(err))
       setChecking(false)
     }
   }

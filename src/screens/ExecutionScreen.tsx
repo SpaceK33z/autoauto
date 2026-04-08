@@ -7,6 +7,7 @@ import type { RunState, ExperimentResult, TerminationReason } from "../lib/run.t
 import { getRunStats } from "../lib/run.ts"
 import { removeWorktree } from "../lib/worktree.ts"
 import { runFinalize, type FinalizeResult } from "../lib/finalize.ts"
+import { formatShellError } from "../lib/git.ts"
 import {
   spawnDaemon,
   watchRunDir,
@@ -196,7 +197,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               }
             } catch (err: unknown) {
               if (!cancelled) {
-                setLastError(err instanceof Error ? err.message : String(err))
+                setLastError(formatShellError(err))
                 setPhase("error")
               }
             }
@@ -316,7 +317,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         }
       } catch (err: unknown) {
         if (!cancelled) {
-          setLastError(err instanceof Error ? err.message : String(err))
+          setLastError(formatShellError(err))
           setPhase("error")
         }
       }
@@ -379,7 +380,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       setTotalCostUsd(prev => prev + (result.cost?.total_cost_usd ?? 0))
       setPhase("finalize_complete")
     } catch (err: unknown) {
-      setLastError(err instanceof Error ? err.message : String(err))
+      setLastError(formatShellError(err, "Finalize failed"))
       setPhase("error")
     }
   }, [cwd, programSlug, runDir, runState, programConfig, supportModelConfig])

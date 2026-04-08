@@ -6,6 +6,7 @@ import type { EffortLevel } from "../lib/config.ts"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
 import { getProvider, type AgentProviderID, type AgentSession } from "../lib/agent/index.ts"
 import { formatToolEvent } from "../lib/tool-events.ts"
+import { formatShellError } from "../lib/git.ts"
 
 const SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -157,7 +158,7 @@ export function Chat({
           }
         }
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err))
+        setError(formatShellError(err))
         setIsStreaming(false)
       }
     })()

@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/react"
 import type { ModelSlot } from "../lib/config.ts"
 import type { AgentProviderID } from "../lib/agent/index.ts"
 import { loadModelPickerOptions, type ModelPickerOption } from "../lib/model-options.ts"
+import { formatShellError } from "../lib/git.ts"
 
 interface SelectOption {
   name: string
@@ -37,7 +38,7 @@ export function ModelPicker({ cwd, title, providerId, onSelect, onCancel }: Mode
         setOptions(models.map(toSelectOption))
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = formatShellError(err)
       setError(message)
       setOptions([{ name: "Unavailable", description: message }])
     } finally {
