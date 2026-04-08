@@ -45,6 +45,7 @@ export interface ContextPacket {
   measurement_diagnostics?: string
   previous_results: string
   previous_ideas: string
+  previous_termination?: string | null
 }
 
 /** Cost and usage data from an agent session. */
@@ -157,6 +158,7 @@ export async function buildContextPacket(
     measurement_diagnostics: options.measurementDiagnostics,
     previous_results: prev?.previousResults ?? "",
     previous_ideas: previousIdeas,
+    previous_termination: prev?.latestTermination,
   }
 }
 
@@ -210,9 +212,15 @@ ${lines.join("\n")}
 
   let previousRunSection = ""
   if (packet.previous_results) {
+    let terminationNote = ""
+    if (packet.previous_termination === "stagnation") {
+      terminationNote = "\nThe most recent previous run ended via stagnation (consecutive discards hit the limit). The approaches in the ideas below were exhausted — consider whether this represents a genuine ceiling or whether an orthogonal approach could break through. Do NOT refine what the previous run was already doing."
+    } else if (packet.previous_termination === "max_experiments") {
+      terminationNote = "\nThe most recent previous run ended at its experiment budget. There may be unexplored productive directions."
+    }
     previousRunSection += `
 ## Previous Runs
-The results below are from previous runs on separate branches. The code changes were NOT merged into your working tree. Do not assume these optimizations exist in the current codebase. Use this as guidance for what approaches to try or avoid.
+The results below are from previous runs on separate branches. The code changes were NOT merged into your working tree. Do not assume these optimizations exist in the current codebase. Use this as guidance for what approaches to try or avoid.${terminationNote}
 \`\`\`
 ${packet.previous_results}
 \`\`\`

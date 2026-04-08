@@ -344,6 +344,8 @@ export function isRunActive(r: RunInfo): boolean {
 export interface PreviousRunContext {
   previousResults: string
   previousIdeas: string
+  /** How the most recent previous run ended — informs framing in the prompt. */
+  latestTermination?: TerminationReason | null
 }
 
 /**
@@ -394,7 +396,8 @@ export async function readPreviousRunContext(programDir: string, currentRunId: s
       // Build run summary
       const state = run.state
       const baselineStr = state ? `baseline ${state.original_baseline} -> ${state.current_baseline}` : ""
-      const summary = `Run ${run.run_id}: ${totalExperiments} experiments, ${totalKeeps} kept${baselineStr ? `, ${baselineStr}` : ""}`
+      const reasonStr = state?.termination_reason ? `, ended: ${state.termination_reason}` : ""
+      const summary = `Run ${run.run_id}: ${totalExperiments} experiments, ${totalKeeps} kept${baselineStr ? `, ${baselineStr}` : ""}${reasonStr}`
 
       const runBlock = keeps.length > 0
         ? `${summary}\n${keeps.join("\n")}`
@@ -419,6 +422,7 @@ export async function readPreviousRunContext(programDir: string, currentRunId: s
   return {
     previousResults: resultParts.join("\n\n"),
     previousIdeas,
+    latestTermination: previousRuns[0].state?.termination_reason,
   }
 }
 
