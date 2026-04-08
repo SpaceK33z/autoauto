@@ -147,6 +147,13 @@ export function watchRunDir(
     startPolling()
   }
 
+  // Poll current stream file frequently to catch writes that fs.watch
+  // misses (common on macOS with Bun FileSink appends).
+  const streamPollTimer = setInterval(() => {
+    if (stopped || !currentStreamFile) return
+    scheduleRead(currentStreamFile)
+  }, 250)
+
   // Backup heartbeat timer (5-10s)
   const heartbeatTimer = setInterval(async () => {
     if (stopped) return
@@ -176,6 +183,7 @@ export function watchRunDir(
     stop: () => {
       stopped = true
       watcher?.close()
+      clearInterval(streamPollTimer)
       clearInterval(heartbeatTimer)
       if (pollTimer) clearInterval(pollTimer)
       if (flushTimer) clearTimeout(flushTimer)
