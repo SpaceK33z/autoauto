@@ -53,7 +53,7 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
       }
       await saveProjectConfig(cwd, config)
       onConfigChange(config)
-      navigate("home")
+      navigate("setup")
     } catch (err) {
       setError(formatShellError(err))
       setChecking(false)
