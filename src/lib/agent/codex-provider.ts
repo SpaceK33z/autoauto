@@ -153,6 +153,7 @@ function getToolUse(item: ThreadItem): { tool: string; input?: Record<string, un
       return {
         tool: "Edit",
         input: {
+          file_path: item.changes[0]?.path,
           changes: item.changes,
           status: item.status,
         },

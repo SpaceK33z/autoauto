@@ -7,6 +7,11 @@ function abbreviatePath(filePath: string): string {
 function formatFileToolEvent(verb: string, input: Record<string, unknown>): string {
   const filePath = input.file_path
   if (typeof filePath === "string") {
+    // Multiple file changes (Codex file_change items)
+    const changes = input.changes
+    if (Array.isArray(changes) && changes.length > 1) {
+      return `${verb} ${abbreviatePath(filePath)} (+${changes.length - 1} more)`
+    }
     return `${verb} ${abbreviatePath(filePath)}`
   }
   return `${verb} file...`

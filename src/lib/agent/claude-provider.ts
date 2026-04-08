@@ -35,21 +35,54 @@ function getTextDelta(message: SDKPartialAssistantMessage): string | null {
   return event.delta.text
 }
 
-function getToolUse(
-  message: SDKPartialAssistantMessage,
-): { tool: string; input?: Record<string, unknown> } | null {
-  const event = message.event
-  if (event.type !== "content_block_start" || event.content_block.type !== "tool_use") {
-    return null
+/** Tracks an in-progress tool_use block while input JSON is being streamed. */
+interface PendingToolUse {
+  tool: string
+  inputJson: string
+}
+
+/**
+ * Processes stream events for tool_use blocks. Returns the tool call only
+ * at content_block_stop, after all input_json_delta chunks have arrived,
+ * so formatToolEvent can produce descriptive messages (file paths, commands).
+ */
+function processToolUseEvent(
+  event: unknown,
+  pending: PendingToolUse | null,
+): { pending: PendingToolUse | null; result: { tool: string; input?: Record<string, unknown> } | null } {
+  const ev = event as { type?: string; content_block?: { type?: string; name?: string }; delta?: { type?: string; partial_json?: string } }
+  const type = ev.type
+
+  if (type === "content_block_start") {
+    const block = ev.content_block
+    if (block?.type === "tool_use" && block.name) {
+      return { pending: { tool: block.name, inputJson: "" }, result: null }
+    }
+    return { pending, result: null }
   }
 
-  const rawInput = event.content_block.input
-  const input =
-    typeof rawInput === "object" && rawInput !== null && !Array.isArray(rawInput)
-      ? (rawInput as Record<string, unknown>)
-      : undefined
+  if (type === "content_block_delta" && pending) {
+    const delta = ev.delta
+    if (delta?.type === "input_json_delta" && typeof delta.partial_json === "string") {
+      return { pending: { ...pending, inputJson: pending.inputJson + delta.partial_json }, result: null }
+    }
+    return { pending, result: null }
+  }
 
-  return { tool: event.content_block.name, input }
+  if (type === "content_block_stop" && pending) {
+    let input: Record<string, unknown> | undefined
+    try {
+      const parsed = JSON.parse(pending.inputJson)
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        input = parsed as Record<string, unknown>
+      }
+    } catch {
+      // Malformed JSON — emit without input
+    }
+    return { pending: null, result: { tool: pending.tool, input } }
+  }
+
+  return { pending, result: null }
 }
 
 function extractCost(message: SDKResultMessage): AgentCost {
@@ -124,6 +157,8 @@ class ClaudeSession implements AgentSession {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<AgentEvent> {
+    let pendingTool: PendingToolUse | null = null
+
     try {
       for await (const message of this.queryIterable as AsyncIterable<SDKMessage>) {
         if (this.abortController.signal.aborted) break
@@ -135,9 +170,11 @@ class ClaudeSession implements AgentSession {
             yield { type: "text_delta", text }
           }
 
-          const toolUse = getToolUse(partial)
-          if (toolUse) {
-            yield { type: "tool_use", tool: toolUse.tool, input: toolUse.input }
+          // Accumulate tool input across stream events, emit at content_block_stop
+          const { pending, result } = processToolUseEvent(partial.event, pendingTool)
+          pendingTool = pending
+          if (result) {
+            yield { type: "tool_use", tool: result.tool, input: result.input }
           }
         } else if (message.type === "assistant") {
           const text = getAssistantText(message as unknown as SDKAssistantMessage)
