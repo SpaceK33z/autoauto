@@ -13,6 +13,8 @@ export interface TuiHarness {
   setup: TestSetup
   /** Render one frame and return the captured text */
   frame: () => Promise<string>
+  /** Wait for async effects to settle, then render and return frame */
+  flush: (ms?: number) => Promise<string>
   /** Press a single key and render */
   press: (key: string) => Promise<void>
   /** Press Enter and render */
@@ -21,6 +23,8 @@ export interface TuiHarness {
   escape: () => Promise<void>
   /** Press Tab and render */
   tab: () => Promise<void>
+  /** Press Backspace and render */
+  backspace: () => Promise<void>
   /** Type a string of characters one-by-one and render */
   type: (text: string) => Promise<void>
   /** Press arrow key: "up" | "down" | "left" | "right" */
@@ -29,13 +33,6 @@ export interface TuiHarness {
   waitForText: (text: string, timeoutMs?: number) => Promise<string>
   /** Destroy the renderer (call in afterEach) */
   destroy: () => Promise<void>
-}
-
-const ARROW_SEQUENCES: Record<string, string> = {
-  up: "\x1b[A",
-  down: "\x1b[B",
-  right: "\x1b[C",
-  left: "\x1b[D",
 }
 
 export async function renderTui(
@@ -60,6 +57,14 @@ export async function renderTui(
     return setup.captureCharFrame()
   }
 
+  async function flush(ms = 100): Promise<string> {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, ms))
+      await setup.renderOnce()
+    })
+    return setup.captureCharFrame()
+  }
+
   async function press(key: string): Promise<void> {
     await act(async () => {
       await setup.mockInput.pressKeys([key])
@@ -68,15 +73,33 @@ export async function renderTui(
   }
 
   async function enter(): Promise<void> {
-    await press("\r")
+    await act(async () => {
+      setup.mockInput.pressEnter()
+      await setup.renderOnce()
+    })
   }
 
   async function escape(): Promise<void> {
-    await press("\x1b")
+    // Use CSI u encoding for escape — \x1b[27u — which is reliably parsed
+    // in Kitty keyboard mode without ambiguous timeout handling.
+    await act(async () => {
+      await setup.mockInput.pressKeys(["\x1b[27u"])
+      await setup.renderOnce()
+    })
   }
 
   async function tab(): Promise<void> {
-    await press("\t")
+    await act(async () => {
+      setup.mockInput.pressTab()
+      await setup.renderOnce()
+    })
+  }
+
+  async function backspace(): Promise<void> {
+    await act(async () => {
+      setup.mockInput.pressBackspace()
+      await setup.renderOnce()
+    })
   }
 
   async function type(text: string): Promise<void> {
@@ -86,7 +109,10 @@ export async function renderTui(
   }
 
   async function arrow(dir: "up" | "down" | "left" | "right"): Promise<void> {
-    await press(ARROW_SEQUENCES[dir])
+    await act(async () => {
+      setup.mockInput.pressArrow(dir)
+      await setup.renderOnce()
+    })
   }
 
   async function waitForText(text: string, timeoutMs = 5000): Promise<string> {
@@ -112,5 +138,5 @@ export async function renderTui(
     })
   }
 
-  return { setup, frame, press, enter, escape, tab, type, arrow, waitForText, destroy }
+  return { setup, frame, flush, press, enter, escape, tab, backspace, type, arrow, waitForText, destroy }
 }

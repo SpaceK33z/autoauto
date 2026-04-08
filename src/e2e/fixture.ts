@@ -31,6 +31,15 @@ export interface ProgramFixtureConfig {
   measureScript?: string
 }
 
+export interface ResultFixture {
+  experiment_number: number
+  commit: string
+  metric_value: number
+  status: "keep" | "discard" | "crash"
+  description: string
+  measurement_duration_ms?: number
+}
+
 export interface RunFixtureConfig {
   run_id: string
   phase?: string
@@ -42,6 +51,7 @@ export interface RunFixtureConfig {
   total_crashes?: number
   started_at?: string
   termination_reason?: string | null
+  results?: ResultFixture[]
 }
 
 export interface ProjectConfigFixture {
@@ -140,11 +150,13 @@ export async function createTestFixture(): Promise<TestFixture> {
     }
 
     await Bun.write(join(runDir, "state.json"), JSON.stringify(state, null, 2))
-    // Create empty results file
-    await Bun.write(
-      join(runDir, "results.tsv"),
-      "experiment\tstatus\tmetric\tsha\tcommit_message\tduration_s\n",
+
+    // Write results.tsv with proper header matching parseTsvRow expectations
+    const header = "experiment\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\tdiff_stats"
+    const rows = (run.results ?? []).map((r) =>
+      `${r.experiment_number}\t${r.commit}\t${r.metric_value}\t\t${r.status}\t${r.description}\t${r.measurement_duration_ms ?? 5000}\t`,
     )
+    await Bun.write(join(runDir, "results.tsv"), [header, ...rows, ""].join("\n"))
 
     return runDir
   }
