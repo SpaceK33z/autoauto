@@ -1,5 +1,7 @@
 # AutoAuto
 
+![AutoAuto diagram](assets/autoauto_diagram.gif)
+
 A TUI tool that makes the [autoresearch](https://github.com/karpathy/autoresearch) pattern easy to set up and run on any codebase. Define a metric, let an AI agent iteratively optimize your code, keep improvements, discard failures, loop overnight.
 
 While autoresearch originated in ML training, AutoAuto applies it to everything: software performance, test stability, prompt optimization, search ranking, marketing copy — anything where you have code and a measurable metric. No training loops, datasets, or GPUs required.
@@ -131,7 +133,7 @@ The live TUI dashboard shows:
 
 ### 3. Finalize — package the results
 
-After the loop completes (or you stop it), a Finalize Agent reviews the accumulated diff and groups changes into independent branches for clean review and merge. Falls back to a single squash commit if changes are too intertwined.
+After the loop completes (or you stop it), a Finalize Agent reviews the accumulated diff and groups changes into independent branches for clean review and merge, with per-group risk assessment. Falls back to a summary-only report if changes are too intertwined.
 
 ## Key safeguards
 
