@@ -43,6 +43,10 @@ function truncateStreamText(prev: string, text: string): string {
   return next.length > 8000 ? next.slice(-6000) : next
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError"
+}
+
 interface ExecutionScreenProps {
   cwd: string
   programSlug: string
@@ -397,10 +401,28 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       setReviewValidationError(review.validationError)
       setPhase("finalize_review")
     } catch (err: unknown) {
+      if (isAbortError(err)) {
+        setToolStatus(null)
+        setPhase("complete")
+        return
+      }
       setLastError(formatShellError(err, "Finalize failed"))
       setPhase("error")
     }
   }, [cwd, runDir, runState, programConfig, supportModelConfig])
+
+  const restoreInPlaceBranch = useCallback(async () => {
+    if (runState?.in_place && runState.original_branch) {
+      const { checkoutBranch } = await import("../lib/git.ts")
+      await checkoutBranch(cwd, runState.original_branch).catch(() => {})
+    }
+  }, [cwd, runState])
+
+  const completeFinalizeWith = useCallback((result: FinalizeResult) => {
+    setFinalizeResult(result)
+    setReviewData(null)
+    setPhase("finalize_complete")
+  }, [])
 
   const handleFinalizeApprove = useCallback(async () => {
     if (!runState || !runDir || !programConfig || !reviewData || !reviewGroups) return
@@ -425,17 +447,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         reviewData.cost,
       )
 
-      if (runState.in_place && runState.original_branch) {
-        const { checkoutBranch } = await import("../lib/git.ts")
-        await checkoutBranch(cwd, runState.original_branch).catch(() => {})
-      }
-      setFinalizeResult(result)
-      setPhase("finalize_complete")
+      await restoreInPlaceBranch()
+      completeFinalizeWith(result)
     } catch (err: unknown) {
       setLastError(formatShellError(err, "Finalize failed"))
       setPhase("error")
     }
-  }, [cwd, programSlug, runDir, runState, programConfig, reviewData, reviewGroups, reviewSummary])
+  }, [cwd, programSlug, runDir, runState, programConfig, reviewData, reviewGroups, reviewSummary, restoreInPlaceBranch, completeFinalizeWith])
 
   const handleFinalizeSkipGrouping = useCallback(async () => {
     if (!runState || !runDir || !programConfig || !reviewData) return
@@ -450,17 +468,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         reviewData.cost,
       )
 
-      if (runState.in_place && runState.original_branch) {
-        const { checkoutBranch } = await import("../lib/git.ts")
-        await checkoutBranch(cwd, runState.original_branch).catch(() => {})
-      }
-      setFinalizeResult(result)
-      setPhase("finalize_complete")
+      await restoreInPlaceBranch()
+      completeFinalizeWith(result)
     } catch (err: unknown) {
       setLastError(formatShellError(err, "Finalize failed"))
       setPhase("error")
     }
-  }, [cwd, runDir, runState, programConfig, reviewData, reviewSummary])
+  }, [runDir, runState, programConfig, reviewData, reviewSummary, restoreInPlaceBranch, completeFinalizeWith])
 
   const handleFinalizeRefine = useCallback(async (feedback: string) => {
     if (!runState || !reviewData) return
@@ -493,6 +507,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       setReviewGroups(refined.proposedGroups)
       setReviewValidationError(refined.validationError)
     } catch (err: unknown) {
+      if (isAbortError(err)) return
       setLastError(formatShellError(err, "Refinement failed"))
     } finally {
       setIsRefining(false)
@@ -699,6 +714,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             metricHistory={metricHistory}
             currentPhaseLabel={currentPhaseLabel}
             improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
+            isRunning
           />
 
           {compact ? (
@@ -923,6 +939,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             metricHistory={metricHistory}
             currentPhaseLabel={currentPhaseLabel}
             improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
+            isRunning
           />
 
           <Divider width={termWidth} label="Agent" />

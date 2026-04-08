@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useState, useEffect, useMemo } from "react"
 import type { ExperimentResult } from "../lib/run.ts"
 import { parseSecondaryValues } from "../lib/run.ts"
 import type { SecondaryMetric } from "../lib/programs.ts"
@@ -192,6 +192,25 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
   )
 }
 
+const SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+function WaitingSpinner() {
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 100)
+    return () => clearInterval(interval)
+  }, [])
+
+  const seconds = Math.floor(tick / 10)
+  const timeStr =
+    seconds >= 60
+      ? `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`
+      : `${seconds}s`
+
+  return <span fg="#7aa2f7">{SPINNER_CHARS[tick % SPINNER_CHARS.length]} {timeStr}</span>
+}
+
 function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseLabel?: string | null; experimentNumber?: number; toolStatus?: string | null }) {
   const expLabel = experimentNumber ? `#${experimentNumber}` : ""
 
@@ -201,7 +220,7 @@ function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseL
     if (lower.includes("baseline") && !lower.includes("re-baseline")) {
       return (
         <box flexDirection="column">
-          <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">Establishing baseline</span></text>
+          <text><WaitingSpinner /> <span fg="#ffffff">Establishing baseline</span></text>
           <text fg="#666666">  Running measurement to set the starting metric</text>
         </box>
       )
@@ -209,7 +228,7 @@ function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseL
     if (lower.includes("measuring") || lower.includes("re-baseline")) {
       return (
         <box flexDirection="column">
-          <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">{phaseLabel}</span></text>
+          <text><WaitingSpinner /> <span fg="#ffffff">{phaseLabel}</span></text>
           <text fg="#666666">  Evaluating experiment {expLabel} via measure.sh</text>
         </box>
       )
@@ -217,7 +236,7 @@ function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseL
     if (lower.includes("reverting")) {
       return (
         <box flexDirection="column">
-          <text><span fg="#ffffff">{">"}</span> <span fg="#e0af68">{phaseLabel}</span></text>
+          <text><WaitingSpinner /> <span fg="#e0af68">{phaseLabel}</span></text>
           <text fg="#666666">  Resetting to last known good state</text>
         </box>
       )
@@ -228,7 +247,7 @@ function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseL
     if (lower.includes("starting daemon")) {
       return (
         <box flexDirection="column">
-          <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">Starting daemon</span></text>
+          <text><WaitingSpinner /> <span fg="#ffffff">Starting daemon</span></text>
           <text fg="#666666">  Creating worktree and spawning background process</text>
         </box>
       )
@@ -239,7 +258,7 @@ function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseL
   if (toolStatus) {
     return (
       <box flexDirection="column">
-        <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">Agent working</span> <span fg="#666666">{expLabel}</span></text>
+        <text><WaitingSpinner /> <span fg="#ffffff">Agent working</span> <span fg="#666666">{expLabel}</span></text>
         <text fg="#666666">  {toolStatus}</text>
       </box>
     )
@@ -247,7 +266,7 @@ function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseL
 
   return (
     <box flexDirection="column">
-      <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">Agent thinking</span> <span fg="#666666">{expLabel}</span></text>
+      <text><WaitingSpinner /> <span fg="#ffffff">Agent thinking</span> <span fg="#666666">{expLabel}</span></text>
       <text fg="#666666">  Building context and waiting for first response</text>
     </box>
   )

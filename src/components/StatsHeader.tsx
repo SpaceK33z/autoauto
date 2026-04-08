@@ -1,3 +1,5 @@
+import { useState, useEffect } from "react"
+
 interface StatsHeaderProps {
   experimentNumber: number
   maxExperiments: number
@@ -15,6 +17,7 @@ interface StatsHeaderProps {
   metricHistory: number[]
   currentPhaseLabel: string
   improvementPct: number
+  isRunning?: boolean
 }
 
 const BLOCKS = "▁▂▃▄▅▆▇█"
@@ -46,7 +49,20 @@ function formatImprovementPct(pct: number): string {
   return `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`
 }
 
-export function StatsHeader(props: StatsHeaderProps) {
+const SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+function Spinner() {
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 100)
+    return () => clearInterval(interval)
+  }, [])
+
+  return <span fg="#7aa2f7">{SPINNER_CHARS[tick % SPINNER_CHARS.length]}</span>
+}
+
+export function StatsHeader({ isRunning = false, ...props }: StatsHeaderProps) {
   const improvementStr = formatImprovementPct(props.improvementPct)
   const sparkline = renderSparkline(props.metricHistory, props.direction)
   const contentWidth = Math.max(props.width - 4, 0)
@@ -91,8 +107,8 @@ export function StatsHeader(props: StatsHeaderProps) {
         </box>
         <box>
           <text selectable>
-            <span fg="#ffffff">{"> "}</span>
-            <span fg="#ffffff">{props.currentPhaseLabel}</span>
+            {isRunning ? <Spinner /> : <span fg="#ffffff">{">"}</span>}
+            <span fg="#ffffff">{" "}{props.currentPhaseLabel}</span>
           </text>
         </box>
       </box>
