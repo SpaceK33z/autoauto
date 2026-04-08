@@ -22,6 +22,7 @@ export function VerifyResultsOverlay({ defaultRepeats, onConfirm, onCancel }: Ve
   const repeatsValid = !isNaN(parsedRepeats) && parsedRepeats > 0
 
   useKeyboard((key) => {
+    key.stopPropagation()
     if (key.name === "escape") {
       onCancel()
     } else if (key.name === "return") {

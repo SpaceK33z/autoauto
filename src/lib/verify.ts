@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { $ } from "bun"
 import type { ProgramConfig } from "./programs.ts"
 import type { RunState, ExperimentStatus } from "./run.ts"
 import { appendResult, serializeSecondaryValues } from "./run.ts"
@@ -37,6 +38,11 @@ export async function runVerification(opts: VerifyOptions): Promise<Verification
   const buildShPath = join(programDir, "build.sh")
   const verifyConfig = { ...config, repeats }
 
+  const dirty = (await $`git status --porcelain`.cwd(cwd).text()).trim()
+  if (dirty.length > 0) {
+    throw new Error("Cannot run verification: worktree has uncommitted changes")
+  }
+
   const savedHead = await getFullSha(cwd)
   const results: VerificationResult[] = []
 
@@ -47,7 +53,7 @@ export async function runVerification(opts: VerifyOptions): Promise<Verification
 
       onProgress?.("Measuring baseline...")
       const series = await runMeasurementSeries(measureShPath, cwd, verifyConfig, signal, buildShPath)
-      results.push(seriestoResult("baseline", series, state.original_baseline))
+      results.push(seriesToResult("baseline", series, state.original_baseline))
     }
 
     if (target === "current" || target === "both") {
@@ -56,7 +62,7 @@ export async function runVerification(opts: VerifyOptions): Promise<Verification
 
       onProgress?.("Measuring current...")
       const series = await runMeasurementSeries(measureShPath, cwd, verifyConfig, signal, buildShPath)
-      results.push(seriestoResult("current", series, state.current_baseline))
+      results.push(seriesToResult("current", series, state.current_baseline))
     }
   } finally {
     await resetHard(cwd, savedHead)
@@ -65,7 +71,7 @@ export async function runVerification(opts: VerifyOptions): Promise<Verification
   return results
 }
 
-function seriestoResult(
+function seriesToResult(
   target: "baseline" | "current",
   series: MeasurementSeriesResult,
   originalMetric: number,

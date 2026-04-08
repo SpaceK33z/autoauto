@@ -56,7 +56,7 @@ describe("RunCompletePrompt", () => {
     )
 
     await act(async () => {
-      await testSetup?.renderOnce()
+      await testSetup!.renderOnce()
     })
 
     const frame = testSetup.captureCharFrame()

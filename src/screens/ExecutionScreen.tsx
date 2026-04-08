@@ -975,7 +975,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             state={runState}
             direction={programConfig?.direction ?? "lower"}
             terminationReason={terminationReason}
-            error={null}
+            error={lastError}
             onFinalize={handleFinalize}
             onAbandon={handleAbandon}
             onUpdateProgram={handleUpdateProgram}
