@@ -1,5 +1,8 @@
 interface StatsHeaderProps {
   experimentNumber: number
+  maxExperiments: number
+  width: number
+  modelLabel: string
   totalKeeps: number
   totalDiscards: number
   totalCrashes: number
@@ -46,29 +49,31 @@ function formatImprovementPct(pct: number): string {
 export function StatsHeader(props: StatsHeaderProps) {
   const improvementStr = formatImprovementPct(props.improvementPct)
   const sparkline = renderSparkline(props.metricHistory, props.direction)
+  const contentWidth = Math.max(props.width - 4, 0)
 
   return (
       <box paddingX={1} flexDirection="column">
-        <box>
+        <box width={contentWidth} flexDirection="row" justifyContent="space-between">
           <text selectable>
             <span fg="#9ece6a"><strong>kept {props.totalKeeps}</strong></span>
             {"    "}
             <span fg="#ff5555">disc {props.totalDiscards}</span>
             {"    "}
-            <span fg="#a9b1d6">crash {props.totalCrashes}</span>
+            <span fg="#ffffff">crash {props.totalCrashes}</span>
             {"    "}
-            <span fg="#a9b1d6">$</span>
-            <span fg="#c0caf5">{props.totalCostUsd.toFixed(2)}</span>
+            <span fg="#ffffff">$</span>
+            <span fg="#ffffff">{props.totalCostUsd.toFixed(2)}</span>
             {"    "}
-            <span fg="#a9b1d6">#{props.experimentNumber}</span>
+            <span fg="#ffffff">#{props.experimentNumber}/{props.maxExperiments}</span>
           </text>
+          <text fg="#666666" selectable>{props.modelLabel}</text>
         </box>
         <box>
           <text selectable>
-            <span fg="#a9b1d6">baseline </span>
+            <span fg="#ffffff">baseline </span>
             <span fg="#7aa2f7">{props.currentBaseline}</span>
             {"    "}
-            <span fg="#a9b1d6">{"best "}</span>
+            <span fg="#ffffff">{"best "}</span>
             <span fg="#9ece6a">{props.bestMetric}</span>
             {improvementStr ? (
               <>
@@ -86,8 +91,8 @@ export function StatsHeader(props: StatsHeaderProps) {
         </box>
         <box>
           <text selectable>
-            <span fg="#a9b1d6">{"> "}</span>
-            <span fg="#c0caf5">{props.currentPhaseLabel}</span>
+            <span fg="#ffffff">{"> "}</span>
+            <span fg="#ffffff">{props.currentPhaseLabel}</span>
           </text>
         </box>
       </box>

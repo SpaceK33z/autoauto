@@ -14,7 +14,7 @@ export interface RunsTableProps {
 }
 
 function phaseColor(state: RunState | null): string {
-  if (!state) return "#565f89"
+  if (!state) return "#666666"
   switch (state.phase) {
     case "agent_running":
     case "measuring":
@@ -28,7 +28,7 @@ function phaseColor(state: RunState | null): string {
     case "finalizing":
       return "#e0af68" // yellow
     default:
-      return "#565f89" // dim
+      return "#666666" // dim
   }
 }
 
@@ -60,18 +60,18 @@ function formatGains(
   const hasKeeps = state.total_keeps > 0
 
   if (!hasKeeps) {
-    return { text: "—", color: "#565f89" }
+    return { text: "—", color: "#666666" }
   }
 
   if (!config) {
-    return { text: "—", color: "#565f89" }
+    return { text: "—", color: "#666666" }
   }
 
   const original = state.original_baseline
   const best = state.best_metric
 
   if (original === 0) {
-    return { text: "—", color: "#565f89" }
+    return { text: "—", color: "#666666" }
   }
 
   const absDelta = best - original
@@ -147,11 +147,11 @@ const RunRow = memo(function RunRow({
     <box paddingX={1} backgroundColor={selected ? "#333333" : undefined}>
       <text selectable>
         <span fg={dotColor}>{formatCell("● ", widths.status)}</span>
-        <span fg="#c0caf5">{formatCell(slug, widths.program)}</span>
-        <span fg="#a9b1d6">{formatCell(String(totalExp), widths.exp)}</span>
-        <span fg="#a9b1d6">{formatCell(formatModelEffort(state), widths.model)}</span>
-        <span fg="#a9b1d6">{formatCell(formatTokens(state.total_tokens), widths.tokens)}</span>
-        <span fg="#a9b1d6">{formatCell(formatDuration(state.started_at, state.updated_at, state.phase), widths.time)}</span>
+        <span fg="#ffffff">{formatCell(slug, widths.program)}</span>
+        <span fg="#ffffff">{formatCell(String(totalExp), widths.exp)}</span>
+        <span fg="#ffffff">{formatCell(formatModelEffort(state), widths.model)}</span>
+        <span fg="#ffffff">{formatCell(formatTokens(state.total_tokens), widths.tokens)}</span>
+        <span fg="#ffffff">{formatCell(formatDuration(state.started_at, state.updated_at, state.phase), widths.time)}</span>
         <span fg={gains.color}>{formatCell(gains.text, widths.gains)}</span>
       </text>
     </box>
@@ -186,7 +186,7 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
     <box flexDirection="column" flexGrow={1}>
       {/* Header */}
       <box paddingX={1}>
-        <text fg="#565f89">
+        <text fg="#666666">
           {formatCell("", widths.status)}
           {formatCell("program", widths.program)}
           {formatCell("exp", widths.exp)}
@@ -200,7 +200,7 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
       <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
         {validRuns.length === 0 ? (
           <box paddingX={1}>
-            <text fg="#565f89">No runs yet.</text>
+            <text fg="#666666">No runs yet.</text>
           </box>
         ) : (
           validRuns.map((run, index) => (

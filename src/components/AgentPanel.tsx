@@ -26,41 +26,41 @@ function ExperimentDetail({ result, secondaryMetrics }: {
   return (
     <box flexDirection="column" paddingX={1} gap={1}>
       <box flexDirection="column">
-        <text selectable><strong fg="#a9b1d6">Experiment #{result.experiment_number}</strong></text>
-        <text fg="#565f89">{"─".repeat(40)}</text>
+        <text selectable><strong fg="#ffffff">Experiment #{result.experiment_number}</strong></text>
+        <text fg="#666666">{"─".repeat(40)}</text>
       </box>
 
       <box flexDirection="column">
-        <text selectable><strong fg="#a9b1d6">Status:  </strong><strong fg={statusColor(result.status)}>{result.status}</strong></text>
-        <text selectable><strong fg="#a9b1d6">Commit:  </strong><strong fg="#c0caf5">{result.commit}</strong></text>
-        <text selectable><strong fg="#a9b1d6">Metric:  </strong><strong fg="#c0caf5">{result.metric_value ?? "—"}</strong></text>
+        <text selectable><strong fg="#ffffff">Status:  </strong><strong fg={statusColor(result.status)}>{result.status}</strong></text>
+        <text selectable><strong fg="#ffffff">Commit:  </strong><strong fg="#ffffff">{result.commit}</strong></text>
+        <text selectable><strong fg="#ffffff">Metric:  </strong><strong fg="#ffffff">{result.metric_value ?? "—"}</strong></text>
       </box>
 
       {gateEntries.length > 0 && (
         <box flexDirection="column">
-          <text><strong fg="#a9b1d6">Quality Gates:</strong></text>
+          <text><strong fg="#ffffff">Quality Gates:</strong></text>
           {gateEntries.map(([key, val]) => (
-            <text key={key} fg="#c0caf5" selectable>  {key}: {String(val)}</text>
+            <text key={key} fg="#ffffff" selectable>  {key}: {String(val)}</text>
           ))}
         </box>
       )}
 
       {secondaryEntries.length > 0 && (
         <box flexDirection="column">
-          <text><strong fg="#a9b1d6">Secondary Metrics:</strong></text>
+          <text><strong fg="#ffffff">Secondary Metrics:</strong></text>
           {secondaryEntries.map(([key, val]) => {
             const dir = secondaryMetrics?.[key]?.direction
             const dirLabel = dir ? ` (${dir} is better)` : ""
             return (
-              <text key={key} fg="#c0caf5" selectable>  {key}: {String(val)}{dirLabel}</text>
+              <text key={key} fg="#ffffff" selectable>  {key}: {String(val)}{dirLabel}</text>
             )
           })}
         </box>
       )}
 
       <box flexDirection="column">
-        <text><strong fg="#a9b1d6">Description:</strong></text>
-        <text fg="#c0caf5" selectable>{result.description}</text>
+        <text><strong fg="#ffffff">Description:</strong></text>
+        <text fg="#ffffff" selectable>{result.description}</text>
       </box>
     </box>
   )
@@ -146,7 +146,7 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
           <ExperimentDetail result={selectedResult} secondaryMetrics={secondaryMetrics} />
         </scrollbox>
         <box paddingX={1}>
-          <text fg="#565f89">Esc to return to live view</text>
+          <text fg="#666666">Esc to return to live view</text>
         </box>
       </box>
     )
@@ -163,7 +163,7 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
         {streamingText && (
           <box paddingX={1} flexDirection="column">
             {toolStatus && isRunning && !hasMarkers && (
-              <text fg="#565f89" selectable>{toolStatus}</text>
+              <text fg="#666666" selectable>{toolStatus}</text>
             )}
             {hasMarkers ? (
               segments.map((segment, i) => {
@@ -171,12 +171,12 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
                   const ts = formatTimestamp(segment.time)
                   if (segment.status) {
                     return (
-                      <text key={i} fg="#565f89" selectable>
-                        {ts ? <><span fg="#444b6a">{ts}</span>{"  "}</> : null}{segment.status}
+                      <text key={i} fg="#666666" selectable>
+                        {ts ? <><span fg="#555555">{ts}</span>{"  "}</> : null}{segment.status}
                       </text>
                     )
                   }
-                  return ts ? <text key={i} fg="#444b6a" selectable>{ts}</text> : null
+                  return ts ? <text key={i} fg="#555555" selectable>{ts}</text> : null
                 }
                 return (
                   <markdown key={i} content={segment.content} syntaxStyle={syntaxStyle} streaming={isRunning && i === lastTextIdx} />
@@ -201,35 +201,35 @@ function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseL
     if (lower.includes("baseline") && !lower.includes("re-baseline")) {
       return (
         <box flexDirection="column">
-          <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">Establishing baseline</span></text>
-          <text fg="#565f89">  Running measurement to set the starting metric</text>
+          <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">Establishing baseline</span></text>
+          <text fg="#666666">  Running measurement to set the starting metric</text>
         </box>
       )
     }
     if (lower.includes("measuring") || lower.includes("re-baseline")) {
       return (
         <box flexDirection="column">
-          <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">{phaseLabel}</span></text>
-          <text fg="#565f89">  Evaluating experiment {expLabel} via measure.sh</text>
+          <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">{phaseLabel}</span></text>
+          <text fg="#666666">  Evaluating experiment {expLabel} via measure.sh</text>
         </box>
       )
     }
     if (lower.includes("reverting")) {
       return (
         <box flexDirection="column">
-          <text><span fg="#a9b1d6">{">"}</span> <span fg="#e0af68">{phaseLabel}</span></text>
-          <text fg="#565f89">  Resetting to last known good state</text>
+          <text><span fg="#ffffff">{">"}</span> <span fg="#e0af68">{phaseLabel}</span></text>
+          <text fg="#666666">  Resetting to last known good state</text>
         </box>
       )
     }
     if (lower.includes("kept")) {
-      return <text><span fg="#a9b1d6">{">"}</span> <span fg="#9ece6a">{phaseLabel}</span></text>
+      return <text><span fg="#ffffff">{">"}</span> <span fg="#9ece6a">{phaseLabel}</span></text>
     }
     if (lower.includes("starting daemon")) {
       return (
         <box flexDirection="column">
-          <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">Starting daemon</span></text>
-          <text fg="#565f89">  Creating worktree and spawning background process</text>
+          <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">Starting daemon</span></text>
+          <text fg="#666666">  Creating worktree and spawning background process</text>
         </box>
       )
     }
@@ -239,16 +239,16 @@ function WaitingIndicator({ phaseLabel, experimentNumber, toolStatus }: { phaseL
   if (toolStatus) {
     return (
       <box flexDirection="column">
-        <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">Agent working</span> <span fg="#565f89">{expLabel}</span></text>
-        <text fg="#565f89">  {toolStatus}</text>
+        <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">Agent working</span> <span fg="#666666">{expLabel}</span></text>
+        <text fg="#666666">  {toolStatus}</text>
       </box>
     )
   }
 
   return (
     <box flexDirection="column">
-      <text><span fg="#a9b1d6">{">"}</span> <span fg="#c0caf5">Agent thinking</span> <span fg="#565f89">{expLabel}</span></text>
-      <text fg="#565f89">  Building context and waiting for first response</text>
+      <text><span fg="#ffffff">{">"}</span> <span fg="#ffffff">Agent thinking</span> <span fg="#666666">{expLabel}</span></text>
+      <text fg="#666666">  Building context and waiting for first response</text>
     </box>
   )
 }

@@ -200,7 +200,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
       <box flexGrow={1} />
 
-      <text fg="#565f89">{"  Enter: start/open model picker | Escape: back | Tab: next field"}</text>
+      <text fg="#666666">{"  Enter: start/open model picker | Escape: back | Tab: next field"}</text>
     </box>
   )
 }

@@ -3,7 +3,7 @@ import { useKeyboard } from "@opentui/react"
 import type { ExperimentResult, ExperimentStatus } from "../lib/run.ts"
 import { parseSecondaryValues } from "../lib/run.ts"
 import type { SecondaryMetric } from "../lib/programs.ts"
-import { allocateColumnWidths, formatCell } from "../lib/format.ts"
+import { allocateColumnWidths, formatCell, type ColumnSpec } from "../lib/format.ts"
 
 interface ResultsTableProps {
   results: ExperimentResult[]
@@ -25,12 +25,14 @@ export function statusColor(status: ExperimentStatus): string {
   }
 }
 
-const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highlighted, selected, columnWidths }: {
+const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highlighted, selected, columnWidths, lineWidth, rowWidth }: {
   result: ExperimentResult
   secondaryFields: string[]
   highlighted?: boolean
   selected?: boolean
   columnWidths: number[]
+  lineWidth: number
+  rowWidth: number
 }) {
   const bg = selected ? "#3d59a1" : highlighted ? "#292e42" : undefined
   const fg = statusColor(r.status)
@@ -50,10 +52,12 @@ const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highligh
     formatCell(r.description, columnWidths[4 + secondaryFields.length]),
   ]
 
+  const line = formatCell(`${fixedCells.join("")}${secondaryCells.join("")}${trailingCells.join("")}`, lineWidth)
+
   return (
-    <box paddingX={1} backgroundColor={bg}>
-      <text fg={fg} selectable>
-        {fixedCells.join("")}{secondaryCells.join("")}{trailingCells.join("")}
+    <box width={rowWidth} paddingX={1} backgroundColor={bg}>
+      <text width={lineWidth} fg={fg} selectable>
+        {line}
       </text>
     </box>
   )
@@ -61,6 +65,11 @@ const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highligh
 
 // outer border (2) + paddingX (2)
 const CHROME_WIDTH = 4
+const ROW_CHROME_WIDTH = 2
+
+function labelWidth(label: string, base: number, max: number): number {
+  return Math.min(Math.max(base, label.length + 2), max)
+}
 
 export function ResultsTable({ results, metricField, secondaryMetrics, width, experimentNumber, focused, selectedResult, onSelect }: ResultsTableProps) {
   const secondaryFields = useMemo(() => secondaryMetrics ? Object.keys(secondaryMetrics) : [], [secondaryMetrics])
@@ -68,21 +77,27 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
   // Skip the baseline row (#0) — it's in the stats header
   const experiments = results.filter(r => r.experiment_number > 0)
   const innerWidth = Math.max(width - CHROME_WIDTH, 0)
+  const rowWidth = innerWidth + ROW_CHROME_WIDTH
 
   const columnSpecs = useMemo(() => {
-    const fixedCols = [
-      { ideal: 4, min: 2 },   // #
-      { ideal: 9, min: 0 },   // commit
-      { ideal: 12, min: 0 },  // primary metric
+    const fixedCols: ColumnSpec[] = [
+      { ideal: 4, min: 3 }, // #
+      { ideal: 10, min: 0 }, // commit collapses first on narrow terminals
+      { ideal: labelWidth(metricField, 16, 24), min: 8 },
     ]
-    const secondaryCols = secondaryFields.map(() => ({ ideal: 10, min: 0 }))
-    const fixedWidth = 4 + 9 + 12 + 12 + secondaryFields.length * 10
-    const trailingCols = [
-      { ideal: 12, min: 0 },  // status
-      { ideal: Math.max(innerWidth - fixedWidth, 0), min: 0 },  // description
+    const secondaryCols = secondaryFields.map((field) => ({
+      ideal: labelWidth(field, 12, 18),
+      min: 8,
+    }))
+    const statusCol = { ideal: 20, min: 8 }
+    const usedBeforeDescription = [...fixedCols, ...secondaryCols, statusCol]
+      .reduce((sum, spec) => sum + spec.ideal, 0)
+    const trailingCols: ColumnSpec[] = [
+      statusCol,
+      { ideal: Math.max(innerWidth - usedBeforeDescription, 24), min: 8 },
     ]
     return [...fixedCols, ...secondaryCols, ...trailingCols]
-  }, [secondaryFields, innerWidth])
+  }, [metricField, secondaryFields, innerWidth])
 
   const columnWidths = useMemo(() => allocateColumnWidths(innerWidth, columnSpecs), [innerWidth, columnSpecs])
 
@@ -119,21 +134,22 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
     formatCell("status", columnWidths[3 + secondaryFields.length]),
     formatCell("description", columnWidths[4 + secondaryFields.length]),
   ]
+  const headerLine = formatCell(headerCells.join(""), innerWidth)
 
   return (
     <box flexDirection="column" flexGrow={1}>
-      <box paddingX={1}>
-        <text fg="#a9b1d6">
-          {headerCells.join("")}
+      <box width={rowWidth} paddingX={1}>
+        <text width={innerWidth} fg="#ffffff">
+          {headerLine}
         </text>
       </box>
       <scrollbox flexGrow={1} stickyScroll={!focused} stickyStart="bottom">
         {experiments.length === 0 ? (
-          <box paddingX={1}>
-            <text fg="#a9b1d6">
-              {experimentNumber != null && experimentNumber > 0
+          <box width={rowWidth} paddingX={1}>
+            <text width={innerWidth} fg="#ffffff">
+              {formatCell(experimentNumber != null && experimentNumber > 0
                 ? `Running experiment #${experimentNumber}...`
-                : "Running baseline measurement..."}
+                : "Running baseline measurement...", innerWidth)}
             </text>
           </box>
         ) : (
@@ -143,6 +159,8 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
               result={r}
               secondaryFields={secondaryFields}
               columnWidths={columnWidths}
+              lineWidth={innerWidth}
+              rowWidth={rowWidth}
               highlighted={focused && i === safeHighlight}
               selected={selectedResult?.experiment_number === r.experiment_number}
             />
