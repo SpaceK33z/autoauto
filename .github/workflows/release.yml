@@ -35,7 +35,7 @@ jobs:
             os: macos-latest
             artifact: autoauto-darwin-arm64
           - target: bun-darwin-x64
-            os: macos-13
+            os: macos-latest
             artifact: autoauto-darwin-x64
           - target: bun-linux-x64
             os: ubuntu-latest
@@ -56,6 +56,7 @@ jobs:
   upload:
     name: Upload Release Assets
     needs: [release-please, build]
+    if: ${{ always() && needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
