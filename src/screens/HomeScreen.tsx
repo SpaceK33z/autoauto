@@ -69,6 +69,16 @@ async function loadHomeData(cwd: string): Promise<HomeData> {
     }),
   )
 
+  // Programs: active pinned to top, then most recently used first
+  programInfos.sort((a, b) => {
+    if (a.hasActiveRun && !b.hasActiveRun) return -1
+    if (!a.hasActiveRun && b.hasActiveRun) return 1
+    if (a.lastRunDate && b.lastRunDate) return b.lastRunDate.localeCompare(a.lastRunDate)
+    if (a.lastRunDate && !b.lastRunDate) return -1
+    if (!a.lastRunDate && b.lastRunDate) return 1
+    return a.name.localeCompare(b.name)
+  })
+
   // In-progress pinned to top, then newest first
   allRuns.sort((a, b) => {
     const aActive = isRunActive(a)
