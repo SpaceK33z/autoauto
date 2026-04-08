@@ -1,3 +1,4 @@
+
 TODO: don't ask "measure.sh" to be locked, it should always be locked
 
 TODO: make the agent ask proper questions using a tool
@@ -22,11 +23,15 @@ TODO: finalize crash
 
 TODO: use this fancy skill to generate graph
 
+TODO: create a LITERATURE.md doc that references all the knowledge we implemented in prompts or code with quotes, and refers to sources - also refer to this in README.md
+
 TODO: enhance finalize: have it identify risky changes (specifically user-facing) and make it easy to revert
 
 TODO: finalize should work on multiple runs not just one (how does the other one do it?)
 
 TODO: add way for notifications, have a free form field + test it + support templating
+
+TODO: add gif/video
 
 ---
 
