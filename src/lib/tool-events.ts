@@ -17,18 +17,44 @@ function formatFileToolEvent(verb: string, input: Record<string, unknown>): stri
   return `${verb} file...`
 }
 
+/** Canonical tool name map (lowercase → switch key) */
+const TOOL_ALIASES: Record<string, string> = {
+  read: "Read",
+  write: "Write",
+  edit: "Edit",
+  glob: "Glob",
+  grep: "Grep",
+  bash: "Bash",
+  list: "List",
+  apply_patch: "Edit",
+  multiedit: "Edit",
+  webfetch: "WebFetch",
+  websearch: "WebSearch",
+}
+
+function canonicalToolName(toolName: string): string {
+  return TOOL_ALIASES[toolName.toLowerCase()] ?? TOOL_ALIASES[toolName] ?? toolName
+}
+
 /** Format a tool call into a brief human-readable status string */
 export function formatToolEvent(
   toolName: string,
   input: Record<string, unknown>
 ): string {
-  switch (toolName) {
+  // Provider-supplied title takes precedence (e.g. OpenCode state.title)
+  const title = input.__title
+  if (typeof title === "string" && title.trim()) return title
+
+  const canonical = canonicalToolName(toolName)
+  switch (canonical) {
     case "Read":
       return formatFileToolEvent("Reading", input)
     case "Write":
       return formatFileToolEvent("Writing", input)
     case "Edit":
       return formatFileToolEvent("Editing", input)
+    case "List":
+      return "Listing directory..."
     case "Glob": {
       const pattern = input.pattern
       if (typeof pattern === "string") {
@@ -63,6 +89,10 @@ export function formatToolEvent(
       }
       return "Running command..."
     }
+    case "WebFetch":
+      return "Fetching web content..."
+    case "WebSearch":
+      return "Searching the web..."
     default:
       return `Using ${toolName}...`
   }

@@ -277,10 +277,18 @@ class OpenCodeSession implements AgentSession {
           const key = `${part.id}:${status}`
           if (!emittedTools.has(key)) {
             emittedTools.add(key)
+            const state = part.state as {
+              status?: string
+              input?: Record<string, unknown>
+              title?: string
+            } | undefined
+            const input: Record<string, unknown> = { ...state?.input }
+            // Forward provider-supplied title for richer tool status display
+            if (state?.title) input.__title = state.title
             this.events.push({
               type: "tool_use",
               tool: part.tool,
-              input: part.state?.input,
+              input,
             })
           }
         }
