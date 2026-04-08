@@ -10,7 +10,7 @@ import { loadProgramSummaries, getProgramDir, type Screen, type ProgramSummary }
 import { buildUpdateRunContext } from "../lib/run-context.ts"
 import { formatModelLabel, type ModelSlot } from "../lib/config.ts"
 import { formatShellError } from "../lib/git.ts"
-import { saveDraft, loadDraft, draftFileName, type DraftSession, type DraftMessage } from "../lib/drafts.ts"
+import { saveDraft, loadDraft, deleteDraft, draftFileName, type DraftSession, type DraftMessage } from "../lib/drafts.ts"
 
 type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
 
@@ -126,10 +126,31 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName
 
   const [saving, setSaving] = useState(false)
 
-  const persistAndNavigate = useCallback(() => {
+  const persistAndNavigate = useCallback(async () => {
     if (mode === "choose" || (mode === "scope" && messagesRef.current.length === 0)) {
       navigate("home")
       return
+    }
+
+    setSaving(true)
+
+    // If a new program was created during this session, skip saving the draft
+    if (!isUpdate) {
+      try {
+        const currentPrograms = await loadProgramSummaries(cwd)
+        const existingSlugs = new Set(existingPrograms.map((p) => p.slug))
+        const newProgram = currentPrograms.some((p) => !existingSlugs.has(p.slug))
+        if (newProgram) {
+          // Clean up the draft if we were resuming one
+          if (currentDraftNameRef.current) {
+            await deleteDraft(cwd, currentDraftNameRef.current).catch(() => {})
+          }
+          navigate("home")
+          return
+        }
+      } catch {
+        // Fall through to save draft on error
+      }
     }
 
     const name = currentDraftNameRef.current ?? draftFileName({
@@ -151,12 +172,11 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName
       messages: messagesRef.current,
     }
 
-    setSaving(true)
     saveDraft(cwd, name, draft)
       .then(() => onDraftSaved?.(name))
       .catch(() => {})
       .finally(() => navigate("home"))
-  }, [cwd, isUpdate, programSlug, modelConfig, mode, initialMessage, onDraftSaved, navigate])
+  }, [cwd, isUpdate, programSlug, existingPrograms, modelConfig, mode, initialMessage, onDraftSaved, navigate])
 
   useKeyboard((key) => {
     if (saving) return
