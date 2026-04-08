@@ -149,56 +149,17 @@ writer.end()    // close when done
 
 **Exception: `node:fs/promises`** — still needed for: `mkdir`, `chmod`, `readdir`, `rename`, `unlink`, `appendFile`, `open` with O_EXCL flags.
 
-## Agent Conventions
+## Implementation Rules
 
-- Setup Agent uses built-in SDK tools (Read, Write, Edit, Bash, Glob, Grep)
-- Agent tools are auto-approved via `permissionMode: "bypassPermissions"` — AutoAuto is the host app
-- `cwd` is always set to the target project root (resolved via `getProjectRoot()`)
-- System prompts live in `src/lib/system-prompts.ts`
-- Tool status is displayed in the chat UI as brief one-line indicators
-- Setup Agent writes program artifacts to `.autoauto/programs/<slug>/` only after user confirmation
-- Setup Agent validates measurement stability after saving program files
-- Measurement validation uses a standalone script (`src/lib/validate-measurement.ts`) called via Bash
-- The validation script runs optional `build.sh` once first when present
-- The validation script runs measure.sh multiple times and computes variance statistics (CV%)
-- Config recommendations (noise_threshold, repeats) are based on observed CV%
-- Model configuration (model alias + effort level) stored in `.autoauto/config.json`
-- Two model slots: `executionModel` (for experiment agents) and `supportModel` (for setup/finalize)
-- Defaults: Sonnet + high effort for both slots
-- Model/effort passed to `query()` via `model` and `effort` options
-- Auth checked on startup via SDK `accountInfo()` — supports API key, OAuth, and cloud providers
+See `IDEA.md` for how the system works (agent design, context packets, loop mechanics, safeguards). These are the hard rules to follow when modifying the codebase:
+
 - Shared types (`ProgramConfig`, `QualityGate`) live in `src/lib/programs.ts` — import from there, not from `validate-measurement.ts`
-- Run state persisted atomically via temp-file + rename (`writeState()` in `src/lib/run.ts`)
-- Results.tsv is append-only — use `appendResult()`, never rewrite
+- `results.tsv` is append-only — use `appendResult()`, never rewrite
 - Measurement locking (`chmod 444`) is the #1 safeguard — always lock before experiment loop, unlock on completion
-- Git operations in `src/lib/git.ts` — use `git reset --hard` to discard failed experiments (standard autoresearch pattern)
-- Measurement series returns median of N runs — use `runMeasurementSeries()` for all metric comparisons
-- `compareMetric()` uses relative change as a decimal fraction compared against `noise_threshold`
-- Experiment Agent is one-shot: single user message → autonomous run → commit or exit
-- Experiment Agent system prompt = program.md wrapped with framing instructions (`getExperimentSystemPrompt()`)
-- Context packet = per-experiment user message with baseline, recent results, git log, discarded diffs
-- Experiment Agent tools: Read, Write, Edit, Bash, Glob, Grep — same as setup, auto-approved
-- Lock violation detection: after agent commits, check `git diff` for any `.autoauto/` modifications → immediate discard
-- Loop callbacks (`LoopCallbacks`) are the interface between orchestrator and display layer
-- In daemon mode, `FileCallbacks` (daemon-callbacks.ts) implements LoopCallbacks by writing per-experiment stream logs (`stream-001.log`, etc.); all other state persistence is handled by the loop itself
-- `LoopOptions.stopRequested` provides soft stop (checked at iteration boundary); `signal` is for hard abort only
-- Two-root path model: `cwd` (worktree for git/agent ops) vs `programDir` (mainRoot for config/state) — `runExperimentLoop` takes explicit params, not a single `projectRoot`
-- Re-baseline after keeps: `runMeasurementAndDecide()` runs a fresh measurement series after each keep; falls back to candidate measurement if re-baseline fails
-- Re-baseline after consecutive discards: `maybeRebaseline()` runs drift detection every `REBASELINE_AFTER_DISCARDS` (5) non-keep outcomes; updates baseline if drift exceeds noise threshold
-- Stagnation detection: auto-stops after `max_consecutive_discards` (default 10) consecutive non-improving experiments; warns at ~2/3 of the limit; counter resets on any keep; termination reason = `"stagnation"`
-- Results reading: `readAllResults()` returns typed `ExperimentResult[]` from results.tsv; `getMetricHistory()` extracts keep-only metric values for charts
-- Run listing: `listRuns()` enumerates runs for a program with their states; `getLatestRun()` returns the most recent
-- Cost tracking: `ExperimentCost` on `ExperimentOutcome` captures SDK cost/usage data per experiment
-- Dashboard components are mostly pure rendering — all primary state lives in ExecutionScreen (ResultsTable has local highlight index for keyboard nav)
-- Sparkline uses keep-only metric values via `getMetricHistory()` pattern
-- Results table color-codes by status: green=keep, red=discard/crash, yellow=measurement_failure
-- ExecutionScreen supports two modes: spawn new daemon (`spawnDaemon`) or attach to existing (`attachRunId` prop)
-- TUI watches run dir via `fs.watch` (daemon-client.ts) for near-instant updates; falls back to polling
-- Stop/abort escalation: q → confirmation → stop-after-current; Ctrl+C → abort; second Ctrl+C → SIGKILL
-- Daemon runs in AutoAuto-owned git worktree — `git reset --hard` only allowed inside worktree, never main checkout
-- Per-program locking at `.autoauto/programs/<slug>/run.lock` — multiple programs can run concurrently
-- RunState includes `total_cost_usd`, `termination_reason`, `original_branch`, `worktree_path`, `error`, `error_phase` for daemon reconnection
-- Finalize runs in-process in the TUI (not in daemon) — reads `worktree_path` from state.json; groups changes into independent branches or squashes as fallback
+- `git reset --hard` only inside worktree, never main checkout
+- Two-root path model: `cwd` (worktree for git/agent ops) vs `programDir` (main root for config/state) — easy to confuse, always check which root you need
+- Run state: atomic writes via temp-file + rename (`writeState()` in `run.ts`)
+- Model config: two slots (`executionModel`, `supportModel`) in `.autoauto/config.json`; defaults: Sonnet + high effort
 
 ## Testing the TUI Interactively
 

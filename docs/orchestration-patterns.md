@@ -123,10 +123,12 @@ The most documented pattern. Agent explores autonomously → hits a ceiling → 
 **NEVER STOP instruction (paddo):**
 The agent is instructed it cannot pause to ask for human input — it must continue running until manually terminated. This prevents premature stoppage but increases the risk of late-session micro-adjustments. Best combined with a max experiment count or diminishing returns detection.
 
+**Escalating exploration directives (AutoAuto, implemented):**
+The experiment prompt dynamically injects progressively stronger diversity instructions based on the ratio of consecutive discards to `max_consecutive_discards`. At 30% of the limit, agents are nudged to try a different category of approach. At 50%, they're told to go orthogonal or simplify. At 70%, the directive becomes critical: try something radically different or exit without committing. The counter resets on any keep. This is cheap (no architecture change, just richer prompting) and scales automatically with the configured stagnation limit.
+
 **Other options under exploration:**
 - Meta-agent rewrites program.md to push exploration in new directions (SoftmaxData)
 - Periodic resets from earlier checkpoints to escape local minima
-- Diversity directives that reward novelty alongside improvement
 
 ## Crash Recovery
 

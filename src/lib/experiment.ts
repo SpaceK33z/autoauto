@@ -39,6 +39,8 @@ export interface ContextPacket {
   discarded_diffs: string
   ideas_backlog: string
   secondary_metrics?: Record<string, { direction: "lower" | "higher"; last_kept_value?: number }>
+  consecutive_discards: number
+  max_consecutive_discards: number
 }
 
 /** Cost and usage data from an agent session. */
@@ -65,7 +67,7 @@ export async function buildContextPacket(
   runDir: string,
   state: RunState,
   config: { metric_field: string; direction: "lower" | "higher"; secondary_metrics?: Record<string, { direction: "lower" | "higher" }> },
-  options: { ideasBacklogEnabled?: boolean } = {},
+  options: { ideasBacklogEnabled?: boolean; consecutiveDiscards?: number; maxConsecutiveDiscards?: number } = {},
 ): Promise<ContextPacket> {
   const [programMd, resultsRaw, recentGitLog] = await Promise.all([
     Bun.file(join(programDir, "program.md")).text(),
@@ -142,7 +144,43 @@ export async function buildContextPacket(
     discarded_diffs: discardedDiffs,
     ideas_backlog: ideasBacklog,
     secondary_metrics: secondaryMetrics,
+    consecutive_discards: options.consecutiveDiscards ?? 0,
+    max_consecutive_discards: options.maxConsecutiveDiscards ?? 10,
   }
+}
+
+/** Returns an escalating diversity directive based on how stuck the loop is. */
+function getExplorationDirective(consecutiveDiscards: number, maxConsecutiveDiscards: number): string {
+  if (consecutiveDiscards < 1) return ""
+
+  // Use proportional thresholds so directives scale with the configured limit
+  const ratio = consecutiveDiscards / maxConsecutiveDiscards
+
+  if (ratio >= 0.7) {
+    return `## Exploration Directive — CRITICAL
+${consecutiveDiscards} consecutive experiments discarded. Stagnation is imminent (limit: ${maxConsecutiveDiscards}).
+- You MUST try something radically different from everything in the results history.
+- Profile the code mentally and find the ACTUAL bottleneck — not the assumed one. Question fundamental assumptions.
+- If you genuinely cannot find a promising change — EXIT WITHOUT COMMITTING. A no-commit is better than burning another cycle on a doomed approach.`
+  }
+
+  if (ratio >= 0.5) {
+    return `## Exploration Directive
+${consecutiveDiscards} consecutive experiments discarded. You are likely stuck in a local optimum.
+- STOP trying variations of what's been tried. Every recent approach has failed.
+- Try something orthogonal: a completely different part of the codebase within scope, a different algorithmic family, or a simplification that removes code.
+- Re-read the ideas backlog "next" suggestions — pick the LEAST similar to recent attempts.
+- Remember: simplification keeps are free wins and can open up new optimization paths.`
+  }
+
+  if (ratio >= 0.3) {
+    return `## Exploration Directive
+${consecutiveDiscards} consecutive experiments discarded. The obvious approaches aren't working.
+- Step back and re-read the hot path from scratch — look for something you've been overlooking.
+- Try an approach from a DIFFERENT category than recent attempts (e.g., if recent tries were algorithmic, try a data-structure change; if recent tries were micro-optimizations, try a structural change).`
+  }
+
+  return ""
 }
 
 /** Formats the context packet as the user message string for the agent. */
@@ -186,6 +224,8 @@ ${packet.ideas_backlog ? `
 ## Ideas Backlog
 ${packet.ideas_backlog}
 ` : ""}
+
+${getExplorationDirective(packet.consecutive_discards, packet.max_consecutive_discards)}
 
 Review the recent results and discarded experiments${packet.ideas_backlog ? ", and ideas backlog" : ""} above. Focus on what was tried, why it failed, and what should be tried next.
 Implement ONE change, validate, and commit. Then stop.`

@@ -152,7 +152,7 @@ The agent forgets what it already tried and wastes cycles re-attempting failed a
 **What happened:** Late in long sessions, agents degrade to random seed changes, tiny learning rate tweaks, and minor parameter adjustments. Creative proposals dry up.
 **Source:** paddo (700 experiments), DataCamp (creativity ceiling)
 **Root cause:** The ratchet only accepts immediate improvements, so the agent can never take a step backward to set up a larger gain. RLHF training also makes agents "cagey and scared" (Karpathy).
-**Safeguard:** No easy fix. Options: set a max experiment count, detect diminishing returns and stop automatically, or use a meta-agent to rewrite program.md to push exploration in new directions. See also: ceiling detection.
+**Safeguard:** Escalating exploration directives push agents toward orthogonal approaches as consecutive discards accumulate (30%/50%/70% of `max_consecutive_discards`). Combined with stagnation auto-stop and the ideas backlog's "avoid" list. See also: ceiling detection in orchestration-patterns.md.
 
 ### 5c. No human nudge after plateau
 **What happened:** Barazany's CRM run repeatedly followed a pattern: agent explores, hits a ceiling, human nudges, agent continues.
@@ -241,4 +241,5 @@ Bad metric definitions that doom the loop before it starts.
 | **P2** | Proposal cost accounting | Orchestrator: track accepted-proposal rate + wasted eval minutes per model |
 | **P2** | Live deployment guardrails | Setup agent: require approval, rate limits, rollback triggers, compliance filters |
 | **P2** | Bottleneck precondition check | Setup agent: verify optimized asset can plausibly affect metric |
-| **P3** | Meta-prompt rotation for creativity ceiling | Future: second agent rewrites program.md |
+| **Done** | Escalating exploration directives for creativity ceiling | `getExplorationDirective()` in experiment.ts — proportional to consecutive discards |
+| **P3** | Meta-prompt rotation (full meta-agent) | Future: second agent rewrites program.md |
