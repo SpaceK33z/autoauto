@@ -15,6 +15,8 @@ import {
   type FinalizeReviewResult,
   type ProposedGroup,
 } from "../lib/finalize.ts"
+import { runVerification, appendVerificationResults, type VerificationResult } from "../lib/verify.ts"
+import { VerifyResultsOverlay } from "../components/VerifyResultsOverlay.tsx"
 import { formatShellError } from "../lib/git.ts"
 import {
   spawnDaemon,
@@ -145,6 +147,12 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [ideasText, setIdeasText] = useState("")
   const [showIdeas, setShowIdeas] = useState(true)
+
+  // Verification state
+  const [showVerifyOverlay, setShowVerifyOverlay] = useState(false)
+  const [isVerifying, setIsVerifying] = useState(false)
+  const [verifyProgress, setVerifyProgress] = useState<string | null>(null)
+  const [verificationResults, setVerificationResults] = useState<VerificationResult[] | null>(null)
 
   // Finalize review state
   const [reviewData, setReviewData] = useState<FinalizeReviewResult | null>(null)
@@ -527,6 +535,50 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     onUpdateProgram?.(programSlug)
   }, [cleanupRunEnvironment, programSlug, onUpdateProgram])
 
+  const handleVerifyStart = useCallback(() => {
+    setShowVerifyOverlay(true)
+  }, [])
+
+  const handleVerifyConfirm = useCallback(async (target: "baseline" | "current" | "both", repeats: number) => {
+    if (!runState || !runDir || !programConfig) return
+    setShowVerifyOverlay(false)
+    setIsVerifying(true)
+    setVerifyProgress("Preparing verification...")
+
+    const verifyAbort = new AbortController()
+    abortControllerRef.current = verifyAbort
+
+    try {
+      const worktreeCwd = runState.in_place ? cwd : (runState.worktree_path ?? cwd)
+      const programDir = getProgramDir(cwd, programSlug)
+
+      const results = await runVerification({
+        target,
+        repeats,
+        config: programConfig,
+        state: runState,
+        programDir,
+        cwd: worktreeCwd,
+        signal: verifyAbort.signal,
+        onProgress: (status) => setVerifyProgress(status),
+      })
+
+      await appendVerificationResults(runDir, results, runState)
+      setVerificationResults(prev => [...(prev ?? []), ...results])
+    } catch (err: unknown) {
+      if (!isAbortError(err)) {
+        setLastError(formatShellError(err, "Verification failed"))
+      }
+    } finally {
+      setIsVerifying(false)
+      setVerifyProgress(null)
+    }
+  }, [cwd, runDir, runState, programConfig, programSlug])
+
+  const handleVerifyCancel = useCallback(() => {
+    setShowVerifyOverlay(false)
+  }, [])
+
   // Auto-finalize: trigger finalize immediately when attaching to a completed run with autoFinalize
   const autoFinalizeTriggered = useRef(false)
   useEffect(() => {
@@ -559,6 +611,15 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       } else if (key.name === "u" && runState && !readOnly && onUpdateProgram) {
         handleUpdateProgram()
       }
+      return
+    }
+
+    // Verify overlay intercepts all keys
+    if (showVerifyOverlay) return
+
+    // Ctrl+C during verification aborts
+    if (isVerifying && key.ctrl && key.name === "c") {
+      abortControllerRef.current.abort()
       return
     }
 
@@ -909,15 +970,28 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       )}
 
       {phase === "complete" && runState && !readOnly && (
-        <RunCompletePrompt
-          state={runState}
-          direction={programConfig?.direction ?? "lower"}
-          terminationReason={terminationReason}
-          error={null}
-          onFinalize={handleFinalize}
-          onAbandon={handleAbandon}
-          onUpdateProgram={handleUpdateProgram}
-        />
+        <>
+          <RunCompletePrompt
+            state={runState}
+            direction={programConfig?.direction ?? "lower"}
+            terminationReason={terminationReason}
+            error={null}
+            onFinalize={handleFinalize}
+            onAbandon={handleAbandon}
+            onUpdateProgram={handleUpdateProgram}
+            onVerify={handleVerifyStart}
+            verificationResults={verificationResults}
+            isVerifying={isVerifying}
+            verifyProgress={verifyProgress}
+          />
+          {showVerifyOverlay && (
+            <VerifyResultsOverlay
+              defaultRepeats={programConfig?.repeats ?? 3}
+              onConfirm={handleVerifyConfirm}
+              onCancel={handleVerifyCancel}
+            />
+          )}
+        </>
       )}
 
       {phase === "finalizing" && (

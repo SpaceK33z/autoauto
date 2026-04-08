@@ -6,7 +6,7 @@ import { getProgramDir, type ProgramConfig } from "./programs.ts"
 // --- Types ---
 
 /** Status values for results.tsv rows */
-export type ExperimentStatus = "keep" | "discard" | "measurement_failure" | "crash"
+export type ExperimentStatus = "keep" | "discard" | "measurement_failure" | "crash" | "verification_baseline" | "verification_current"
 
 /** Phases the daemon/orchestrator can be in */
 export type RunPhase =
