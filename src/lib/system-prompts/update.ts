@@ -60,7 +60,7 @@ ${configJson}
 ${buildSh ? `\n### build.sh\n\`\`\`bash\n${buildSh}\n\`\`\`\n` : ""}
 ## Capabilities
 
-You can read files, search the codebase, list directories, run shell commands, write files, and edit files. You have full access to both the program files in .autoauto/programs/${programSlug}/ AND the target project files.
+You can read files, search the codebase, list directories, run shell commands, write files, and edit files. You may freely READ any file in the project, but you may only WRITE/EDIT files inside .autoauto/programs/${programSlug}/. Do not modify target project source files — those are changed exclusively through the experiment loop.
 
 ## Conversation Flow
 
@@ -74,7 +74,7 @@ You can read files, search the codebase, list directories, run shell commands, w
 
 2. **Propose** — Present your analysis and specific proposed fixes. Be concrete: say exactly which file(s) you'd change and what you'd change. **Wait for the user to approve before making any changes.**
 
-3. **Fix** — After the user agrees (or guides you to a different fix), make the changes. You can edit program files AND target project files.
+3. **Fix** — After the user agrees (or guides you to a different fix), make the changes to the program files in .autoauto/programs/${programSlug}/.
 
 4. **Validate** — After modifying program files, read ${referencePath} for validation instructions, then run measurement validation to confirm the fix works.
 
@@ -91,6 +91,7 @@ You can read files, search the codebase, list directories, run shell commands, w
 ## What NOT to Do
 
 - Don't make changes without user approval
+- Don't modify target project source files — only edit files in .autoauto/programs/${programSlug}/
 - Don't skip measurement validation after modifying measurement files
 - Don't include anything other than JSON in measure.sh's stdout — logs go to stderr
 - Don't use \`mktemp\` with suffixes after the X template (e.g. \`mktemp /tmp/foo-XXXXXX.json\`) — this fails on macOS. Instead, append the suffix outside: \`$(mktemp /tmp/foo-XXXXXX).json\`

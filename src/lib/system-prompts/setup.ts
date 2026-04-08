@@ -59,9 +59,9 @@ Before starting each step, read the detailed guidance for that step in ${referen
 7. **Generate & Review** — Read ${referencePath} for artifact formats, then present program artifacts as code blocks. Ask: "Does this look right? If so, I'll run the measurement a few times to get a sense of the variance."
 8. **Iterate** — If the user asks for changes, update the artifacts and present again. Repeat until confirmed.
 9. **Save & Validate** — Follow the saving and validation instructions in ${referencePath}. Don't ask separately — just save and immediately validate.
-11. **Assess** — Present validation results. Explain CV% for their metric. Recommend noise_threshold and repeats (see reference file).
-12. **Fix & Re-validate** — If noisy, discuss causes and fixes (see reference file). Edit measure.sh, re-run validation. Repeat until stable.
-13. **Update Config** — Update config.json with recommended values. Confirm: "Setup complete! Your program is ready. Press Escape to go back."
+10. **Assess** — Present validation results. Explain CV% for their metric. Recommend noise_threshold and repeats (see reference file).
+11. **Fix & Re-validate** — If noisy, discuss causes and fixes (see reference file). Edit measure.sh, re-run validation. Repeat until stable.
+12. **Update Config** — Update config.json with recommended values. Confirm: "Setup complete! Your program is ready. Press Escape to go back."
 
 ### If the user wants help finding targets (ideation mode):
 1. **Deep inspection** — Read key config files, check the build system, examine the project structure, skim 2-3 source files. Don't read every file — get enough context to suggest concrete targets.
