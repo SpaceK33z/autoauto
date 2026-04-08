@@ -27,6 +27,14 @@ bun lint                 # Lint with oxlint
 bun typecheck            # Type-check with tsc
 ```
 
+## Releasing
+
+- **release-please** manages versions and changelogs automatically via conventional commits
+- Merging to `main` creates/updates a Release PR; merging that PR triggers the release
+- Release workflow builds cross-platform binaries (darwin-arm64, darwin-x64, linux-x64, linux-arm64) and publishes to npm via OIDC trusted publishing (no tokens)
+- npm package: `@spacek33z/autoauto`
+- The `autorelease:` labels must exist in the repo for release-please to work — do NOT re-add `skip-labeling: true`
+
 ## Before Committing
 
 Always run both checks before considering work done:
