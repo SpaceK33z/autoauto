@@ -23,25 +23,25 @@ class AutoAutoLoop(Scene):
         # PART 1a: Autoresearch — The Experiment Loop
         # ════════════════════════════════════════════
 
-        ar_title = Text("Autoresearch", font_size=40, color=WHITE, weight=BOLD, font=MONO)
+        ar_title = Text("Autoresearch", font_size=48, color=WHITE, weight=BOLD, font=MONO)
         ar_sub = Text(
             "Let AI iteratively improve your code against a metric",
-            font_size=16, color=SOFT_WHITE, font=MONO
+            font_size=20, color=SOFT_WHITE, font=MONO
         )
-        ar_title.move_to(UP * 2.8)
-        ar_sub.next_to(ar_title, DOWN, buff=0.2)
+        ar_title.move_to(UP * 3.2)
+        ar_sub.next_to(ar_title, DOWN, buff=0.25)
 
         self.play(Write(ar_title), run_time=0.8)
         self.play(FadeIn(ar_sub, shift=UP * 0.15), run_time=0.5)
 
         # "The Experiment Loop" label + circular diagram
-        loop_label = Text("The Experiment Loop", font_size=22, color=YELLOW,
+        loop_label = Text("The Experiment Loop", font_size=26, color=YELLOW,
                           weight=BOLD, font=MONO)
-        loop_label.move_to(UP * 1.2)
+        loop_label.move_to(UP * 1.6)
         self.play(FadeIn(loop_label, shift=UP * 0.1), run_time=0.4)
 
-        loop_center = DOWN * 1.0
-        radius = 1.4
+        loop_center = DOWN * 1.15
+        radius = 1.7
         node_info = [
             ("Agent", PRIMARY), ("Change", ORANGE),
             ("Measure", YELLOW), ("Decide", GREEN),
@@ -59,12 +59,12 @@ class AutoAutoLoop(Scene):
         for i, ((name, color), desc_str) in enumerate(zip(node_info, desc_info)):
             angle = angles[i]
             pos = loop_center + radius * np.array([np.cos(angle), np.sin(angle), 0])
-            circ = Circle(radius=0.4, stroke_color=color, stroke_width=2.5,
+            circ = Circle(radius=0.5, stroke_color=color, stroke_width=3,
                           fill_color=BG, fill_opacity=1)
             circ.move_to(pos)
-            lbl = Text(name, font_size=13, color=color, weight=BOLD, font=MONO)
+            lbl = Text(name, font_size=16, color=color, weight=BOLD, font=MONO)
             lbl.move_to(pos)
-            desc = Text(desc_str, font_size=9, color=SOFT_WHITE, font=MONO)
+            desc = Text(desc_str, font_size=12, color=SOFT_WHITE, font=MONO)
             if i == 0:   desc.next_to(circ, RIGHT, buff=0.12)
             elif i == 1: desc.next_to(circ, DOWN, buff=0.12)
             elif i == 2: desc.next_to(circ, RIGHT, buff=0.12)
@@ -81,9 +81,9 @@ class AutoAutoLoop(Scene):
             direction = end - start
             direction = direction / np.linalg.norm(direction)
             arr = CurvedArrow(
-                start + direction * 0.42,
-                end - direction * 0.42,
-                angle=-PI/3, stroke_width=1.5, color=DIM, tip_length=0.1
+                start + direction * 0.52,
+                end - direction * 0.52,
+                angle=-PI/3, stroke_width=2, color=DIM, tip_length=0.13
             )
             loop_arrows.add(arr)
 
@@ -107,15 +107,15 @@ class AutoAutoLoop(Scene):
         )
 
         # Chart title area
-        chart_title = Text("Improvement over time", font_size=24, color=WHITE,
+        chart_title = Text("Improvement over time", font_size=30, color=WHITE,
                            weight=BOLD, font=MONO)
-        chart_title.move_to(UP * 3.0)
+        chart_title.move_to(UP * 3.2)
         self.play(FadeIn(chart_title), run_time=0.4)
 
-        # Chart — centered, larger
-        chart_origin = DOWN * 0.2
-        chart_w = 6.0
-        chart_h = 3.5
+        # Chart — centered, fills most of the frame
+        chart_origin = DOWN * 0.1
+        chart_w = 10.0
+        chart_h = 4.5
 
         x_start = chart_origin + LEFT * chart_w/2 + DOWN * chart_h/2
         x_end = chart_origin + RIGHT * chart_w/2 + DOWN * chart_h/2
@@ -124,11 +124,11 @@ class AutoAutoLoop(Scene):
         x_axis = Line(x_start, x_end, stroke_width=1.5, color=DIM)
         y_axis = Line(x_start, y_end, stroke_width=1.5, color=DIM)
 
-        x_lbl = Text("experiments", font_size=12, color=DIM, font=MONO)
-        x_lbl.next_to(x_axis, DOWN, buff=0.12)
-        y_lbl = Text("metric", font_size=12, color=DIM, font=MONO)
-        y_lbl.next_to(y_axis, LEFT, buff=0.1).shift(UP * 0.3)
-        lower_lbl = Text("lower is better", font_size=10, color=DIM, font=MONO)
+        x_lbl = Text("experiments", font_size=15, color=DIM, font=MONO)
+        x_lbl.next_to(x_axis, DOWN, buff=0.15)
+        y_lbl = Text("metric", font_size=15, color=DIM, font=MONO)
+        y_lbl.next_to(y_axis, LEFT, buff=0.12).shift(UP * 0.3)
+        lower_lbl = Text("lower is better", font_size=12, color=DIM, font=MONO)
         lower_lbl.next_to(y_lbl, DOWN, buff=0.25)
 
         self.play(
@@ -139,11 +139,11 @@ class AutoAutoLoop(Scene):
 
         # Legend
         legend = VGroup(
-            VGroup(Dot(radius=0.05, color=GREEN),
-                   Text("keep", font_size=11, color=GREEN, font=MONO)).arrange(RIGHT, buff=0.1),
-            VGroup(Dot(radius=0.05, color=RED),
-                   Text("discard", font_size=11, color=RED, font=MONO)).arrange(RIGHT, buff=0.1),
-        ).arrange(RIGHT, buff=0.4)
+            VGroup(Dot(radius=0.07, color=GREEN),
+                   Text("keep", font_size=14, color=GREEN, font=MONO)).arrange(RIGHT, buff=0.12),
+            VGroup(Dot(radius=0.07, color=RED),
+                   Text("discard", font_size=14, color=RED, font=MONO)).arrange(RIGHT, buff=0.12),
+        ).arrange(RIGHT, buff=0.5)
         legend.next_to(chart_title, DOWN, buff=0.15)
         self.play(FadeIn(legend), run_time=0.2)
 
@@ -175,7 +175,7 @@ class AutoAutoLoop(Scene):
             np.array([x_end[0], bl_y, 0]),
             stroke_width=1, color=DIM, dash_length=0.08
         )
-        bl_txt = Text("baseline", font_size=10, color=DIM, font=MONO)
+        bl_txt = Text("baseline", font_size=13, color=DIM, font=MONO)
         bl_txt.next_to(bl_line, RIGHT, buff=0.08)
         self.play(Create(bl_line), FadeIn(bl_txt), run_time=0.25)
 
@@ -186,11 +186,11 @@ class AutoAutoLoop(Scene):
         for i, (value, is_keep) in enumerate(experiments):
             pos = metric_to_pos(i, value)
             color = GREEN if is_keep else RED
-            dot = Dot(pos, radius=0.08, color=color)
+            dot = Dot(pos, radius=0.11, color=color)
 
             if i > 0:
                 prev_pos = metric_to_pos(i-1, experiments[i-1][0])
-                conn = Line(prev_pos, pos, stroke_width=0.8, color=DIM)
+                conn = Line(prev_pos, pos, stroke_width=1.2, color=DIM)
                 self.play(Create(conn), run_time=0.04)
 
             self.play(FadeIn(dot, scale=1.5), run_time=0.12)
@@ -204,7 +204,7 @@ class AutoAutoLoop(Scene):
                     np.array([pos[0] + 0.5, new_y, 0]),
                     stroke_width=1, color=GREEN, dash_length=0.06
                 )
-                new_lbl = Text("best", font_size=10, color=GREEN, font=MONO)
+                new_lbl = Text("best", font_size=13, color=GREEN, font=MONO)
                 new_lbl.next_to(new_bl, LEFT, buff=0.08)
 
                 if best_line:
@@ -224,14 +224,14 @@ class AutoAutoLoop(Scene):
         improvement = (baseline - current_baseline) / baseline * 100
         result_text = Text(
             f"{improvement:.0f}% improvement",
-            font_size=26, color=GREEN, weight=BOLD, font=MONO
+            font_size=32, color=GREEN, weight=BOLD, font=MONO
         )
         result_sub = Text(
             f"{len(experiments)} experiments  ·  {sum(1 for _,k in experiments if k)} kept  ·  {sum(1 for _,k in experiments if not k)} discarded",
-            font_size=13, color=SOFT_WHITE, font=MONO
+            font_size=16, color=SOFT_WHITE, font=MONO
         )
-        result_grp = VGroup(result_text, result_sub).arrange(DOWN, buff=0.12)
-        result_grp.move_to(chart_origin + DOWN * 2.5)
+        result_grp = VGroup(result_text, result_sub).arrange(DOWN, buff=0.15)
+        result_grp.move_to(chart_origin + DOWN * 2.9)
 
         result_box = RoundedRectangle(
             corner_radius=0.1,
@@ -384,6 +384,6 @@ class AutoAutoLoop(Scene):
             )
             self.wait(0.3)
 
-        self.wait(3.0)
+        self.wait(5.0)
         self.play(FadeOut(Group(*self.mobjects)), run_time=0.8)
         self.wait(0.2)

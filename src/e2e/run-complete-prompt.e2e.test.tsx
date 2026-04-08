@@ -42,6 +42,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => {}}
         onAbandon={() => {}}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     const frame = await harness.frame()
@@ -54,7 +58,7 @@ describe("RunCompletePrompt E2E", () => {
     expect(frame).toContain("1 crashed")
   })
 
-  test("displays all three action options", async () => {
+  test("displays all four action options", async () => {
     harness = await renderTui(
       <RunCompletePrompt
         state={BASE_STATE}
@@ -64,11 +68,16 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => {}}
         onAbandon={() => {}}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     const frame = await harness.frame()
     expect(frame).toContain("Finalize")
     expect(frame).toContain("Update Program")
+    expect(frame).toContain("Verify Results")
     expect(frame).toContain("Done")
   })
 
@@ -82,6 +91,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => {}}
         onAbandon={() => {}}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     const frame = await harness.frame()
@@ -98,6 +111,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => {}}
         onAbandon={() => {}}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     const frame = await harness.frame()
@@ -114,6 +131,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => {}}
         onAbandon={() => {}}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     const frame = await harness.frame()
@@ -133,6 +154,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => { finalized = true }}
         onAbandon={() => { abandoned = true }}
         onUpdateProgram={() => { updated = true }}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     await harness.frame()
@@ -145,7 +170,7 @@ describe("RunCompletePrompt E2E", () => {
     expect(abandoned).toBe(false)
   })
 
-  test("navigates to Done with j/j and Enter abandons", async () => {
+  test("navigates to Done with j/j/j and Enter abandons", async () => {
     let abandoned = false
     harness = await renderTui(
       <RunCompletePrompt
@@ -156,10 +181,15 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => {}}
         onAbandon={() => { abandoned = true }}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     await harness.frame()
 
+    await harness.press("j")
     await harness.press("j")
     await harness.press("j")
     await harness.enter()
@@ -177,6 +207,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => { finalized = true }}
         onAbandon={() => {}}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     await harness.frame()
@@ -198,6 +232,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => { finalized = true }}
         onAbandon={() => {}}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     await harness.frame()
@@ -234,6 +272,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => {}}
         onAbandon={() => { abandoned = true }}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     await harness.frame()
@@ -251,6 +293,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => {}}
         onAbandon={() => {}}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     const frame = await harness.frame()
@@ -268,6 +314,10 @@ describe("RunCompletePrompt E2E", () => {
         onFinalize={() => {}}
         onAbandon={() => {}}
         onUpdateProgram={() => {}}
+        onVerify={() => {}}
+        verificationResults={null}
+        isVerifying={false}
+        verifyProgress={null}
       />,
     )
     const frame = await harness.frame()

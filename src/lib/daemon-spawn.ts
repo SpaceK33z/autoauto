@@ -47,7 +47,7 @@ export async function spawnDaemon(
   // 2. Generate run ID + acquire lock before creating isolated work
   const runId = generateRunId()
   const programDir = getProgramDir(mainRoot, programSlug)
-  const worktreePath = useWorktree ? join(mainRoot, ".autoauto", "worktrees", runId) : mainRoot
+  const worktreePath = useWorktree ? join(mainRoot, ".autoauto", "worktrees", `${programSlug}-${runId}`) : mainRoot
   const daemonId = randomUUID()
 
   const locked = await acquireLock(programDir, runId, daemonId, 0, worktreePath)

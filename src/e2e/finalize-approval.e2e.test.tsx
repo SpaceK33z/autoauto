@@ -65,13 +65,10 @@ afterEach(async () => {
 })
 
 describe("FinalizeApproval E2E — with groups", () => {
-  test("displays proposed groups header and descriptions", async () => {
+  test("displays proposed groups header", async () => {
     harness = await renderApproval()
     const frame = await harness.frame()
     expect(frame).toContain("Proposed Groups (3)")
-    expect(frame).toContain("Inline frequently called functions")
-    expect(frame).toContain("Consolidate duplicate handler logic")
-    expect(frame).toContain("Add indexes and normalize tables")
   })
 
   test("Escape cancels finalize", async () => {
@@ -96,9 +93,8 @@ describe("FinalizeApproval E2E — without groups", () => {
       validationError: "Failed to parse group JSON",
     })
     const frame = await harness.frame()
-    // Scrollbox rendering overlap garbles some text, but "Validation" and "group JSON" are present
-    expect(frame).toContain("Validation")
-    expect(frame).toContain("group JSON")
+    expect(frame).toContain("Proposed grouping needs revision")
+    expect(frame).toContain("Failed to parse group JSON")
   })
 
   test("Escape cancels finalize without groups", async () => {

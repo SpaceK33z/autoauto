@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/react"
 import type { RunState } from "../lib/run.ts"
 import { getRunStats } from "../lib/run.ts"
 import type { TerminationReason } from "../lib/experiment-loop.ts"
+import type { VerificationResult } from "../lib/verify.ts"
 
 interface RunCompletePromptProps {
   state: RunState
@@ -12,6 +13,17 @@ interface RunCompletePromptProps {
   onFinalize: () => void
   onAbandon: () => void
   onUpdateProgram: () => void
+  onVerify: () => void
+  verificationResults: VerificationResult[] | null
+  isVerifying: boolean
+  verifyProgress: string | null
+}
+
+function formatPctDelta(original: number, verified: number): string {
+  if (original === 0) return "N/A"
+  const pct = ((verified - original) / Math.abs(original)) * 100
+  const sign = pct > 0 ? "+" : ""
+  return `${sign}${pct.toFixed(1)}%`
 }
 
 export function RunCompletePrompt({
@@ -22,23 +34,33 @@ export function RunCompletePrompt({
   onFinalize,
   onAbandon,
   onUpdateProgram,
+  onVerify,
+  verificationResults,
+  isVerifying,
+  verifyProgress,
 }: RunCompletePromptProps) {
   const [selected, setSelected] = useState(0)
   const stats = getRunStats(state, direction)
+  const menuDisabled = isVerifying
 
   useKeyboard((key) => {
+    if (menuDisabled) return
+
     if (key.name === "up" || key.name === "k") {
       setSelected((s) => Math.max(0, s - 1))
     } else if (key.name === "down" || key.name === "j") {
-      setSelected((s) => Math.min(2, s + 1))
+      setSelected((s) => Math.min(3, s + 1))
     } else if (key.name === "return") {
       if (selected === 0) onFinalize()
       else if (selected === 1) onUpdateProgram()
+      else if (selected === 2) onVerify()
       else onAbandon()
     } else if (key.name === "f") {
       onFinalize()
     } else if (key.name === "u") {
       onUpdateProgram()
+    } else if (key.name === "v") {
+      onVerify()
     } else if (key.name === "d") {
       onAbandon()
     }
@@ -69,6 +91,44 @@ export function RunCompletePrompt({
         )}
         {error && <text fg="#ff5555" selectable>Error: {error}</text>}
 
+        {verificationResults && verificationResults.length > 0 && (
+          <>
+            <box height={1} />
+            <text fg="#7aa2f7" selectable><strong>Verification Results</strong></text>
+            {verificationResults.map((r, i) => (
+              <box key={`${r.target}-${i}`} flexDirection="column">
+                {r.success ? (
+                  <text selectable>
+                    {"  "}{r.target === "baseline" ? "Baseline" : "Current"}: {r.original_metric} {"\u2192"} {r.median_metric} ({formatPctDelta(r.original_metric, r.median_metric)})
+                  </text>
+                ) : (
+                  <text fg="#ff5555" selectable>
+                    {"  "}{r.target === "baseline" ? "Baseline" : "Current"}: failed — {r.failure_reason}
+                  </text>
+                )}
+                {r.success && Object.keys(r.median_quality_gates).length > 0 && (
+                  <text fg="#888888" selectable>
+                    {"    "}Quality gates: {Object.entries(r.median_quality_gates).map(([k, v]) => `${k}=${v}`).join(", ")}
+                    {!r.quality_gates_passed && r.gate_violations.length > 0 ? ` (FAILED: ${r.gate_violations.join("; ")})` : ""}
+                  </text>
+                )}
+                {r.success && Object.keys(r.median_secondary_metrics).length > 0 && (
+                  <text fg="#888888" selectable>
+                    {"    "}Secondary: {Object.entries(r.median_secondary_metrics).map(([k, v]) => `${k}=${v}`).join(", ")}
+                  </text>
+                )}
+              </box>
+            ))}
+          </>
+        )}
+
+        {isVerifying && (
+          <>
+            <box height={1} />
+            <text fg="#e0af68" selectable>{verifyProgress ?? "Verifying..."}</text>
+          </>
+        )}
+
         <box height={1} />
         <text><strong>What would you like to do?</strong></text>
         <box height={1} />
@@ -82,10 +142,14 @@ export function RunCompletePrompt({
         </text>
         <text fg={selected === 2 ? "#ffffff" : "#888888"}>
           {selected === 2 ? " > " : "   "}
+          Verify Results (re-run measurements)
+        </text>
+        <text fg={selected === 3 ? "#ffffff" : "#888888"}>
+          {selected === 3 ? " > " : "   "}
           Done (keep branch as-is)
         </text>
         <box height={1} />
-        <text fg="#888888">j/k move · Enter select · f finalize · u update · d done</text>
+        <text fg="#888888">j/k move · Enter select · f finalize · u update · v verify · d done</text>
       </box>
     </box>
   )

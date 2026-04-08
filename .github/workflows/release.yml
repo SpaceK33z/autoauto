@@ -87,3 +87,22 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: npm publish --provenance --access public
+
+  update-homebrew:
+    name: Update Homebrew formula
+    needs: [release-please, upload]
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version
+        id: version
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+      - name: Trigger formula update
+        run: |
+          gh api repos/SpaceK33z/homebrew-autoauto/dispatches \
+            -f event_type=update-formula \
+            -f "client_payload[version]=${{ steps.version.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
