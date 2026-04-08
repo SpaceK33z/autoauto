@@ -14,7 +14,6 @@ import { formatShellError } from "../lib/git.ts"
 type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
 
 const SETUP_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
-const SETUP_MAX_TURNS = 40
 
 type SetupMode = "choose" | "scope" | "chat"
 
@@ -209,7 +208,6 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug }: SetupSc
       systemPrompt={isUpdate ? updateSystemPrompt! : setupResult!.systemPrompt}
       tools={SETUP_TOOLS}
       allowedTools={SETUP_TOOLS}
-      maxTurns={SETUP_MAX_TURNS}
       provider={modelConfig.provider}
       model={modelConfig.model}
       effort={modelConfig.effort}
