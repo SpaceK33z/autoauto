@@ -34,6 +34,10 @@ function Spinner({ status }: { status: string }) {
   )
 }
 
+export function stripFinalizeGroupsBlock(text: string): string {
+  return text.replace(/<finalize_groups>[\s\S]*?<\/finalize_groups>/g, "").trim()
+}
+
 interface FinalizeApprovalProps {
   /** Agent's full review text */
   summary: string
@@ -72,6 +76,32 @@ export function FinalizeApproval({
   const textareaRef = useRef<TextareaRenderable | null>(null)
   const [inputKey, setInputKey] = useState(0)
   const [inputBoxHeight, setInputBoxHeight] = useState(3)
+  const [inputFocused, setInputFocused] = useState(false)
+  const [selectedAction, setSelectedAction] = useState(0)
+  const hasGroups = proposedGroups && proposedGroups.length > 0
+  const displaySummary = stripFinalizeGroupsBlock(summary)
+  const actions = hasGroups
+    ? ["Approve Groups", "Save Summary Only", "Cancel"]
+    : ["Save Summary", "Cancel"]
+
+  const runSelectedAction = useCallback(() => {
+    if (hasGroups) {
+      if (selectedAction === 0) {
+        onApprove()
+      } else if (selectedAction === 1) {
+        onSkipGrouping()
+      } else {
+        onCancel()
+      }
+      return
+    }
+
+    if (selectedAction === 0) {
+      onSkipGrouping()
+    } else {
+      onCancel()
+    }
+  }, [hasGroups, selectedAction, onApprove, onSkipGrouping, onCancel])
 
   const handleSubmit = useCallback(
     (value: string) => {
@@ -79,19 +109,15 @@ export function FinalizeApproval({
       if (isRefining) return
 
       if (!text) {
-        // Empty submit = approve
-        if (proposedGroups && proposedGroups.length > 0) {
-          onApprove()
-        } else {
-          onSkipGrouping()
-        }
+        runSelectedAction()
         return
       }
 
       onRefine(text)
+      setInputFocused(false)
       setInputKey((k) => k + 1)
     },
-    [isRefining, proposedGroups, onApprove, onSkipGrouping, onRefine],
+    [isRefining, onRefine, runSelectedAction],
   )
 
   const handleTextareaSubmit = useCallback(() => {
@@ -112,40 +138,56 @@ export function FinalizeApproval({
     setInputBoxHeight(3)
   }, [inputKey, handleTextareaSubmit])
 
+  useEffect(() => {
+    if (selectedAction <= actions.length - 1) return
+    setSelectedAction(actions.length - 1)
+  }, [actions.length, selectedAction])
+
+  useEffect(() => {
+    if (isRefining) setInputFocused(false)
+  }, [isRefining])
+
   useKeyboard((key) => {
     if (isRefining) return
+
+    const textarea = textareaRef.current
+
+    if (inputFocused) {
+      if (key.name === "escape") {
+        setInputFocused(false)
+        return
+      }
+      return
+    }
 
     if (key.name === "escape") {
       onCancel()
       return
     }
 
-    // 'a' shortcut for approve
-    if (key.name === "a" && !textareaRef.current?.focused) {
-      if (proposedGroups && proposedGroups.length > 0) {
-        onApprove()
-      } else {
-        onSkipGrouping()
-      }
+    if (key.name === "left" || key.name === "h") {
+      setSelectedAction((value) => Math.max(0, value - 1))
       return
     }
 
-    // 's' shortcut for skip grouping (save summary only)
-    if (key.name === "s" && !textareaRef.current?.focused && proposedGroups && proposedGroups.length > 0) {
-      onSkipGrouping()
+    if (key.name === "right" || key.name === "l" || key.name === "tab") {
+      setSelectedAction((value) => Math.min(actions.length - 1, value + 1))
+      return
+    }
+
+    if (key.name === "return") {
+      runSelectedAction()
       return
     }
 
     // Auto-focus textarea on typing
-    const textarea = textareaRef.current
-    if (!textarea || textarea.focused) return
+    if (!textarea) return
     if (key.ctrl || key.meta || key.name.length !== 1) return
+    setInputFocused(true)
     textarea.focus()
     textarea.insertText(key.name)
     key.stopPropagation()
   })
-
-  const hasGroups = proposedGroups && proposedGroups.length > 0
 
   return (
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Finalize — Review Proposed Groups">
@@ -156,10 +198,10 @@ export function FinalizeApproval({
           <box height={1} />
           {proposedGroups.map((g, i) => (
             <box key={g.name} flexDirection="column">
-              <text selectable>
-                <text fg="#ffffff"><strong>{i + 1}. {g.title}</strong></text>
-                <text fg={RISK_COLORS[g.risk] ?? "#888888"}> [{g.risk} risk]</text>
-              </text>
+              <box flexDirection="row">
+                <text fg="#ffffff" selectable><strong>{i + 1}. {g.title}</strong></text>
+                <text fg={RISK_COLORS[g.risk] ?? "#888888"} selectable> [{g.risk} risk]</text>
+              </box>
               <text fg="#888888" selectable>   Files: {g.files.join(", ")}</text>
               {g.description ? <text fg="#666666" selectable>   {g.description}</text> : null}
             </box>
@@ -169,8 +211,11 @@ export function FinalizeApproval({
 
       {!hasGroups && (
         <box flexDirection="column" paddingX={1} paddingTop={1}>
-          <text fg="#e0af68">No file groups proposed.</text>
-          {validationError && <text fg="#f7768e" selectable>Validation: {validationError}</text>}
+          {validationError ? (
+            <text fg="#f7768e" selectable>Proposed grouping needs revision: {validationError}</text>
+          ) : (
+            <text fg="#e0af68">No file groups proposed.</text>
+          )}
         </box>
       )}
 
@@ -178,12 +223,12 @@ export function FinalizeApproval({
       <scrollbox
         focused={isRefining}
         flexGrow={1}
-        stickyScroll
-        stickyStart="bottom"
+        stickyScroll={isRefining}
+        stickyStart={isRefining ? "bottom" : undefined}
         paddingX={1}
       >
         <box flexDirection="column">
-          <markdown content={summary} syntaxStyle={syntaxStyle} />
+          <markdown content={displaySummary} syntaxStyle={syntaxStyle} />
 
           {refiningText && (
             <>
@@ -213,10 +258,13 @@ export function FinalizeApproval({
       <box flexDirection="column">
         <box paddingX={1}>
           <text fg="#888888">
-            {hasGroups
-              ? "Enter approve · Type feedback to revise · s skip grouping · Esc cancel"
-              : "Enter save summary · Type feedback to revise · Esc cancel"}
+            {inputFocused
+              ? "Enter send feedback · Shift+Enter newline · Esc back to actions"
+              : "Left/Right choose action · Enter confirm · Type to revise · Esc cancel"}
           </text>
+        </box>
+        <box paddingX={1}>
+          <text selectable>{actions.map((label, index) => selectedAction === index ? `[${label}]` : label).join("  ")}</text>
         </box>
         <box border borderStyle="rounded" height={inputBoxHeight} maxHeight={8} title="Feedback (Shift+Enter for newline)">
           <textarea
@@ -225,11 +273,9 @@ export function FinalizeApproval({
             placeholder={
               isRefining
                 ? "Waiting for response..."
-                : hasGroups
-                  ? "Press Enter to approve, or type feedback..."
-                  : "Press Enter to save summary, or type feedback..."
+                : "Type feedback to revise the grouping..."
             }
-            focused={!isRefining}
+            focused={inputFocused && !isRefining}
             keyBindings={[
               { name: "return", action: "submit" as const },
               { name: "return", shift: true, action: "newline" as const },

@@ -5,7 +5,7 @@ import { formatShellError } from "./git.ts"
 
 /**
  * Creates a git worktree for a run. The worktree is created inside
- * .autoauto/worktrees/<runId>/ and checks out a new experiment branch.
+ * .autoauto/worktrees/<programSlug>-<runId>/ and checks out a new experiment branch.
  *
  * Returns the absolute worktree path.
  */
@@ -17,7 +17,7 @@ export async function createWorktree(
   const worktreesDir = join(mainRoot, ".autoauto", "worktrees")
   await mkdir(worktreesDir, { recursive: true })
 
-  const worktreePath = join(worktreesDir, runId)
+  const worktreePath = join(worktreesDir, `${programSlug}-${runId}`)
   const branchName = `autoauto-${programSlug}-${runId}`
 
   try {

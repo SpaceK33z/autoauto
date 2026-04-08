@@ -46,6 +46,10 @@ export async function isWorkingTreeClean(cwd: string): Promise<boolean> {
   return !(await $`git status --porcelain`.cwd(cwd).text()).trim()
 }
 
+export async function getWorkingTreeStatus(cwd: string): Promise<string> {
+  return (await $`git status --porcelain`.cwd(cwd).text()).trim()
+}
+
 export async function getCurrentBranch(cwd: string): Promise<string> {
   return (await $`git rev-parse --abbrev-ref HEAD`.cwd(cwd).text()).trim()
 }
