@@ -22,6 +22,8 @@ export function statusColor(status: ExperimentStatus): string {
     case "discard": return "#ff5555"
     case "crash": return "#ff5555"
     case "measurement_failure": return "#e0af68"
+    case "verification_baseline": return "#7aa2f7"
+    case "verification_current": return "#7aa2f7"
   }
 }
 

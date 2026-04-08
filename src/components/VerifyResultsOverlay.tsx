@@ -19,9 +19,10 @@ export function VerifyResultsOverlay({ defaultRepeats, onConfirm, onCancel }: Ve
   const [repeatsText, setRepeatsText] = useState(String(defaultRepeats))
 
   const parsedRepeats = parseInt(repeatsText, 10)
-  const repeatsValid = !isNaN(parsedRepeats) && parsedRepeats > 0
+  const repeatsValid = Number.isFinite(parsedRepeats) && parsedRepeats > 0
 
   useKeyboard((key) => {
+    key.stopPropagation()
     if (key.name === "escape") {
       onCancel()
     } else if (key.name === "return") {
