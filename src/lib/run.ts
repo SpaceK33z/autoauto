@@ -400,6 +400,25 @@ export async function deleteRun(projectRoot: string, run: RunInfo): Promise<void
   await rm(run.run_dir, { recursive: true, force: true })
 }
 
+/** Deletes an entire program: removes all runs (worktrees + branches) and the program directory. */
+export async function deleteProgram(projectRoot: string, slug: string): Promise<void> {
+  const programDir = getProgramDir(projectRoot, slug)
+  const runs = await listRuns(programDir)
+
+  const activeRun = runs.find(isRunActive)
+  if (activeRun) {
+    throw new Error("Cannot delete a program with an active run")
+  }
+
+  // Delete all runs first (cleans up worktrees + branches)
+  for (const run of runs) {
+    await deleteRun(projectRoot, run)
+  }
+
+  // Remove the program directory
+  await rm(programDir, { recursive: true, force: true })
+}
+
 // --- High-Level Orchestration ---
 
 export async function startRun(
