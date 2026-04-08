@@ -297,6 +297,14 @@ async function main() {
           const result = await startNextFromQueue(mainRoot, cfg.ideasBacklogEnabled)
           if (result.started) {
             process.stderr.write(`[queue] Started next: ${result.entry.programSlug} (run ${result.runId})\n`)
+          } else if (result.lastError && cfg.notificationCommand) {
+            const failState = await readState(runDir).catch(() => null)
+            if (failState) {
+              await sendNotification(cfg.notificationCommand, {
+                ...failState,
+                error: `Queue: ${result.lastError}`,
+              }, programConfig?.direction ?? "higher").catch(() => {})
+            }
           }
         } catch (err) {
           process.stderr.write(`[queue] Chain failed: ${err}\n`)

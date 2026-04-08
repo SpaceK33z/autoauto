@@ -634,10 +634,7 @@ function throwIfAborted(signal?: AbortSignal): void {
 
 function throwAbortError(signal?: AbortSignal): never {
   const reason = signal?.reason
-  if (reason instanceof Error) {
-    reason.name = "AbortError"
-    throw reason
-  }
+  if (reason instanceof Error) throw reason
   const error = new Error(typeof reason === "string" && reason.length > 0 ? reason : "Finalize aborted")
   error.name = "AbortError"
   throw error

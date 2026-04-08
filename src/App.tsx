@@ -52,7 +52,9 @@ export function App() {
         // Queue fallback: if queue has pending items but nothing running, resume
         try {
           await startNextFromQueue(projectRoot, config.ideasBacklogEnabled)
-        } catch {}
+        } catch (err) {
+          process.stderr.write(`[queue] Resume failed: ${err}\n`)
+        }
       })
     }
     if (screen === "pre-run" && selectedProgram) {
@@ -227,16 +229,21 @@ export function App() {
             }}
             programHasQueueEntries={queueHasProgram}
             onAddToQueue={async (overrides) => {
-              const { wasEmpty } = await appendToQueue(projectRoot, {
-                programSlug: selectedProgram,
-                modelConfig: overrides.modelConfig,
-                maxExperiments: overrides.maxExperiments,
-                useWorktree: overrides.useWorktree,
-              })
-              if (wasEmpty) {
-                await startNextFromQueue(projectRoot, projectConfig.ideasBacklogEnabled)
+              try {
+                const { wasEmpty } = await appendToQueue(projectRoot, {
+                  programSlug: selectedProgram,
+                  modelConfig: overrides.modelConfig,
+                  maxExperiments: overrides.maxExperiments,
+                  useWorktree: overrides.useWorktree,
+                })
+                if (wasEmpty) {
+                  await startNextFromQueue(projectRoot, projectConfig.ideasBacklogEnabled)
+                }
+              } catch (err) {
+                process.stderr.write(`[queue] Failed to enqueue: ${err}\n`)
+              } finally {
+                setScreen("home")
               }
-              setScreen("home")
             }}
           />
         )}

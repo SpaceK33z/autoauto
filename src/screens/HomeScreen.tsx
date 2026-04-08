@@ -206,6 +206,8 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
             setSelectedQueueIndex(0)
             setFocusedPanel("programs")
           })
+        }).catch(() => {
+          setConfirmClearQueue(false)
         })
       } else if (key.name === "escape" || key.name === "n") {
         setConfirmClearQueue(false)
@@ -317,7 +319,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
               setSelectedQueueIndex((i) => Math.min(i, Math.max(0, newLen - 1)))
               if (newLen === 0) setFocusedPanel("programs")
             })
-          })
+          }).catch(() => {})
         }
       } else if (key.name === "c") {
         setConfirmClearQueue(true)

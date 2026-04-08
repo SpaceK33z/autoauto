@@ -167,7 +167,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const effortDisplay = formatEffortSlot(modelSlot)
   const footerHint = onAddToQueue
     ? programHasQueueEntries
-      ? "  a: add to queue | Escape: back | Tab: next field"
+      ? "  Enter: open model picker | a: add to queue | Escape: back | Tab: next field"
       : "  Enter: start/open model picker | a: add to queue | Escape: back | Tab: next field"
     : "  Enter: start/open model picker | Escape: back | Tab: next field"
 
