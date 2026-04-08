@@ -9,7 +9,7 @@ Don't understand autoresearch or don't know what to apply it on? No problem! Thi
 This tool takes care of everything:
 
 * Finding autoresearch opportunities in your codebase
-* Defining metrics, creating a scripts
+* Defining metrics, creating scripts
 * Defining the best settings
 * Running the experiments (supports Claude, Codex and OpenCode)
 * Using best practices
@@ -63,20 +63,27 @@ Autoresearch looks simple — "just loop an agent and measure" — but real impl
 
 ### Install and run
 
-TODO: add easier way to install
+**With Bun (recommended):**
+
+```bash
+bun install -g @spacek33z/autoauto
+autoauto
+```
+
+**Compiled binary (no runtime needed):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SpaceK33z/autoauto/main/install.sh | bash
+autoauto
+```
+
+**From source:**
 
 ```bash
 git clone https://github.com/SpaceK33z/autoauto.git
 cd autoauto
 bun install
 bun dev
-```
-
-Or install globally:
-
-```bash
-bun link
-autoauto
 ```
 
 ### Headless CLI

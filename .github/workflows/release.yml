@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun build --compile src/index.tsx --outfile dist/${{ matrix.artifact }}
+      - run: bun build --compile --target=${{ matrix.target }} src/index.tsx --outfile dist/${{ matrix.artifact }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
