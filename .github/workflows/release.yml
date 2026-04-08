@@ -21,7 +21,6 @@ jobs:
         id: release
         with:
           release-type: node
-          skip-labeling: true
 
   build:
     name: Build (${{ matrix.artifact }})
