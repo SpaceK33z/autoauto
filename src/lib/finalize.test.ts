@@ -125,6 +125,11 @@ describe("extractFinalizeDone", () => {
     const text = `<finalize_done branch="feature/autoauto-prog-20260408-143022" />`
     expect(extractFinalizeDone(text)).toBe("feature/autoauto-prog-20260408-143022")
   })
+
+  test("returns null when content follows a valid marker", () => {
+    const text = `<finalize_done branch="autoauto-demo-20260408" />\nStill packaging changes...`
+    expect(extractFinalizeDone(text)).toBeNull()
+  })
 })
 
 describe("buildFinalizeContext", () => {

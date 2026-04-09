@@ -121,7 +121,7 @@ Please start the finalize review.`
  */
 export function extractFinalizeDone(text: string): string | null {
   const tail = text.slice(-500)
-  const match = tail.match(/<finalize_done\s+branch="([^"]+)"\s*\/>/)
+  const match = tail.match(/<finalize_done\s+branch="([^"]+)"\s*\/>\s*$/)
   return match ? match[1] : null
 }
 
