@@ -430,11 +430,16 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     if (!branch) return
 
     // Agent is done — save report and transition
-    const summary = generateSummaryReport(runState, results, programConfig, lastAssistant.content)
-    await saveFinalizeReport(runDir, summary)
-    await restoreInPlaceBranch()
-    setFinalizeResult({ summary, branch })
-    setPhase("finalize_complete")
+    try {
+      const summary = generateSummaryReport(runState, results, programConfig, lastAssistant.content)
+      await saveFinalizeReport(runDir, summary)
+      await restoreInPlaceBranch()
+      setFinalizeResult({ summary, branch })
+      setPhase("finalize_complete")
+    } catch (err: unknown) {
+      setLastError(formatShellError(err, "Failed to save finalize report"))
+      setPhase("error")
+    }
   }, [runState, runDir, programConfig, results, restoreInPlaceBranch])
 
   const handleUpdateProgram = useCallback(async () => {

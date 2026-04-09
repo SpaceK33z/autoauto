@@ -122,8 +122,8 @@ describe("extractFinalizeDone", () => {
   })
 
   test("handles branch names with slashes and hyphens", () => {
-    const text = `<finalize_done branch="autoauto-prog-20260408-143022" />`
-    expect(extractFinalizeDone(text)).toBe("autoauto-prog-20260408-143022")
+    const text = `<finalize_done branch="feature/autoauto-prog-20260408-143022" />`
+    expect(extractFinalizeDone(text)).toBe("feature/autoauto-prog-20260408-143022")
   })
 })
 

@@ -138,7 +138,7 @@ AutoAuto uses AI agents at specific points in the workflow. The app controls flo
 | **Setup Agent** | Inspect repo, define program, generate and validate measurement | Multi-turn chat |
 | **Update Agent** | Review previous run results and revise program artifacts | Multi-turn chat |
 | **Experiment Agent** | Make one code change and commit | One-shot (fresh per experiment) |
-| **Finalize Agent** | Review accumulated diff and group changes into branches | One-shot |
+| **Finalize Agent** | Review results, assess risk, handle exclusions, package code | Multi-turn chat |
 
 AutoAuto supports multiple agent providers: **Claude** (Agent SDK), **Codex** (CLI), and **OpenCode**. You can configure different models for execution (experiments) vs. support (setup/finalize).
 
