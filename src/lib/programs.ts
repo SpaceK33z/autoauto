@@ -30,6 +30,7 @@ export interface ProgramConfig {
   build_timeout?: number
   max_cost_usd?: number
   keep_simplifications?: boolean
+  finalize_risk_assessment?: boolean
 }
 
 export type Screen = "home" | "setup" | "settings" | "program-detail" | "pre-run" | "execution" | "first-setup"
@@ -99,6 +100,9 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
   }
   if (config.keep_simplifications !== undefined && typeof config.keep_simplifications !== "boolean") {
     throw new Error("config.json: keep_simplifications must be a boolean")
+  }
+  if (config.finalize_risk_assessment !== undefined && typeof config.finalize_risk_assessment !== "boolean") {
+    throw new Error("config.json: finalize_risk_assessment must be a boolean")
   }
   if (typeof config.quality_gates !== "object" || config.quality_gates === null || Array.isArray(config.quality_gates)) {
     throw new Error("config.json: quality_gates must be an object")

@@ -166,11 +166,18 @@ All communication between the TUI and daemon happens through the filesystem (sta
 
 When a run completes, you have three options:
 
-- **Finalize** — a Finalize Agent reviews the accumulated diff, groups changes into independent branches (one per logical changeset), and produces a summary report
+- **Finalize** — a conversational Finalize Agent reviews your results, assesses risk per experiment, helps you exclude risky or unwanted experiments, and packages the final code onto a branch of your choice
 - **Update** — revise `program.md` and run again with an updated approach
 - **Done** — skip finalize and leave the run branch as-is for manual review
 
-The finalize flow supports multi-turn refinement: review the proposed groups, provide feedback, and the agent revises until you're satisfied. Each group becomes its own branch for clean review and merge.
+The finalize flow is a multi-turn chat. The agent:
+
+1. Shows all experiment results (kept and discarded) with metrics
+2. Provides per-experiment risk assessment for kept experiments (can be disabled via `finalize_risk_assessment: false` in config.json)
+3. Lets you exclude specific experiments by number (e.g., "exclude 3, 7")
+4. Flags dependency issues if excluding an experiment would affect later ones, and resolves conflicts
+5. Asks where to put the final code: the autoauto run branch, the original branch, or a new branch
+6. Packages the code and confirms completion
 
 ## Data model
 
