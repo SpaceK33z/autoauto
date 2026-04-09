@@ -42,3 +42,8 @@ export function allocateColumnWidths(available: number, specs: ColumnSpec[]): nu
 export function formatCell(str: string, width: number): string {
   return padRight(truncate(str, width), width)
 }
+
+export function truncateStreamText(prev: string, text: string): string {
+  const next = prev + text
+  return next.length > 8000 ? next.slice(-6000) : next
+}

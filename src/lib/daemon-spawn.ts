@@ -7,7 +7,7 @@ import { generateRunId } from "./run.ts"
 import { initRunDir } from "./run-setup.ts"
 import { getProgramDir } from "./programs.ts"
 import type { ModelSlot } from "./config.ts"
-import { isWorkingTreeClean, formatShellError } from "./git.ts"
+import { isWorkingTreeClean, DirtyWorkingTreeError, formatShellError } from "./git.ts"
 import { createWorktree, getWorktreePath } from "./worktree.ts"
 import {
   acquireLock,
@@ -41,10 +41,11 @@ export async function spawnDaemon(
   carryForward = true,
   source: "manual" | "queue" = "manual",
   maxCostUsd?: number,
+  keepSimplifications?: boolean,
 ): Promise<{ runId: string; runDir: string; worktreePath: string | null; pid: number }> {
   // 1. Check working tree
   if (!(await isWorkingTreeClean(mainRoot))) {
-    throw new Error("Working tree has uncommitted changes. Commit or stash them before starting a run.")
+    throw new DirtyWorkingTreeError(mainRoot)
   }
 
   // 2. Generate run ID + acquire lock before creating isolated work
@@ -83,6 +84,7 @@ export async function spawnDaemon(
       ideas_backlog_enabled: ideasBacklogEnabled,
       in_place: useWorktree ? undefined : true,
       carry_forward: carryForward,
+      keep_simplifications: keepSimplifications,
       source,
     }
     await writeRunConfig(runDir, runConfig)

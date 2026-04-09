@@ -17,7 +17,7 @@ import {
 } from "../lib/finalize.ts"
 import { runVerification, appendVerificationResults, type VerificationResult } from "../lib/verify.ts"
 import { VerifyResultsOverlay } from "../components/VerifyResultsOverlay.tsx"
-import { formatShellError } from "../lib/git.ts"
+import { formatShellError, DirtyWorkingTreeError, getWorkingTreeStatus } from "../lib/git.ts"
 import {
   spawnDaemon,
   watchRunDir,
@@ -36,14 +36,11 @@ import { StatsHeader } from "../components/StatsHeader.tsx"
 import { ResultsTable } from "../components/ResultsTable.tsx"
 import { AgentPanel } from "../components/AgentPanel.tsx"
 import { FinalizeApproval } from "../components/FinalizeApproval.tsx"
+import { DirtyTreePrompt } from "../components/DirtyTreePrompt.tsx"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
+import { truncateStreamText } from "../lib/format.ts"
 
-type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_review" | "finalize_complete" | "error"
-
-function truncateStreamText(prev: string, text: string): string {
-  const next = prev + text
-  return next.length > 8000 ? next.slice(-6000) : next
-}
+type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_review" | "finalize_complete" | "error" | "dirty"
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError"
@@ -62,6 +59,8 @@ interface ExecutionScreenProps {
   useWorktree?: boolean
   /** Carry forward context from previous runs (default true). */
   carryForward?: boolean
+  /** Keep experiments that simplify code without improving the metric (default true). */
+  keepSimplifications?: boolean
   /** If set, attach to an existing run instead of starting a new one */
   attachRunId?: string
   readOnly?: boolean
@@ -81,6 +80,7 @@ const PHASE_LABELS: Record<string, string> = {
   stopping: "Stopping...",
   complete: "Complete",
   finalizing: "Finalizing...",
+  dirty: "Uncommitted changes...",
 }
 
 function getPhaseLabel(phase: RunState["phase"], error?: string | null, isStopping = false): string {
@@ -122,7 +122,7 @@ function Divider({ width, label }: { width: number; label?: string }) {
   return <text fg="#666666">{"─".repeat(innerWidth)}</text>
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, keepSimplifications, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
@@ -131,6 +131,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [experimentNumber, setExperimentNumber] = useState(0)
   const [lastError, setLastError] = useState<string | null>(null)
   const [terminationReason, setTerminationReason] = useState<TerminationReason | null>(null)
+  const [dirtyFiles, setDirtyFiles] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
 
   const [results, setResults] = useState<ExperimentResult[]>([])
   const [metricHistory, setMetricHistory] = useState<number[]>([])
@@ -260,7 +262,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           }
         } else {
           // Spawn mode: create worktree, spawn daemon
-          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward, "manual", maxCostUsd)
+          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward, "manual", maxCostUsd, keepSimplifications)
           if (cancelled) return
 
           activeRunDir = result.runDir
@@ -350,8 +352,14 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         }
       } catch (err: unknown) {
         if (!cancelled) {
-          setLastError(formatShellError(err))
-          setPhase("error")
+          if (err instanceof DirtyWorkingTreeError) {
+            const status = await getWorkingTreeStatus(cwd)
+            setDirtyFiles(status)
+            setPhase("dirty")
+          } else {
+            setLastError(formatShellError(err))
+            setPhase("error")
+          }
         }
       }
     })()
@@ -360,7 +368,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       cancelled = true
       watcherRef.current?.stop()
     }
-  }, [cwd, programSlug, modelConfig, maxExperiments, maxCostUsd, useWorktree, carryForward, attachRunId, ideasBacklogEnabled])
+  }, [cwd, programSlug, modelConfig, maxExperiments, maxCostUsd, useWorktree, carryForward, keepSimplifications, attachRunId, ideasBacklogEnabled, retryCount])
 
   const cleanupRunEnvironment = useCallback(async () => {
     if (runState?.in_place) {
@@ -377,6 +385,15 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     await cleanupRunEnvironment()
     navigate("home")
   }, [cleanupRunEnvironment, navigate])
+
+  const handleDirtyRetry = useCallback(() => {
+    setPhase("starting")
+    setDirtyFiles(null)
+    setLastError(null)
+    setRetryCount(c => c + 1)
+  }, [])
+
+  const handleDirtyQuit = useCallback(() => navigate("home"), [navigate])
 
   const handleFinalize = useCallback(async () => {
     if (!runState || !runDir || !programConfig) return
@@ -605,6 +622,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       if (key.name === "escape") {
         navigate("home")
       }
+      return
+    }
+
+    if (phase === "dirty") {
+      // DirtyTreePrompt handles its own keyboard
       return
     }
 
@@ -1073,6 +1095,16 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             </box>
           </scrollbox>
         </box>
+      )}
+
+      {phase === "dirty" && (
+        <DirtyTreePrompt
+          cwd={cwd}
+          dirtyFiles={dirtyFiles ?? ""}
+          modelConfig={modelConfig}
+          onRetry={handleDirtyRetry}
+          onQuit={handleDirtyQuit}
+        />
       )}
 
       {phase === "error" && (

@@ -42,6 +42,13 @@ export async function branchExists(cwd: string, branchName: string): Promise<boo
   return result.exitCode === 0
 }
 
+export class DirtyWorkingTreeError extends Error {
+  constructor(public readonly cwd: string) {
+    super("Working tree has uncommitted changes")
+    this.name = "DirtyWorkingTreeError"
+  }
+}
+
 export async function isWorkingTreeClean(cwd: string): Promise<boolean> {
   return !(await $`git status --porcelain`.cwd(cwd).text()).trim()
 }
