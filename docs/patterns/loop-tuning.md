@@ -118,7 +118,7 @@ AutoAuto injects progressively stronger diversity instructions based on consecut
 - 50%: go orthogonal or simplify
 - 70%: try something radically different or exit without committing
 
-The counter resets on any keep. Cheap, no architecture change, scales automatically.
+The counter resets on genuine keeps (metric improvement) but NOT on simplification keeps. Simplification keeps are noise-level changes that happen to remove code — they shouldn't suppress the diversity nudge. This prevents a pattern where alternating simplification keeps and discards mask stagnation.
 
 ### NEVER STOP instruction
 The agent is instructed it cannot pause to ask for input — it must continue until terminated. Increases risk of late-session micro-adjustments; best combined with a max count.
