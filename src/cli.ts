@@ -29,6 +29,13 @@ import { closeProviders, type AgentProviderID } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
 import { getDefaultModel } from "./lib/model-options.ts"
 import { formatShellError } from "./lib/git.ts"
+import {
+  readQueue,
+  appendToQueue,
+  removeFromQueue,
+  clearQueue,
+  startNextFromQueue,
+} from "./lib/queue.ts"
 
 // --- Arg Parsing ---
 
@@ -504,11 +511,13 @@ async function cmdStatus(args: ParsedArgs) {
           ? `reached max experiments (${state.experiment_number})`
           : state.termination_reason === "stagnation"
             ? `stagnation (${state.total_discards} consecutive discards)`
-            : state.termination_reason === "stopped"
-              ? "stopped by user"
-              : state.phase === "crashed"
-                ? "crashed"
-                : "finished"
+            : state.termination_reason === "budget_exceeded"
+              ? `budget exceeded ($${(state.total_cost_usd ?? 0).toFixed(2)})`
+              : state.termination_reason === "stopped"
+                ? "stopped by user"
+                : state.phase === "crashed"
+                  ? "crashed"
+                  : "finished"
     out(`Status: ${state.phase} (${reason})`)
     out(
       `Baseline: ${state.original_baseline} → Final best: ${state.best_metric} (${formatChangePct(state.original_baseline, state.best_metric, programConfig.direction)})`,
@@ -729,6 +738,161 @@ async function cmdLimit(args: ParsedArgs) {
   }
 }
 
+async function cmdQueue(args: ParsedArgs) {
+  const sub = args.positional[0]
+  const root = await resolveRoot(args.flags)
+  const json = hasFlag(args.flags, "json")
+
+  if (sub === "list" || sub === undefined) {
+    const queue = await readQueue(root)
+
+    if (queue.entries.length === 0) {
+      if (json) {
+        outJson([])
+      } else {
+        out("Queue is empty.")
+      }
+      return
+    }
+
+    if (json) {
+      outJson(queue.entries)
+      return
+    }
+
+    const header = `${padRight("ID", 5)} ${padRight("Program", 20)} ${padRight("Model", 25)} ${padRight("Max", 6)} ${padRight("Added", 20)} Retries`
+    out(header)
+    for (const e of queue.entries) {
+      const model = `${e.modelConfig.provider}/${e.modelConfig.model}`
+      const added = new Date(e.addedAt).toLocaleString()
+      out(
+        `${padRight(String(e.id), 5)} ${padRight(e.programSlug, 20)} ${padRight(model, 25)} ${padRight(String(e.maxExperiments), 6)} ${padRight(added, 20)} ${e.retryCount}`,
+      )
+    }
+    return
+  }
+
+  if (sub === "add") {
+    const slug = args.positional[1]
+    if (!slug) die("Usage: autoauto queue add <program-slug>")
+
+    const programDir = getProgramDir(root, slug)
+
+    // Validate program exists
+    let programConfig: ProgramConfig
+    try {
+      programConfig = await loadProgramConfig(programDir)
+    } catch {
+      die(`Program "${slug}" not found. Run \`autoauto list\` to see available programs.`)
+    }
+
+    // Load project config for defaults
+    const projectConfig = await loadProjectConfig(root)
+
+    // Build model config from flags or defaults
+    const providerFlag = getFlag(args.flags, "provider")
+    const parsedProvider = parseProvider(providerFlag)
+    if (providerFlag && !parsedProvider) die(`Invalid --provider: "${providerFlag}". Use claude, opencode, or codex.`)
+
+    const explicitModel = getFlag(args.flags, "model")
+    const provider: AgentProviderID = parsedProvider ?? (explicitModel ? "claude" : projectConfig.executionModel.provider)
+
+    let model = explicitModel
+    if (!model) {
+      if (provider === projectConfig.executionModel.provider) {
+        model = projectConfig.executionModel.model
+      } else if (provider === "opencode") {
+        model = await getDefaultModel("opencode", root) ?? undefined
+        if (!model) die("No connected OpenCode models found.")
+      } else if (provider === "codex") {
+        model = await getDefaultModel("codex", root) ?? undefined
+        if (!model) die("Could not resolve Codex default model.")
+      } else {
+        model = "sonnet"
+      }
+    }
+    if (!model) die("Could not resolve model.")
+
+    const modelConfig: ModelSlot = {
+      provider,
+      model,
+      effort: provider !== "opencode"
+        ? ((getFlag(args.flags, "effort") as EffortLevel) ?? projectConfig.executionModel.effort)
+        : projectConfig.executionModel.effort,
+    }
+
+    const maxExperimentsStr = getFlag(args.flags, "max-experiments")
+    let maxExperiments: number = programConfig.max_experiments ?? 25
+    if (maxExperimentsStr != null) {
+      const parsed = parsePositiveInt(maxExperimentsStr)
+      if (parsed == null) die(`Invalid --max-experiments: "${maxExperimentsStr}". Must be a positive integer.`)
+      maxExperiments = parsed
+    }
+
+    const useWorktree = !hasFlag(args.flags, "in-place")
+
+    const { entry, wasEmpty } = await appendToQueue(root, {
+      programSlug: slug,
+      modelConfig,
+      maxExperiments,
+      useWorktree,
+    })
+
+    // If queue was empty, kick off the first run
+    if (wasEmpty) {
+      const ideasBacklogEnabled = hasFlag(args.flags, "no-ideas-backlog")
+        ? false
+        : hasFlag(args.flags, "ideas-backlog")
+          ? true
+          : projectConfig.ideasBacklogEnabled
+      await startNextFromQueue(root, ideasBacklogEnabled)
+    }
+
+    if (json) {
+      outJson(entry)
+    } else {
+      out(`Queued ${slug} as #${entry.id} (${modelConfig.provider}/${modelConfig.model}, max ${maxExperiments} experiments)`)
+      if (wasEmpty) out("Queue was empty — starting immediately.")
+    }
+    return
+  }
+
+  if (sub === "remove") {
+    const idStr = args.positional[1]
+    if (!idStr) die("Usage: autoauto queue remove <id>")
+
+    const id = parsePositiveInt(idStr)
+    if (id == null) die(`Invalid ID: "${idStr}". Must be a positive integer.`)
+
+    const removed = await removeFromQueue(root, id)
+    if (!removed) die(`Queue entry #${id} not found.`)
+
+    if (json) {
+      outJson(removed)
+    } else {
+      out(`Removed #${removed.id} (${removed.programSlug}) from queue.`)
+    }
+    return
+  }
+
+  if (sub === "clear") {
+    const cleared = await clearQueue(root)
+
+    if (json) {
+      outJson({ cleared: cleared.length })
+    } else {
+      if (cleared.length === 0) {
+        out("Queue was already empty.")
+      } else {
+        out(`Cleared ${cleared.length} entr${cleared.length === 1 ? "y" : "ies"} from queue.`)
+      }
+    }
+    return
+  }
+
+  die(`Unknown queue subcommand: "${sub}". Use: list, add, remove, clear`)
+}
+
 // --- Main Router ---
 
 const COMMANDS: Record<string, (args: ParsedArgs) => Promise<void>> = {
@@ -738,6 +902,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<void>> = {
   results: cmdResults,
   stop: cmdStop,
   limit: cmdLimit,
+  queue: cmdQueue,
 }
 
 export async function run(argv: string[]) {
@@ -755,6 +920,10 @@ export async function run(argv: string[]) {
     out("  results <slug>               Show experiment results")
     out("  stop <slug>                  Stop the active run")
     out("  limit <slug> <n|none>        Update experiment cap on active run")
+    out("  queue [list]                 Show pending queue entries")
+    out("  queue add <slug>             Enqueue a run")
+    out("  queue remove <id>            Remove a queue entry")
+    out("  queue clear                  Clear all pending entries")
     out("")
     out("Global flags:")
     out("  --json                       Output as JSON")

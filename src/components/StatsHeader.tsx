@@ -14,6 +14,7 @@ interface StatsHeaderProps {
   direction: "lower" | "higher"
   metricField: string
   totalCostUsd: number
+  maxCostUsd?: number
   metricHistory: number[]
   currentPhaseLabel: string
   improvementPct: number
@@ -66,6 +67,9 @@ export function StatsHeader({ isRunning = false, ...props }: StatsHeaderProps) {
   const improvementStr = formatImprovementPct(props.improvementPct)
   const sparkline = renderSparkline(props.metricHistory, props.direction)
   const contentWidth = Math.max(props.width - 4, 0)
+  const costDisplay = props.maxCostUsd != null
+    ? `$${props.totalCostUsd.toFixed(2)}/$${props.maxCostUsd.toFixed(2)}`
+    : `$${props.totalCostUsd.toFixed(2)}`
 
   return (
       <box paddingX={1} flexDirection="column">
@@ -77,8 +81,7 @@ export function StatsHeader({ isRunning = false, ...props }: StatsHeaderProps) {
             {"    "}
             <span fg="#ffffff">crash {props.totalCrashes}</span>
             {"    "}
-            <span fg="#ffffff">$</span>
-            <span fg="#ffffff">{props.totalCostUsd.toFixed(2)}</span>
+            <span fg="#ffffff">{costDisplay}</span>
             {"    "}
             <span fg="#ffffff">#{props.experimentNumber}/{props.maxExperiments}</span>
           </text>

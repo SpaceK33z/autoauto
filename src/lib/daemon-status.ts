@@ -164,6 +164,24 @@ export async function getMaxExperiments(runDir: string): Promise<number | null> 
   return config?.max_experiments ?? null
 }
 
+/**
+ * Updates max_cost_usd in run-config.json. The daemon re-reads this file
+ * at each iteration boundary, so the change takes effect after the current experiment.
+ */
+export async function updateMaxCostUsd(runDir: string, maxCostUsd: number | undefined): Promise<void> {
+  const config = await readRunConfig(runDir)
+  if (!config) return
+  await writeRunConfig(runDir, { ...config, max_cost_usd: maxCostUsd })
+}
+
+/**
+ * Reads the current max_cost_usd from run-config.json.
+ */
+export async function getMaxCostUsd(runDir: string): Promise<number | undefined> {
+  const config = await readRunConfig(runDir)
+  return config?.max_cost_usd
+}
+
 // --- Active Run Detection ---
 
 /**

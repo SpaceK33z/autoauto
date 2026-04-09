@@ -35,4 +35,6 @@ Quick reference for the core AutoAuto terms.
 | **Queue** | Sequential list of pending runs in `.autoauto/queue.json`. Drains automatically via daemon chaining. |
 | **Queue chaining** | Completing daemon pops the next queue entry and spawns a new daemon for it. |
 | **Program exclusivity** | A program is either queue-managed or manually run, never both at the same time. |
+| **Budget cap** | Optional `max_cost_usd` limit that stops a run when cumulative agent cost exceeds the threshold. |
+| **Budget exceeded** | Termination reason when a run's cumulative cost hits the budget cap. |
 | **Finalize Agent** | Post-run reviewer that summarizes the run and can group changed files into reviewable branches. |

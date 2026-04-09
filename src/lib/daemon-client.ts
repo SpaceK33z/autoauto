@@ -11,6 +11,8 @@ export {
   forceKillDaemon,
   updateMaxExperiments,
   getMaxExperiments,
+  updateMaxCostUsd,
+  getMaxCostUsd,
   findActiveRun,
   type DaemonStatus,
 } from "./daemon-status.ts"
