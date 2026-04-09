@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import {
   useKeyboard,
   useRenderer,
@@ -14,7 +14,7 @@ import { PostUpdatePrompt } from "./components/PostUpdatePrompt.tsx"
 import { ensureAutoAutoDir, getProjectRoot, type Screen } from "./lib/programs.ts"
 import { loadProjectConfig, configExists, DEFAULT_CONFIG, type ProjectConfig } from "./lib/config.ts"
 import { isRunActive } from "./lib/run.ts"
-import type { DraftSession } from "./lib/drafts.ts"
+import { deleteDraft, type DraftSession } from "./lib/drafts.ts"
 import { readQueue, appendToQueue, startNextFromQueue, programHasQueueEntries } from "./lib/queue.ts"
 
 const cwd = process.cwd()
@@ -33,7 +33,6 @@ export function App() {
   const [updateProgramSlug, setUpdateProgramSlug] = useState<string | null>(null)
   const [showPostUpdatePrompt, setShowPostUpdatePrompt] = useState(false)
   const [draftName, setDraftName] = useState<string | null>(null)
-  const draftSavedExitRef = useRef(false)
   const [queueHasProgram, setQueueHasProgram] = useState(false)
 
   useEffect(() => {
@@ -147,14 +146,12 @@ export function App() {
               setScreen("execution")
             }}
             onUpdateProgram={(slug) => {
-              draftSavedExitRef.current = false
               setUpdateProgramSlug(slug)
               setSelectedProgram(slug)
               setDraftName(null)
               setScreen("setup")
             }}
             onResumeDraft={(name: string, draft: DraftSession) => {
-              draftSavedExitRef.current = false
               setDraftName(name)
               if (draft.type === "update" && draft.programSlug) {
                 setUpdateProgramSlug(draft.programSlug)
@@ -170,9 +167,7 @@ export function App() {
           <SetupScreen
             cwd={projectRoot}
             navigate={(s) => {
-              const draftSavedOnExit = draftSavedExitRef.current && s === "home"
-              draftSavedExitRef.current = false
-              if (updateProgramSlug && s === "home" && !draftSavedOnExit) {
+              if (updateProgramSlug && s === "home") {
                 // Leaving update mode — show post-update prompt
                 setShowPostUpdatePrompt(true)
               } else {
@@ -185,7 +180,6 @@ export function App() {
             programSlug={updateProgramSlug ?? undefined}
             draftName={draftName ?? undefined}
             onDraftSaved={(name) => {
-              draftSavedExitRef.current = true
               setDraftName(name)
             }}
           />
@@ -195,12 +189,14 @@ export function App() {
             programSlug={selectedProgram}
             onStartRun={() => {
               setShowPostUpdatePrompt(false)
+              if (draftName) deleteDraft(projectRoot, draftName).catch(() => {})
               setUpdateProgramSlug(null)
               setDraftName(null)
               setScreen("pre-run")
             }}
             onGoHome={() => {
               setShowPostUpdatePrompt(false)
+              if (draftName) deleteDraft(projectRoot, draftName).catch(() => {})
               setUpdateProgramSlug(null)
               setDraftName(null)
               setScreen("home")
@@ -265,7 +261,6 @@ export function App() {
             readOnly={attachReadOnly}
             autoFinalize={autoFinalize}
             onUpdateProgram={(slug) => {
-              draftSavedExitRef.current = false
               setPreRunOverrides(null)
               setAttachRunId(null)
               setAttachReadOnly(false)
