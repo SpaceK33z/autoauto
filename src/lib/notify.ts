@@ -85,6 +85,7 @@ function getStatusLabel(state: RunState): string {
   if (state.termination_reason === "stagnation") return "stagnation"
   if (state.termination_reason === "aborted") return "aborted"
   if (state.termination_reason === "stopped") return "stopped"
+  if (state.termination_reason === "budget_exceeded") return "budget exceeded"
   if (state.termination_reason === "max_experiments") return "complete"
   return state.phase
 }

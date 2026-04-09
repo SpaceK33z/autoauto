@@ -18,7 +18,7 @@ import type { RunState } from "./lib/run.ts"
 import { runExperimentLoop } from "./lib/experiment-loop.ts"
 import { runMeasurementSeries } from "./lib/measure.ts"
 import { getFullSha, getCurrentBranch, formatShellError } from "./lib/git.ts"
-import { loadProjectConfig } from "./lib/config.ts"
+import { loadProjectConfig, getNotificationCommand } from "./lib/config.ts"
 import { sendNotification } from "./lib/notify.ts"
 import { createFileCallbacks } from "./lib/daemon-callbacks.ts"
 import {
@@ -82,6 +82,7 @@ async function main() {
   const modelConfig = runConfig ? runConfigToModelSlot(runConfig) : { provider: "claude" as const, model: "sonnet", effort: "high" as const }
   if (!runConfig?.max_experiments) throw new Error("run-config.json must specify max_experiments")
   const maxExperiments = runConfig.max_experiments
+  const maxCostUsd = runConfig?.max_cost_usd
   const ideasBacklogEnabled = runConfig?.ideas_backlog_enabled ?? true
   const carryForward = runConfig?.carry_forward ?? true
   const source = runConfig?.source ?? "manual"
@@ -231,6 +232,7 @@ async function main() {
         callbacks,
         {
           maxExperiments,
+          maxCostUsd,
           signal: abortController.signal,
           stopRequested: () => stopRequested,
           ideasBacklogEnabled,
@@ -251,6 +253,7 @@ async function main() {
         callbacks,
         {
           maxExperiments,
+          maxCostUsd,
           signal: abortController.signal,
           stopRequested: () => stopRequested,
           ideasBacklogEnabled,
@@ -276,8 +279,9 @@ async function main() {
       ])
       projectConfig = pc
       programConfig = pgc
-      if (pc.notificationCommand) {
-        await sendNotification(pc.notificationCommand, finalState, pgc.direction)
+      const notifyCmd = getNotificationCommand(pc)
+      if (notifyCmd) {
+        await sendNotification(notifyCmd, finalState, pgc.direction)
       }
     } catch (err) {
       process.stderr.write(`[notify] Error: ${err}\n`)
@@ -297,22 +301,26 @@ async function main() {
           const result = await startNextFromQueue(mainRoot, cfg.ideasBacklogEnabled)
           if (result.started) {
             process.stderr.write(`[queue] Started next: ${result.entry.programSlug} (run ${result.runId})\n`)
-          } else if (result.lastError && cfg.notificationCommand) {
-            const failState = await readState(runDir).catch(() => null)
-            if (failState) {
-              await sendNotification(cfg.notificationCommand, {
-                ...failState,
-                error: `Queue: ${result.lastError}`,
-              }, programConfig?.direction ?? "higher").catch(() => {})
+          } else if (result.lastError) {
+            const queueNotifyCmd = getNotificationCommand(cfg)
+            if (queueNotifyCmd) {
+              const failState = await readState(runDir).catch(() => null)
+              if (failState) {
+                await sendNotification(queueNotifyCmd, {
+                  ...failState,
+                  error: `Queue: ${result.lastError}`,
+                }, programConfig?.direction ?? "higher").catch(() => {})
+              }
             }
           }
         } catch (err) {
           process.stderr.write(`[queue] Chain failed: ${err}\n`)
-          if (cfg.notificationCommand) {
+          const chainNotifyCmd = getNotificationCommand(cfg)
+          if (chainNotifyCmd) {
             try {
               const failState = await readState(runDir).catch(() => null)
               if (failState) {
-                await sendNotification(cfg.notificationCommand, {
+                await sendNotification(chainNotifyCmd, {
                   ...failState,
                   error: `Queue chain failed: ${err}`,
                 }, programConfig?.direction ?? "higher")

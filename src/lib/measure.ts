@@ -212,6 +212,7 @@ export async function runBuild(
   buildShPath: string,
   cwd: string,
   signal?: AbortSignal,
+  timeoutMs?: number,
 ): Promise<BuildResult> {
   if (!await Bun.file(buildShPath).exists()) {
     return { success: true, duration_ms: 0 }
@@ -225,11 +226,12 @@ export async function runBuild(
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
     })
+    const timeoutLimit = timeoutMs ?? 600_000
     let timedOut = false
     const timeout = setTimeout(() => {
       timedOut = true
       killProcessGroup(proc)
-    }, 120_000)
+    }, timeoutLimit)
 
     const onAbort = () => {
       killProcessGroup(proc)
@@ -253,7 +255,7 @@ export async function runBuild(
       }
 
       if (timedOut) {
-        resolve({ success: false, error: "Build timed out after 120000ms", duration_ms })
+        resolve({ success: false, error: `Build timed out after ${timeoutLimit}ms`, duration_ms })
         return
       }
 
@@ -345,7 +347,7 @@ export async function runMeasurementSeries(
 
   // Run build step once before measuring
   if (buildShPath) {
-    const buildResult = await runBuild(buildShPath, cwd, signal)
+    const buildResult = await runBuild(buildShPath, cwd, signal, config.build_timeout)
     if (!buildResult.success) {
       return {
         success: false,
@@ -370,7 +372,7 @@ export async function runMeasurementSeries(
   for (let i = 0; i < config.repeats; i++) {
     if (signal?.aborted) break
     // eslint-disable-next-line no-await-in-loop -- measurements must run sequentially
-    const result = await runMeasurement(measureShPath, cwd, undefined, signal)
+    const result = await runMeasurement(measureShPath, cwd, config.measurement_timeout, signal)
     runs.push(result)
 
     if (!result.success) continue

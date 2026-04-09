@@ -83,9 +83,11 @@ The measurement system is the heart of AutoAuto. Your `measure.sh` script output
 
 **Quality gates.** Secondary metrics with hard thresholds that must not be violated. For example, while optimizing LCP, you might require CLS to stay below 0.1. An experiment that improves LCP but breaks CLS is discarded.
 
-**Simplicity criterion.** Experiments that are within noise but reduce lines of code are auto-kept. This rewards code simplification even without a metric gain.
+**Simplicity criterion.** Experiments that are within noise but reduce lines of code are auto-kept. This rewards code simplification even without a metric gain. Note: simplification keeps do not reset the consecutive-discard counter — they don't count as real progress for stagnation detection.
 
 **Re-baselining.** After every kept experiment, AutoAuto re-measures the baseline on the new code. It also re-measures after consecutive discards to detect environment drift.
+
+**Budget cap.** An optional `max_cost_usd` limit stops the run when cumulative agent cost exceeds the threshold. Checked at each iteration boundary — the last experiment that pushes cost over the limit completes normally before stopping. Set it per-program in `config.json` or override it per-run in the PreRun screen. When no cap is set, cost is tracked but unlimited.
 
 ## Context packets
 

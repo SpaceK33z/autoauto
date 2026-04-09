@@ -11,21 +11,58 @@ export interface ModelSlot {
   effort: EffortLevel
 }
 
+export type NotificationPreset = "off" | "macos-notification" | "macos-say" | "terminal-bell" | "custom"
+
+export interface NotificationPresetDef {
+  id: NotificationPreset
+  label: string
+  command: string | null
+}
+
+export const NOTIFICATION_PRESETS: NotificationPresetDef[] = [
+  { id: "off", label: "Off", command: null },
+  {
+    id: "macos-notification",
+    label: "macOS Notification",
+    command: `osascript -e 'display notification "{{program}}: {{status}} after {{experiments}} experiments ({{keeps}} kept, {{improvement_pct}} improvement)" with title "AutoAuto"'`,
+  },
+  {
+    id: "macos-say",
+    label: "macOS Say (TTS)",
+    command: `say "AutoAuto: {{program}} {{status}}, {{keeps}} of {{experiments}} kept"`,
+  },
+  {
+    id: "terminal-bell",
+    label: "Terminal Bell",
+    command: `printf '\\a'`,
+  },
+  { id: "custom", label: "Custom", command: null },
+]
+
+export const NOTIFICATION_PRESET_IDS = NOTIFICATION_PRESETS.map((p) => p.id)
+
 export interface ProjectConfig {
   executionModel: ModelSlot
   supportModel: ModelSlot
   ideasBacklogEnabled: boolean
-  notificationCommand: string | null
+  notificationPreset: NotificationPreset
+  notificationCommand: string | null // only used when preset is "custom"
 }
 
 const CONFIG_FILE = "config.json"
 
-export const DEFAULT_NOTIFICATION_COMMAND = `osascript -e 'display notification "{{program}}: {{status}} after {{experiments}} experiments ({{keeps}} kept, {{improvement_pct}} improvement)" with title "AutoAuto"'`
+/** Resolve the effective notification command for a config. */
+export function getNotificationCommand(config: ProjectConfig): string | null {
+  if (config.notificationPreset === "custom") return config.notificationCommand
+  const preset = NOTIFICATION_PRESETS.find((p) => p.id === config.notificationPreset)
+  return preset?.command ?? null
+}
 
 export const DEFAULT_CONFIG: ProjectConfig = {
   executionModel: { provider: "claude", model: "sonnet", effort: "high" },
   supportModel: { provider: "claude", model: "sonnet", effort: "high" },
   ideasBacklogEnabled: true,
+  notificationPreset: "off",
   notificationCommand: null,
 }
 
@@ -131,8 +168,8 @@ export async function loadProjectConfig(cwd: string): Promise<ProjectConfig> {
   const root = await getProjectRoot(cwd)
   const configPath = join(root, AUTOAUTO_DIR, CONFIG_FILE)
   try {
-    const parsed = await Bun.file(configPath).json() as Partial<ProjectConfig>
-    const { executionModel, supportModel, ...rest } = parsed
+    const parsed = await Bun.file(configPath).json() as Record<string, unknown>
+    const { executionModel, supportModel, ...rest } = parsed as Partial<ProjectConfig>
     return {
       ...DEFAULT_CONFIG,
       ...rest,

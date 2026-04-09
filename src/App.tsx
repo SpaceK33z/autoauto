@@ -234,6 +234,7 @@ export function App() {
                   programSlug: selectedProgram,
                   modelConfig: overrides.modelConfig,
                   maxExperiments: overrides.maxExperiments,
+                  maxCostUsd: overrides.maxCostUsd,
                   useWorktree: overrides.useWorktree,
                 })
                 if (wasEmpty) {
@@ -256,6 +257,7 @@ export function App() {
             ideasBacklogEnabled={projectConfig.ideasBacklogEnabled}
             navigate={(s) => { setPreRunOverrides(null); setAttachRunId(null); setAttachReadOnly(false); setAutoFinalize(false); setScreen(s) }}
             maxExperiments={preRunOverrides?.maxExperiments ?? 0}
+            maxCostUsd={preRunOverrides?.maxCostUsd}
             useWorktree={preRunOverrides?.useWorktree ?? true}
             carryForward={preRunOverrides?.carryForward ?? true}
             attachRunId={attachRunId ?? undefined}

@@ -47,6 +47,7 @@ interface ValidationOutput {
     repeats: number
   } | null
   avg_duration_ms: number
+  recommended_timeout: number | null
   build: {
     ran: boolean
     success: boolean
@@ -81,8 +82,10 @@ try {
 
 // --- Measurement Execution ---
 
+const VALIDATION_TIMEOUT_MS = 300_000 // 5 min — generous for setup validation
+
 async function runMeasurement(scriptPath: string, run: number, cwd: string): Promise<RunResult> {
-  const result = await runMeasurementCore(scriptPath, cwd)
+  const result = await runMeasurementCore(scriptPath, cwd, VALIDATION_TIMEOUT_MS)
   if (result.success) {
     return { run, success: true, output: result.output, duration_ms: result.duration_ms }
   }
@@ -218,6 +221,7 @@ async function runInWorktree(
       assessment: null,
       recommendations: null,
       avg_duration_ms: 0,
+      recommended_timeout: null,
       build: {
         ran: true,
         success: false,
@@ -299,6 +303,11 @@ async function runInWorktree(
       ? Math.round(results.reduce((sum, r) => sum + r.duration_ms, 0) / results.length)
       : 0
 
+  // Recommend a measurement timeout: 3× observed average, floor 60s
+  const recommendedTimeout = avgDuration > 0
+    ? Math.max(Math.ceil(avgDuration * 3 / 1000) * 1000, 60_000)
+    : null
+
   const output: ValidationOutput = {
     success: failedRuns.length === 0 && validationErrors.length === 0 && validOutputs.length >= 2,
     total_runs: numRuns,
@@ -311,6 +320,7 @@ async function runInWorktree(
     assessment,
     recommendations,
     avg_duration_ms: avgDuration,
+    recommended_timeout: recommendedTimeout,
     build: {
       ran: hasBuildScript,
       success: true,

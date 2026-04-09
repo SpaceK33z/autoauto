@@ -72,6 +72,8 @@ export interface LoopOptions {
   carryForward?: boolean
   /** Diagnostics from the baseline measurement, to pass to the first experiment */
   baselineDiagnostics?: string
+  /** Maximum cost in USD before stopping the run. Checked at iteration boundary. */
+  maxCostUsd?: number
 }
 
 // --- Helpers ---
@@ -208,7 +210,7 @@ async function runMeasurementAndDecide(
   callbacks: LoopCallbacks,
   recordBacklog: (result: ExperimentResult) => Promise<void>,
   signal?: AbortSignal,
-): Promise<{ state: RunState; kept: boolean; diagnostics?: string }> {
+): Promise<{ state: RunState; kept: boolean; isSimplification?: boolean; diagnostics?: string }> {
 
   const diffStatsStr = serializeDiffStats(diffStats)
 
@@ -344,7 +346,7 @@ async function runMeasurementAndDecide(
       updated_at: now(),
     }
     await writeState(runDir, finalState)
-    return { state: finalState, kept: true, diagnostics: rebaseline.success ? rebaseline.diagnostics : series.diagnostics }
+    return { state: finalState, kept: true, isSimplification, diagnostics: rebaseline.success ? rebaseline.diagnostics : series.diagnostics }
   }
 
   // DISCARD (regressed or noise without simplification)
@@ -421,11 +423,15 @@ export async function runExperimentLoop(
 
   // Re-read from run-config.json each iteration to support mid-run TUI changes
   let effectiveMaxExperiments = options.maxExperiments
+  let effectiveMaxCostUsd = options.maxCostUsd
 
   try {
   while (true) {
     const runConfig = await readRunConfig(runDir)
-    if (runConfig) effectiveMaxExperiments = runConfig.max_experiments
+    if (runConfig) {
+      effectiveMaxExperiments = runConfig.max_experiments
+      if (runConfig.max_cost_usd !== undefined) effectiveMaxCostUsd = runConfig.max_cost_usd
+    }
 
     // --- Check stop conditions ---
     if (options.signal?.aborted) {
@@ -461,6 +467,24 @@ export async function runExperimentLoop(
       await writeState(runDir, state)
       callbacks.onPhaseChange("complete", `reached max experiments (${effectiveMaxExperiments})`)
       break
+    }
+
+    // Budget cap — stop when cumulative cost exceeds the limit
+    const currentCost = state.total_cost_usd ?? 0
+    if (effectiveMaxCostUsd != null && currentCost > 0 && currentCost >= effectiveMaxCostUsd) {
+      state = { ...state, phase: "complete", updated_at: now() }
+      await writeState(runDir, state)
+      callbacks.onPhaseChange("complete", `budget exceeded ($${currentCost.toFixed(2)} / $${effectiveMaxCostUsd.toFixed(2)})`)
+      break
+    }
+
+    // Warn at ~80% of budget
+    if (effectiveMaxCostUsd != null && currentCost > 0) {
+      const budgetPct = currentCost / effectiveMaxCostUsd
+      // Warn once when crossing ~80% — use a narrow band to avoid repeated warnings
+      if (budgetPct >= 0.8 && budgetPct < 0.85) {
+        callbacks.onError(`Warning: $${currentCost.toFixed(2)}/$${effectiveMaxCostUsd.toFixed(2)} budget used (${Math.round(budgetPct * 100)}%). Run will stop when budget is exceeded.`)
+      }
     }
 
     // --- Start new experiment ---
@@ -657,9 +681,9 @@ export async function runExperimentLoop(
 
     state = measurementResult.state
     lastDiagnostics = measurementResult.diagnostics
-    if (measurementResult.kept) {
+    if (measurementResult.kept && !measurementResult.isSimplification) {
       consecutiveDiscards = 0
-    } else {
+    } else if (!measurementResult.kept) {
       consecutiveDiscards++
       state = await maybeRebaseline(consecutiveDiscards, measureShPath, buildShPath, cwd, config, state, runDir, callbacks, options.signal)
     }
@@ -673,13 +697,16 @@ export async function runExperimentLoop(
   // --- Finalize ---
 
   // Determine termination reason
+  const finalCost = state.total_cost_usd ?? 0
   const reason: TerminationReason = options.signal?.aborted
     ? "aborted"
     : consecutiveDiscards >= maxConsecutiveDiscards
       ? "stagnation"
-      : state.experiment_number >= effectiveMaxExperiments
-        ? "max_experiments"
-        : "stopped"
+      : effectiveMaxCostUsd != null && finalCost >= effectiveMaxCostUsd
+        ? "budget_exceeded"
+        : state.experiment_number >= effectiveMaxExperiments
+          ? "max_experiments"
+          : "stopped"
 
   const finalState: RunState = {
     ...state,

@@ -24,6 +24,7 @@ import { ModelPicker } from "../components/ModelPicker.tsx"
 export interface PreRunOverrides {
   modelConfig: ModelSlot
   maxExperiments: number
+  maxCostUsd?: number
   useWorktree: boolean
   carryForward: boolean
 }
@@ -38,12 +39,13 @@ interface PreRunScreenProps {
   programHasQueueEntries?: boolean
 }
 
-// 0=maxExperiments, 1=provider, 2=model, 3=effort, 4=runMode, 5=carryForward (if previous runs exist)
-const BASE_FIELD_COUNT = 5
+// 0=maxExperiments, 1=maxCostUsd, 2=provider, 3=model, 4=effort, 5=runMode, 6=carryForward (if previous runs exist)
+const BASE_FIELD_COUNT = 6
 
 export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, onStart, onAddToQueue, programHasQueueEntries = false }: PreRunScreenProps) {
   const [selected, setSelected] = useState(0)
   const [maxExpText, setMaxExpText] = useState("")
+  const [maxCostText, setMaxCostText] = useState("")
   const [modelSlot, setModelSlot] = useState<ModelSlot>(defaultModelConfig)
   const [useWorktree, setUseWorktree] = useState(true)
   const [carryForward, setCarryForward] = useState(true)
@@ -78,7 +80,9 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   function buildOverrides(): PreRunOverrides | null {
     const parsed = parseInt(maxExpText, 10)
     if (isNaN(parsed) || parsed < 1) return null
-    return { modelConfig: modelSlot, maxExperiments: parsed, useWorktree, carryForward }
+    const costParsed = parseFloat(maxCostText)
+    const maxCostUsd = !isNaN(costParsed) && costParsed > 0 ? costParsed : undefined
+    return { modelConfig: modelSlot, maxExperiments: parsed, maxCostUsd, useWorktree, carryForward }
   }
 
   function handleStart() {
@@ -113,12 +117,12 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       navigate("home")
       return
     }
-    if (key.name === "a" && onAddToQueue && selected !== 0) {
+    if (key.name === "a" && onAddToQueue && selected !== 0 && selected !== 1) {
       handleAddToQueue()
       return
     }
     if (key.name === "return") {
-      if (selected === 2) {
+      if (selected === 3) {
         setPickingModel(true)
         return
       }
@@ -141,18 +145,21 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (key.name === "backspace") setMaxExpText((t) => t.slice(0, -1))
       else if (/^\d$/.test(key.name)) setMaxExpText((t) => t + key.name)
     } else if (selected === 1) {
+      if (key.name === "backspace") setMaxCostText((t) => t.slice(0, -1))
+      else if (/^[\d.]$/.test(key.name)) setMaxCostText((t) => t + key.name)
+    } else if (selected === 2) {
       if (key.name === "left" || key.name === "h") handleCycleProvider(-1)
       if (key.name === "right" || key.name === "l") handleCycleProvider(1)
-    } else if (selected === 2) {
-      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") setPickingModel(true)
     } else if (selected === 3) {
+      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") setPickingModel(true)
+    } else if (selected === 4) {
       if (key.name === "left" || key.name === "h") handleCycleEffort(-1)
       if (key.name === "right" || key.name === "l") handleCycleEffort(1)
-    } else if (selected === 4) {
+    } else if (selected === 5) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setUseWorktree((v) => !v)
       }
-    } else if (selected === 5 && hasPreviousRuns) {
+    } else if (selected === 6 && hasPreviousRuns) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setCarryForward((v) => !v)
       }
@@ -203,15 +210,28 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
         )}
       </box>
 
+      <box flexDirection="column">
+        <text>
+          {selected === 1 ? (
+            <span fg="#7aa2f7"><strong>{`  Budget Cap: ${maxCostText ? `$${maxCostText}` : ""}`}<span fg="#7aa2f7">{"\u2588"}</span></strong></span>
+          ) : (
+            `  Budget Cap: ${maxCostText ? `$${maxCostText}` : "(no limit)"}`
+          )}
+        </text>
+        {selected === 1 && (
+          <text fg="#888888">{"  Max cost in USD (optional \u2014 blank for no limit)"}</text>
+        )}
+      </box>
+
       <box height={1} />
 
-      <CycleField label="Provider" value={PROVIDER_LABELS[modelSlot.provider]} isFocused={selected === 1} />
-      <CycleField label="Model" value={formatModelSlot(modelSlot)} isFocused={selected === 2} />
-      <CycleField label="Effort" value={effortDisplay.label} description={effortDisplay.description} isFocused={selected === 3} />
+      <CycleField label="Provider" value={PROVIDER_LABELS[modelSlot.provider]} isFocused={selected === 2} />
+      <CycleField label="Model" value={formatModelSlot(modelSlot)} isFocused={selected === 3} />
+      <CycleField label="Effort" value={effortDisplay.label} description={effortDisplay.description} isFocused={selected === 4} />
 
       <box height={1} />
 
-      <CycleField label="Run Mode" value={useWorktree ? "Worktree (recommended)" : "In-place"} isFocused={selected === 4} />
+      <CycleField label="Run Mode" value={useWorktree ? "Worktree (recommended)" : "In-place"} isFocused={selected === 5} />
       {!useWorktree && (
         <box flexDirection="column">
           <text fg="#ff5555">{"  \u26A0 DANGER: Runs git reset --hard in your main checkout."}</text>
@@ -221,7 +241,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       )}
 
       {hasPreviousRuns && (
-        <CycleField label="Previous Run Context" value={carryForward ? "On" : "Off"} description={carryForward ? "Feed previous run results and ideas into experiments" : "Start fresh without previous run context"} isFocused={selected === 5} />
+        <CycleField label="Previous Run Context" value={carryForward ? "On" : "Off"} description={carryForward ? "Feed previous run results and ideas into experiments" : "Start fresh without previous run context"} isFocused={selected === 6} />
       )}
 
       <box height={1} />

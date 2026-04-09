@@ -217,6 +217,8 @@ ${lines.join("\n")}
       terminationNote = "\nThe most recent previous run ended via stagnation (consecutive discards hit the limit). The approaches in the ideas below were exhausted — consider whether this represents a genuine ceiling or whether an orthogonal approach could break through. Do NOT refine what the previous run was already doing."
     } else if (packet.previous_termination === "max_experiments") {
       terminationNote = "\nThe most recent previous run ended at its experiment budget. There may be unexplored productive directions."
+    } else if (packet.previous_termination === "budget_exceeded") {
+      terminationNote = "\nThe most recent previous run ended because its cost budget was exceeded. There may be unexplored productive directions."
     }
     previousRunSection += `
 ## Previous Runs

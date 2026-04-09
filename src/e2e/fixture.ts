@@ -61,6 +61,7 @@ export interface ProjectConfigFixture {
   executionModel?: { provider: string; model: string; effort: string }
   supportModel?: { provider: string; model: string; effort: string }
   ideasBacklogEnabled?: boolean
+  notificationPreset?: string
   notificationCommand?: string | null
 }
 
@@ -77,6 +78,7 @@ const DEFAULT_PROJECT_CONFIG: ProjectConfigFixture = {
   executionModel: { ...DEFAULT_CONFIG.executionModel },
   supportModel: { ...DEFAULT_CONFIG.supportModel },
   ideasBacklogEnabled: DEFAULT_CONFIG.ideasBacklogEnabled,
+  notificationPreset: DEFAULT_CONFIG.notificationPreset,
   notificationCommand: DEFAULT_CONFIG.notificationCommand,
 }
 
