@@ -1,7 +1,7 @@
-import { useState, useCallback, useRef, useMemo } from "react"
+import { useState, useCallback, useRef, useMemo, useEffect } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { ModelSlot } from "../lib/config.ts"
-import { formatShellError } from "../lib/git.ts"
+import { formatShellError, getCurrentBranch } from "../lib/git.ts"
 import { getProvider } from "../lib/agent/index.ts"
 import { formatToolEvent } from "../lib/tool-events.ts"
 import { truncateStreamText } from "../lib/format.ts"
@@ -27,7 +27,12 @@ export function DirtyTreePrompt({
   const [commitToolStatus, setCommitToolStatus] = useState<string | null>(null)
   const [isCommitting, setIsCommitting] = useState(false)
   const [commitError, setCommitError] = useState<string | null>(null)
+  const [branch, setBranch] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    getCurrentBranch(cwd).then(setBranch).catch(() => {})
+  }, [cwd])
 
   const handleCommit = useCallback(async () => {
     setIsCommitting(true)
@@ -125,7 +130,7 @@ export function DirtyTreePrompt({
       <box flexDirection="column" padding={1}>
         <text fg="#e0af68"><strong>Working tree has uncommitted changes</strong></text>
         <box height={1} />
-        <text fg="#888888">Working directory: {cwd}</text>
+        <text fg="#888888">Working directory: {cwd}{branch ? ` (${branch})` : ""}</text>
         <box height={1} />
         <text fg="#ffffff"><strong>Changed files:</strong></text>
         {fileLines.map((line, i) => (
