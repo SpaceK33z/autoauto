@@ -61,7 +61,7 @@ Before starting each step, read the detailed guidance for that step in ${referen
 9. **Save & Validate** — Follow the saving and validation instructions in ${referencePath}. Don't ask separately — just save and immediately validate.
 10. **Assess** — Present validation results. Explain CV% for their metric. Recommend noise_threshold and repeats (see reference file).
 11. **Fix & Re-validate** — If noisy, discuss causes and fixes (see reference file). Edit measure.sh, re-run validation. Repeat until stable.
-12. **Update Config** — Update config.json with recommended values. Confirm: "Setup complete! Your program is ready. Press Escape to go back."
+12. **Review & Finalize Config** — Present a readable summary of ALL config.json values you'll set, each on its own line with the property name in backticks, the chosen value, and a brief reason why (e.g. \`noise_threshold\`: 0.02 (2%) — your metric is very stable, CV% was 0.8%). Ask the user to confirm before writing. After confirmation, update config.json and confirm: "Setup complete! Your program is ready. Press Escape to go back."
 
 ### If the user wants help finding targets (ideation mode):
 1. **Deep inspection** — Read key config files, check the build system, examine the project structure, skim 2-3 source files. Don't read every file — get enough context to suggest concrete targets.
@@ -324,7 +324,7 @@ Guidelines:
 Guidelines:
 - \`noise_threshold\`: Start with 0.02 (2%) for stable metrics. Use 0.05 (5%) for noisier metrics. Discuss with the user based on the measurement type.
 - \`repeats\`: Use 3 for fast, stable metrics. Use 5 for noisy ones. More repeats = more reliable but slower experiments.
-- \`max_experiments\`: Required. Default cap on experiments per run (user can override in the pre-run screen). Use 50 as a sensible default for most programs. Lower (20-30) for expensive/slow measurements, higher (100+) for cheap/fast ones.
+- \`max_experiments\`: Required. Default cap on experiments per run (user can override in the pre-run screen). Use 20 as a sensible default for most programs. Lower (10-15) for expensive/slow measurements, higher (50+) for cheap/fast ones.
 - \`max_consecutive_discards\`: Optional. Auto-stops the run after this many consecutive non-improving experiments. Default 10 if omitted. Recommend higher for cheap/noisy measurements, lower for expensive ones.
 - \`measurement_timeout\`: Optional. Timeout in milliseconds for each measure.sh run. Default 60000 (60s). Set this based on validation results — the validation output includes \`recommended_timeout\` computed as 3× the observed average duration (floor 60s). Always set it when measurements take >15s on average. For slow measurements (compilation benchmarks, integration tests), this prevents false timeouts during runs.
 - \`build_timeout\`: Optional. Timeout in milliseconds for build.sh. Default 600000 (10 min). Only set this if the build step is exceptionally slow (e.g. large Rust/C++ projects). Most projects won't need to change this.
@@ -436,9 +436,15 @@ After fixing, re-run validation with the same command.
 
 ### Updating Config
 
-When the user accepts the measurement stability, update config.json with the recommended noise_threshold, repeats, max_consecutive_discards, and measurement_timeout using the Edit tool.
+After the user accepts the measurement stability, present a summary of ALL config.json values before writing. List every property on its own line using this format:
 
-Always confirm with the user before updating: "Based on the validation results, I recommend a noise threshold of X% and Y repeats. Should I update config.json?"
+- \`property_name\`: value — why this was chosen for this program
+
+Include ALL properties: \`metric_field\`, \`direction\`, \`noise_threshold\`, \`repeats\`, \`max_experiments\`, \`quality_gates\` (list each gate), \`secondary_metrics\` (if any), \`max_consecutive_discards\`, and \`measurement_timeout\` (if needed). The user should see the full picture in one glance.
+
+Ask: "Here's the config I recommend — anything you'd like to change before I save it?"
+
+Only write config.json after the user confirms.
 
 \`max_consecutive_discards\`: The loop auto-stops after this many consecutive non-improving experiments (stagnation detection). Default is 10 if omitted.
 - For fast, cheap measurements: recommend 10-15 (let it explore more, low cost per attempt)

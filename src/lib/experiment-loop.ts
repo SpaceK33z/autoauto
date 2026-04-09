@@ -501,7 +501,7 @@ export async function runExperimentLoop(
     callbacks.onStateUpdate(state)
 
     // --- Build context packet ---
-    const maxTurns = config.max_turns ?? 50
+    const maxTurns = config.max_turns
     const packet = await buildContextPacket(
       cwd, programDir, runDir, state, config, { ideasBacklogEnabled, consecutiveDiscards, maxConsecutiveDiscards, maxTurns, measurementDiagnostics: lastDiagnostics, previousRunContext },
     )

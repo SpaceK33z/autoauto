@@ -42,7 +42,7 @@ export interface ContextPacket {
   secondary_metrics?: Record<string, { direction: "lower" | "higher"; last_kept_value?: number }>
   consecutive_discards: number
   max_consecutive_discards: number
-  max_turns: number
+  max_turns?: number
   measurement_diagnostics?: string
   previous_results: string
   previous_ideas: string
@@ -156,7 +156,7 @@ export async function buildContextPacket(
     secondary_metrics: secondaryMetrics,
     consecutive_discards: options.consecutiveDiscards ?? 0,
     max_consecutive_discards: options.maxConsecutiveDiscards ?? 10,
-    max_turns: options.maxTurns ?? 50,
+    max_turns: options.maxTurns,
     measurement_diagnostics: options.measurementDiagnostics,
     previous_results: prev?.previousResults ?? "",
     previous_ideas: previousIdeas,
@@ -245,7 +245,7 @@ ${packet.previous_ideas}
 - Original baseline: ${packet.original_baseline}
 - Best achieved: ${packet.best_metric} (experiment #${packet.best_experiment})
 - Total: ${packet.total_keeps} keeps, ${packet.total_discards} discards
-- Turn budget: ${packet.max_turns} turns (you will be terminated if you exceed this — pace yourself)
+${packet.max_turns ? `- Turn budget: ${packet.max_turns} turns (you will be terminated if you exceed this — pace yourself)` : ""}
 ${secondarySection}${previousRunSection}
 ## Last Outcome
 ${packet.last_outcome}
@@ -306,7 +306,7 @@ export async function runExperimentAgent(
   onStreamText?: (text: string) => void,
   onToolStatus?: (status: string) => void,
   signal?: AbortSignal,
-  maxTurns = 50,
+  maxTurns?: number,
 ): Promise<ExperimentOutcome> {
   const raw = await runExperimentAgentRaw(cwd, systemPrompt, userPrompt, modelConfig, startSha, onStreamText, onToolStatus, signal, maxTurns)
   return { ...raw.outcome, notes: parseExperimentNotes(raw.assistantText) }
@@ -321,7 +321,7 @@ async function runExperimentAgentRaw(
   onStreamText?: (text: string) => void,
   onToolStatus?: (status: string) => void,
   signal?: AbortSignal,
-  maxTurns = 50,
+  maxTurns?: number,
 ): Promise<{ outcome: ExperimentOutcome; assistantText: string }> {
   if (signal?.aborted) {
     return { outcome: { type: "agent_error", error: "aborted before start" }, assistantText: "" }
