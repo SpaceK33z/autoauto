@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.3.0](https://github.com/SpaceK33z/autoauto/compare/v1.2.0...v1.3.0) (2026-04-09)
+
+
+### Features
+
+* add interactive finalize review with approve/refine flow ([aeaabfd](https://github.com/SpaceK33z/autoauto/commit/aeaabfdb0e643b0e69a8e876c518561e1f52f22d))
+* add notification support on run complete ([2effcb7](https://github.com/SpaceK33z/autoauto/commit/2effcb7c5c0ef9c45b2a5a0ba119bea392c05ed6)), closes [#9](https://github.com/SpaceK33z/autoauto/issues/9)
+* carry forward previous run context into new experiments ([#17](https://github.com/SpaceK33z/autoauto/issues/17)) ([7500f6f](https://github.com/SpaceK33z/autoauto/commit/7500f6ff05ee2ceec5c089dacb21ae5608c5f9b8))
+* include termination reason in carry-forward context ([71383ba](https://github.com/SpaceK33z/autoauto/commit/71383baa8a1a47b7529afe317bef23eb66306d6e))
+* persist setup drafts and resume sessions on return ([f12fff1](https://github.com/SpaceK33z/autoauto/commit/f12fff17c5ffd80c8e0379b7ad44e781ac649971)), closes [#7](https://github.com/SpaceK33z/autoauto/issues/7)
+* sequential run queue for overnight batch execution ([#19](https://github.com/SpaceK33z/autoauto/issues/19)) ([08e0570](https://github.com/SpaceK33z/autoauto/commit/08e05706a804b16a4c3380b39478ff9e8d75a152))
+* verify results — re-run measurements after run completes ([#13](https://github.com/SpaceK33z/autoauto/issues/13)) ([7af8eef](https://github.com/SpaceK33z/autoauto/commit/7af8eefc1999c9e2c6722b056a0b03beb80f0c42))
+
+
+### Bug Fixes
+
+* add animated spinner indicators during active run phases ([404f17c](https://github.com/SpaceK33z/autoauto/commit/404f17c2d72c330e46384ba05763e3d6a9b791dd))
+* clean up setup draft when program was successfully created ([2cac919](https://github.com/SpaceK33z/autoauto/commit/2cac919fb355a28752eb2caaf31640b5ad06a218))
+* merge main, update tests for verify feature and revised FinalizeApproval ([0a0b447](https://github.com/SpaceK33z/autoauto/commit/0a0b447f2376dcdaa397e58e9e3f5df254bb5545))
+* remove maxTurns limit from setup phase chat ([570dd58](https://github.com/SpaceK33z/autoauto/commit/570dd58e5f69c9956f03dc9b371a8e7118ee3a93))
+* rename Abandon to Done in run complete prompt ([11627d0](https://github.com/SpaceK33z/autoauto/commit/11627d0d2b8c1a015445e16eb201c8342e98fb75))
+* resolve FinalizeApproval rendering crash and fix E2E tests ([8a96e29](https://github.com/SpaceK33z/autoauto/commit/8a96e29aa166db41363ed9e73fc63b49b617d645))
+* show streaming indicator during multi-turn agent activity ([20efb04](https://github.com/SpaceK33z/autoauto/commit/20efb04cfc8f00ebcc45f5cf559130b71cfd54d5))
+* use macos-latest for darwin-x64 build and allow partial uploads ([c4d778b](https://github.com/SpaceK33z/autoauto/commit/c4d778b9c0b1d401478e5c9cee4cc31c6145090c))
+
 ## [1.2.0](https://github.com/SpaceK33z/autoauto/compare/v1.1.0...v1.2.0) (2026-04-08)
 
 
