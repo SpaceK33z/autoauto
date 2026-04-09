@@ -165,6 +165,65 @@ async function resolveRunDir(
   return { runDir: latest.run_dir, runId: latest.run_id }
 }
 
+/** Resolve model config from CLI flags + project config defaults. */
+async function resolveModelConfig(
+  root: string,
+  flags: Record<string, string | boolean>,
+): Promise<ModelSlot> {
+  const projectConfig = await loadProjectConfig(root)
+
+  const providerFlag = getFlag(flags, "provider")
+  const parsedProvider = parseProvider(providerFlag)
+  if (providerFlag && !parsedProvider) die(`Invalid --provider: "${providerFlag}". Use claude, opencode, or codex.`)
+
+  const explicitModel = getFlag(flags, "model")
+  const provider: AgentProviderID = parsedProvider ?? (explicitModel ? "claude" : projectConfig.executionModel.provider)
+  if (provider === "opencode" && hasFlag(flags, "effort")) {
+    die("--effort is not supported with --provider opencode yet.")
+  }
+
+  let model = explicitModel
+  if (!model) {
+    if (provider === projectConfig.executionModel.provider) {
+      model = projectConfig.executionModel.model
+    } else if (provider === "opencode") {
+      model = await getDefaultModel("opencode", root) ?? undefined
+      if (!model) die("No connected OpenCode models found. Run `opencode auth login` or `/connect` first.")
+    } else if (provider === "codex") {
+      model = await getDefaultModel("codex", root) ?? undefined
+      if (!model) die("Could not resolve Codex default model.")
+    } else {
+      model = "sonnet"
+    }
+  }
+  if (!model) die("Could not resolve model.")
+
+  return {
+    provider,
+    model,
+    effort: provider !== "opencode"
+      ? ((getFlag(flags, "effort") as EffortLevel) ?? projectConfig.executionModel.effort)
+      : projectConfig.executionModel.effort,
+  }
+}
+
+/** Resolve max experiments from --max-experiments flag or program config default. */
+function resolveMaxExperiments(flags: Record<string, string | boolean>, programConfig: ProgramConfig): number {
+  const maxExperimentsStr = getFlag(flags, "max-experiments")
+  if (maxExperimentsStr == null) return programConfig.max_experiments ?? 25
+  const parsed = parsePositiveInt(maxExperimentsStr)
+  if (parsed == null) die(`Invalid --max-experiments: "${maxExperimentsStr}". Must be a positive integer.`)
+  return parsed
+}
+
+/** Resolve ideas-backlog setting from flags or project config default. */
+async function resolveIdeasBacklog(root: string, flags: Record<string, string | boolean>): Promise<boolean> {
+  if (hasFlag(flags, "no-ideas-backlog")) return false
+  if (hasFlag(flags, "ideas-backlog")) return true
+  const projectConfig = await loadProjectConfig(root)
+  return projectConfig.ideasBacklogEnabled
+}
+
 // --- Commands ---
 
 async function cmdList(args: ParsedArgs) {
@@ -274,58 +333,9 @@ async function cmdStart(args: ParsedArgs) {
     die(`Program "${slug}" not found. Run \`autoauto list\` to see available programs.`)
   }
 
-  // Load project config for defaults
-  const projectConfig = await loadProjectConfig(root)
-
-  // Build model config from flags or defaults
-  const providerFlag = getFlag(args.flags, "provider")
-  const parsedProvider = parseProvider(providerFlag)
-  if (providerFlag && !parsedProvider) die(`Invalid --provider: "${providerFlag}". Use claude, opencode, or codex.`)
-
-  const explicitModel = getFlag(args.flags, "model")
-  const provider: AgentProviderID = parsedProvider ?? (explicitModel ? "claude" : projectConfig.executionModel.provider)
-  if (provider === "opencode" && hasFlag(args.flags, "effort")) {
-    die("--effort is not supported with --provider opencode yet.")
-  }
-
-  let model = explicitModel
-  if (!model) {
-    if (provider === projectConfig.executionModel.provider) {
-      model = projectConfig.executionModel.model
-    } else if (provider === "opencode") {
-      model = await getDefaultModel("opencode", root) ?? undefined
-      if (!model) die("No connected OpenCode models found. Run `opencode auth login` or `/connect` first.")
-    } else if (provider === "codex") {
-      model = await getDefaultModel("codex", root) ?? undefined
-      if (!model) die("Could not resolve Codex default model.")
-    } else {
-      model = "sonnet"
-    }
-  }
-  if (!model) die("Could not resolve model.")
-
-  const modelConfig: ModelSlot = {
-    provider,
-    model,
-    effort: provider !== "opencode"
-      ? ((getFlag(args.flags, "effort") as EffortLevel) ?? projectConfig.executionModel.effort)
-      : projectConfig.executionModel.effort,
-  }
-
-  const maxExperimentsStr = getFlag(args.flags, "max-experiments")
-  let maxExperiments: number = programConfig.max_experiments ?? 25
-  if (maxExperimentsStr != null) {
-    const parsed = parsePositiveInt(maxExperimentsStr)
-    if (parsed == null) die(`Invalid --max-experiments: "${maxExperimentsStr}". Must be a positive integer.`)
-    maxExperiments = parsed
-  }
-
-  const ideasBacklogEnabled = hasFlag(args.flags, "no-ideas-backlog")
-    ? false
-    : hasFlag(args.flags, "ideas-backlog")
-      ? true
-      : projectConfig.ideasBacklogEnabled
-
+  const modelConfig = await resolveModelConfig(root, args.flags)
+  const maxExperiments = resolveMaxExperiments(args.flags, programConfig)
+  const ideasBacklogEnabled = await resolveIdeasBacklog(root, args.flags)
   const useWorktree = !hasFlag(args.flags, "in-place")
   const carryForward = !hasFlag(args.flags, "no-carry-forward")
 
@@ -511,13 +521,11 @@ async function cmdStatus(args: ParsedArgs) {
           ? `reached max experiments (${state.experiment_number})`
           : state.termination_reason === "stagnation"
             ? `stagnation (${state.total_discards} consecutive discards)`
-            : state.termination_reason === "budget_exceeded"
-              ? `budget exceeded ($${(state.total_cost_usd ?? 0).toFixed(2)})`
-              : state.termination_reason === "stopped"
-                ? "stopped by user"
-                : state.phase === "crashed"
-                  ? "crashed"
-                  : "finished"
+            : state.termination_reason === "stopped"
+              ? "stopped by user"
+              : state.phase === "crashed"
+                ? "crashed"
+                : "finished"
     out(`Status: ${state.phase} (${reason})`)
     out(
       `Baseline: ${state.original_baseline} → Final best: ${state.best_metric} (${formatChangePct(state.original_baseline, state.best_metric, programConfig.direction)})`,
@@ -786,49 +794,8 @@ async function cmdQueue(args: ParsedArgs) {
       die(`Program "${slug}" not found. Run \`autoauto list\` to see available programs.`)
     }
 
-    // Load project config for defaults
-    const projectConfig = await loadProjectConfig(root)
-
-    // Build model config from flags or defaults
-    const providerFlag = getFlag(args.flags, "provider")
-    const parsedProvider = parseProvider(providerFlag)
-    if (providerFlag && !parsedProvider) die(`Invalid --provider: "${providerFlag}". Use claude, opencode, or codex.`)
-
-    const explicitModel = getFlag(args.flags, "model")
-    const provider: AgentProviderID = parsedProvider ?? (explicitModel ? "claude" : projectConfig.executionModel.provider)
-
-    let model = explicitModel
-    if (!model) {
-      if (provider === projectConfig.executionModel.provider) {
-        model = projectConfig.executionModel.model
-      } else if (provider === "opencode") {
-        model = await getDefaultModel("opencode", root) ?? undefined
-        if (!model) die("No connected OpenCode models found.")
-      } else if (provider === "codex") {
-        model = await getDefaultModel("codex", root) ?? undefined
-        if (!model) die("Could not resolve Codex default model.")
-      } else {
-        model = "sonnet"
-      }
-    }
-    if (!model) die("Could not resolve model.")
-
-    const modelConfig: ModelSlot = {
-      provider,
-      model,
-      effort: provider !== "opencode"
-        ? ((getFlag(args.flags, "effort") as EffortLevel) ?? projectConfig.executionModel.effort)
-        : projectConfig.executionModel.effort,
-    }
-
-    const maxExperimentsStr = getFlag(args.flags, "max-experiments")
-    let maxExperiments: number = programConfig.max_experiments ?? 25
-    if (maxExperimentsStr != null) {
-      const parsed = parsePositiveInt(maxExperimentsStr)
-      if (parsed == null) die(`Invalid --max-experiments: "${maxExperimentsStr}". Must be a positive integer.`)
-      maxExperiments = parsed
-    }
-
+    const modelConfig = await resolveModelConfig(root, args.flags)
+    const maxExperiments = resolveMaxExperiments(args.flags, programConfig)
     const useWorktree = !hasFlag(args.flags, "in-place")
 
     const { entry, wasEmpty } = await appendToQueue(root, {
@@ -840,11 +807,7 @@ async function cmdQueue(args: ParsedArgs) {
 
     // If queue was empty, kick off the first run
     if (wasEmpty) {
-      const ideasBacklogEnabled = hasFlag(args.flags, "no-ideas-backlog")
-        ? false
-        : hasFlag(args.flags, "ideas-backlog")
-          ? true
-          : projectConfig.ideasBacklogEnabled
+      const ideasBacklogEnabled = await resolveIdeasBacklog(root, args.flags)
       await startNextFromQueue(root, ideasBacklogEnabled)
     }
 
