@@ -85,9 +85,7 @@ export function App() {
   const footerText =
     screen === "home"
       ? " n: new/resume | e: edit | d: delete | f: finalize | s: settings | Tab: cycle | Enter: run | Esc: quit"
-      : screen === "execution"
-        ? " Escape: detach (daemon continues) | Tab: switch panel | s: settings | q: stop | Ctrl+C: abort"
-        : screen === "settings"
+      : screen === "settings"
           ? " ↑↓: navigate | ←→: change/open | Enter: open model picker | Escape: back"
           : screen === "first-setup"
             ? " ↑↓: navigate | ←→: cycle | Enter: select/continue"
@@ -273,7 +271,7 @@ export function App() {
         )}
       </box>
 
-      {screen !== "pre-run" && (
+      {screen !== "pre-run" && screen !== "execution" && (
         <box height={1} flexShrink={0} paddingX={1}>
           <text fg="#888888">{footerText}</text>
         </box>

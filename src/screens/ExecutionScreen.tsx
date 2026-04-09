@@ -821,6 +821,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               <text fg="#ff5555" selectable>{lastError}</text>
             </box>
           )}
+
+          <box paddingX={1}>
+            <text fg="#888888">Esc: detach · Tab: switch panel · s: settings · q: stop{ideasText.length > 0 ? " · i: ideas" : ""}</text>
+          </box>
         </box>
       )}
 
@@ -914,34 +918,44 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       )}
 
       {phase === "finalizing" && finalizeSystemPrompt && (
-        <Chat
-          cwd={finalizeCwd ?? cwd}
-          systemPrompt={finalizeSystemPrompt}
-          tools={FINALIZE_TOOLS}
-          allowedTools={FINALIZE_TOOLS}
-          provider={supportModelConfig.provider}
-          model={supportModelConfig.model}
-          effort={supportModelConfig.effort}
-          initialMessage={finalizeInitialMessage ?? undefined}
-          title={`Finalize · ${headerModelLabel}`}
-          onMessagesChange={handleFinalizeMessagesChange}
-        />
+        <box flexDirection="column" flexGrow={1}>
+          <Chat
+            cwd={finalizeCwd ?? cwd}
+            systemPrompt={finalizeSystemPrompt}
+            tools={FINALIZE_TOOLS}
+            allowedTools={FINALIZE_TOOLS}
+            provider={supportModelConfig.provider}
+            model={supportModelConfig.model}
+            effort={supportModelConfig.effort}
+            initialMessage={finalizeInitialMessage ?? undefined}
+            title={`Finalize · ${headerModelLabel}`}
+            onMessagesChange={handleFinalizeMessagesChange}
+          />
+          <box paddingX={1}>
+            <text fg="#888888">Esc: cancel finalize</text>
+          </box>
+        </box>
       )}
 
       {phase === "finalize_complete" && finalizeResult && (
-        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Finalize Complete">
-          <box flexDirection="column" paddingX={1}>
-            {finalizeResult.branch && (
-              <text fg="#9ece6a" selectable>Changes packaged on branch: {finalizeResult.branch}</text>
-            )}
-            <box height={1} />
-            <text fg="#ffffff">Summary saved to run directory. Press Escape to go back.</text>
-          </box>
-          <scrollbox flexGrow={1} focused>
-            <box paddingX={1} flexDirection="column">
-              <markdown content={finalizeResult.summary} syntaxStyle={syntaxStyle} />
+        <box flexDirection="column" flexGrow={1}>
+          <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Finalize Complete">
+            <box flexDirection="column" paddingX={1}>
+              {finalizeResult.branch && (
+                <text fg="#9ece6a" selectable>Changes packaged on branch: {finalizeResult.branch}</text>
+              )}
+              <box height={1} />
+              <text fg="#ffffff">Summary saved to run directory.</text>
             </box>
-          </scrollbox>
+            <scrollbox flexGrow={1} focused>
+              <box paddingX={1} flexDirection="column">
+                <markdown content={finalizeResult.summary} syntaxStyle={syntaxStyle} />
+              </box>
+            </scrollbox>
+          </box>
+          <box paddingX={1}>
+            <text fg="#888888">Esc: back</text>
+          </box>
         </box>
       )}
 
