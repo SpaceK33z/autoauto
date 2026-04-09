@@ -44,7 +44,8 @@ describe("PreRunScreen — add to queue (a key)", () => {
       />,
     )
     await harness.waitForText("15")
-    // Move off max experiments field (field 0)
+    // Move off max experiments and budget cap fields (fields 0 and 1)
+    await harness.tab()
     await harness.tab()
     await harness.press("a")
     expect(queueOverrides).not.toBeNull()
