@@ -203,7 +203,8 @@ export function generateSummaryReport(
     lines.push("## Kept Changes")
     lines.push("")
     for (const r of kept) {
-      lines.push(`### Experiment #${r.experiment_number}: ${r.description}`)
+      const headingDesc = r.description.replace(/\r?\n/g, " ")
+      lines.push(`### Experiment #${r.experiment_number}: ${headingDesc}`)
       lines.push(`- **Commit:** ${r.commit}`)
       lines.push(`- **Metric:** ${r.metric_value} (${computeChangePct(state.original_baseline, r.metric_value, config.direction)})`)
       lines.push("")
