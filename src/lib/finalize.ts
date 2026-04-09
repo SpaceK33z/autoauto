@@ -142,7 +142,9 @@ function computeChangePct(baseline: number, value: number, direction: "lower" | 
   if (baseline === 0) return "N/A"
   const pct = ((value - baseline) / Math.abs(baseline)) * 100
   const sign = pct > 0 ? "+" : ""
-  const label = (direction === "higher" ? pct > 0 : pct < 0) ? "improved" : "regressed"
+  const label = pct === 0
+    ? "unchanged"
+    : (direction === "higher" ? pct > 0 : pct < 0) ? "improved" : "regressed"
   return `${sign}${pct.toFixed(1)}% (${label})`
 }
 
@@ -189,7 +191,8 @@ export function generateSummaryReport(
     lines.push("|---|--------|--------|--------|-------------|")
     for (const r of experiments) {
       const metric = r.metric_value != null ? String(r.metric_value) : "-"
-      const desc = r.description.length > 60 ? `${r.description.slice(0, 57)}...` : r.description
+      const rawDesc = r.description.replace(/\r?\n/g, " ").replace(/\|/g, "\\|")
+      const desc = rawDesc.length > 60 ? `${rawDesc.slice(0, 57)}...` : rawDesc
       lines.push(`| ${r.experiment_number} | ${r.commit.slice(0, 7)} | ${metric} | ${r.status} | ${desc} |`)
     }
     lines.push("")
@@ -226,10 +229,15 @@ export function generateSummaryReport(
   }
 
   if (agentReview) {
-    lines.push("## Agent Review")
-    lines.push("")
-    lines.push(agentReview)
-    lines.push("")
+    const cleanedReview = agentReview
+      .replace(/<finalize_done\s+branch="[^"]+"\s*\/>\s*$/, "")
+      .trimEnd()
+    if (cleanedReview) {
+      lines.push("## Agent Review")
+      lines.push("")
+      lines.push(cleanedReview)
+      lines.push("")
+    }
   }
 
   lines.push("---")
