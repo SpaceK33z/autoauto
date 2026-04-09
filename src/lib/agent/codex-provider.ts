@@ -10,6 +10,7 @@ import {
   type ThreadOptions,
   type Usage,
 } from "@openai/codex-sdk"
+import { estimateCodexUsageCostUsd, resolveCodexCostContext, type CodexCostContext } from "./codex-cost.ts"
 import { createPushStream } from "../push-stream.ts"
 import type {
   AgentCost,
@@ -176,9 +177,14 @@ function getToolUse(item: ThreadItem): { tool: string; input?: Record<string, un
   }
 }
 
-function extractCost(usage: Usage, startedAt: number, numTurns: number): AgentCost {
+function extractCostWithContext(
+  usage: Usage,
+  startedAt: number,
+  numTurns: number,
+  costContext: CodexCostContext,
+): AgentCost {
   return {
-    total_cost_usd: 0,
+    total_cost_usd: costContext.pricing ? estimateCodexUsageCostUsd(usage, costContext.pricing) : 0,
     duration_ms: Date.now() - startedAt,
     duration_api_ms: 0,
     num_turns: numTurns,
@@ -196,6 +202,7 @@ class CodexSession implements AgentSession {
   private closed = false
   private thread: Thread
   private turnCount = 0
+  private costContextPromise: Promise<CodexCostContext>
   readonly sessionId = undefined
 
   constructor(
@@ -203,6 +210,7 @@ class CodexSession implements AgentSession {
     private config: AgentSessionConfig,
   ) {
     this.thread = codex.startThread(buildThreadOptions(config))
+    this.costContextPromise = resolveCodexCostContext(config)
 
     if (config.signal) {
       if (config.signal.aborted) {
@@ -271,6 +279,7 @@ class CodexSession implements AgentSession {
     this.turnCount += 1
     const textByItemID = new Map<string, string>()
     const emittedTools = new Set<string>()
+    const costContext = await this.costContextPromise
 
     try {
       const { events } = await this.thread.runStreamed(prompt, {
@@ -279,7 +288,7 @@ class CodexSession implements AgentSession {
 
       for await (const event of events) {
         if (this.closed || this.abortController.signal.aborted) break
-        this.handleEvent(event, textByItemID, emittedTools, startedAt)
+        this.handleEvent(event, textByItemID, emittedTools, startedAt, costContext)
       }
     } catch (err: unknown) {
       if (!this.closed && !this.abortController.signal.aborted) {
@@ -295,6 +304,7 @@ class CodexSession implements AgentSession {
     textByItemID: Map<string, string>,
     emittedTools: Set<string>,
     startedAt: number,
+    costContext: CodexCostContext,
   ): void {
     switch (event.type) {
       case "item.started":
@@ -306,7 +316,7 @@ class CodexSession implements AgentSession {
         this.events.push({
           type: "result",
           success: true,
-          cost: extractCost(event.usage, startedAt, this.turnCount),
+          cost: extractCostWithContext(event.usage, startedAt, this.turnCount, costContext),
         })
         break
       case "turn.failed":
