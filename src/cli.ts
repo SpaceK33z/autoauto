@@ -870,6 +870,12 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<void>> = {
 }
 
 export async function run(argv: string[]) {
+  if (argv.includes("--version") || argv.includes("-v")) {
+    const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json()
+    out(pkg.version)
+    return
+  }
+
   registerDefaultProviders()
   const args = parseArgs(argv)
   const handler = COMMANDS[args.command]
