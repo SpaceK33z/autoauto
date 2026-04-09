@@ -29,6 +29,7 @@ export interface ProgramConfig {
   measurement_timeout?: number
   build_timeout?: number
   max_cost_usd?: number
+  keep_simplifications?: boolean
 }
 
 export type Screen = "home" | "setup" | "settings" | "program-detail" | "pre-run" | "execution" | "first-setup"
@@ -95,6 +96,9 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
     if (config.max_cost_usd <= 0) {
       throw new Error("config.json: max_cost_usd must be a positive number")
     }
+  }
+  if (config.keep_simplifications !== undefined && typeof config.keep_simplifications !== "boolean") {
+    throw new Error("config.json: keep_simplifications must be a boolean")
   }
   if (typeof config.quality_gates !== "object" || config.quality_gates === null || Array.isArray(config.quality_gates)) {
     throw new Error("config.json: quality_gates must be an object")

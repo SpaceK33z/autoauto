@@ -27,6 +27,7 @@ export interface PreRunOverrides {
   maxCostUsd?: number
   useWorktree: boolean
   carryForward: boolean
+  keepSimplifications: boolean
 }
 
 interface PreRunScreenProps {
@@ -39,8 +40,8 @@ interface PreRunScreenProps {
   programHasQueueEntries?: boolean
 }
 
-// 0=maxExperiments, 1=maxCostUsd, 2=provider, 3=model, 4=effort, 5=runMode, 6=carryForward (if previous runs exist)
-const BASE_FIELD_COUNT = 6
+// 0=maxExperiments, 1=maxCostUsd, 2=provider, 3=model, 4=effort, 5=runMode, 6=keepSimplifications, 7=carryForward (if previous runs exist)
+const BASE_FIELD_COUNT = 7
 
 export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, onStart, onAddToQueue, programHasQueueEntries = false }: PreRunScreenProps) {
   const [selected, setSelected] = useState(0)
@@ -48,6 +49,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const [maxCostText, setMaxCostText] = useState("")
   const [modelSlot, setModelSlot] = useState<ModelSlot>(defaultModelConfig)
   const [useWorktree, setUseWorktree] = useState(true)
+  const [keepSimplifications, setKeepSimplifications] = useState(true)
   const [carryForward, setCarryForward] = useState(true)
   const [hasPreviousRuns, setHasPreviousRuns] = useState(false)
   const [pickingModel, setPickingModel] = useState(false)
@@ -62,6 +64,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (config.max_experiments) {
         setMaxExpText(String(config.max_experiments))
       }
+      setKeepSimplifications(config.keep_simplifications !== false)
     })
     listRuns(programDir).then(async (runs) => {
       const completedRuns = runs.filter((r) => r.state?.phase === "complete")
@@ -82,7 +85,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     if (isNaN(parsed) || parsed < 1) return null
     const costParsed = parseFloat(maxCostText)
     const maxCostUsd = !isNaN(costParsed) && costParsed > 0 ? costParsed : undefined
-    return { modelConfig: modelSlot, maxExperiments: parsed, maxCostUsd, useWorktree, carryForward }
+    return { modelConfig: modelSlot, maxExperiments: parsed, maxCostUsd, useWorktree, carryForward, keepSimplifications }
   }
 
   function handleStart() {
@@ -159,7 +162,11 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setUseWorktree((v) => !v)
       }
-    } else if (selected === 6 && hasPreviousRuns) {
+    } else if (selected === 6) {
+      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
+        setKeepSimplifications((v) => !v)
+      }
+    } else if (selected === 7 && hasPreviousRuns) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setCarryForward((v) => !v)
       }
@@ -240,8 +247,10 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
         </box>
       )}
 
+      <CycleField label="Keep Simplifications" value={keepSimplifications ? "On (recommended)" : "Off"} description={keepSimplifications ? "Auto-keep experiments that reduce code without regressing the metric" : "Only keep experiments that improve the metric"} isFocused={selected === 6} />
+
       {hasPreviousRuns && (
-        <CycleField label="Previous Run Context" value={carryForward ? "On" : "Off"} description={carryForward ? "Feed previous run results and ideas into experiments" : "Start fresh without previous run context"} isFocused={selected === 6} />
+        <CycleField label="Previous Run Context" value={carryForward ? "On" : "Off"} description={carryForward ? "Feed previous run results and ideas into experiments" : "Start fresh without previous run context"} isFocused={selected === 7} />
       )}
 
       <box height={1} />

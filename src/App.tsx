@@ -260,6 +260,7 @@ export function App() {
             maxCostUsd={preRunOverrides?.maxCostUsd}
             useWorktree={preRunOverrides?.useWorktree ?? true}
             carryForward={preRunOverrides?.carryForward ?? true}
+            keepSimplifications={preRunOverrides?.keepSimplifications}
             attachRunId={attachRunId ?? undefined}
             readOnly={attachReadOnly}
             autoFinalize={autoFinalize}
