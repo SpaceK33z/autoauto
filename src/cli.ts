@@ -521,11 +521,13 @@ async function cmdStatus(args: ParsedArgs) {
           ? `reached max experiments (${state.experiment_number})`
           : state.termination_reason === "stagnation"
             ? `stagnation (${state.total_discards} consecutive discards)`
-            : state.termination_reason === "stopped"
-              ? "stopped by user"
-              : state.phase === "crashed"
-                ? "crashed"
-                : "finished"
+            : state.termination_reason === "budget_exceeded"
+              ? `budget exceeded ($${(state.total_cost_usd ?? 0).toFixed(2)})`
+              : state.termination_reason === "stopped"
+                ? "stopped by user"
+                : state.phase === "crashed"
+                  ? "crashed"
+                  : "finished"
     out(`Status: ${state.phase} (${reason})`)
     out(
       `Baseline: ${state.original_baseline} → Final best: ${state.best_metric} (${formatChangePct(state.original_baseline, state.best_metric, programConfig.direction)})`,

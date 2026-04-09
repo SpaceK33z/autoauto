@@ -23,6 +23,7 @@ export interface RunConfig {
   model: string
   effort: string
   max_experiments: number
+  max_cost_usd?: number
   ideas_backlog_enabled?: boolean
   in_place?: boolean
   carry_forward?: boolean

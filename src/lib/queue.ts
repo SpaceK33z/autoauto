@@ -12,6 +12,7 @@ export interface QueueEntry {
   programSlug: string
   modelConfig: ModelSlot
   maxExperiments: number
+  maxCostUsd?: number
   useWorktree: boolean
   addedAt: string
   retryCount: number
@@ -207,6 +208,7 @@ export async function startNextFromQueue(
         entry.useWorktree,
         true, // carryForward
         "queue",
+        entry.maxCostUsd,
       )
       return { started: true, entry, runId }
     } catch (err) {

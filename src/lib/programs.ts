@@ -26,6 +26,9 @@ export interface ProgramConfig {
   max_experiments: number
   max_consecutive_discards?: number
   max_turns?: number
+  measurement_timeout?: number
+  build_timeout?: number
+  max_cost_usd?: number
 }
 
 export type Screen = "home" | "setup" | "settings" | "program-detail" | "pre-run" | "execution" | "first-setup"
@@ -42,6 +45,17 @@ export function resetProjectRoot(): void {
 function assertFiniteNumber(value: unknown, path: string): asserts value is number {
   if (typeof value !== "number" || !isFinite(value)) {
     throw new Error(`config.json: ${path} must be a finite number`)
+  }
+}
+
+function assertOptionalIntMin(config: Record<string, unknown>, field: string, min: number): void {
+  if (
+    config[field] !== undefined &&
+    (typeof config[field] !== "number" ||
+      !Number.isInteger(config[field]) ||
+      (config[field] as number) < min)
+  ) {
+    throw new Error(`config.json: ${field} must be an integer >= ${min}`)
   }
 }
 
@@ -72,21 +86,15 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
   ) {
     throw new Error("config.json: max_experiments must be an integer >= 1")
   }
-  if (
-    config.max_consecutive_discards !== undefined &&
-    (typeof config.max_consecutive_discards !== "number" ||
-      !Number.isInteger(config.max_consecutive_discards) ||
-      config.max_consecutive_discards < 1)
-  ) {
-    throw new Error("config.json: max_consecutive_discards must be an integer >= 1")
-  }
-  if (
-    config.max_turns !== undefined &&
-    (typeof config.max_turns !== "number" ||
-      !Number.isInteger(config.max_turns) ||
-      config.max_turns < 1)
-  ) {
-    throw new Error("config.json: max_turns must be an integer >= 1")
+  assertOptionalIntMin(config, "max_consecutive_discards", 1)
+  assertOptionalIntMin(config, "max_turns", 1)
+  assertOptionalIntMin(config, "measurement_timeout", 1000)
+  assertOptionalIntMin(config, "build_timeout", 1000)
+  if (config.max_cost_usd !== undefined) {
+    assertFiniteNumber(config.max_cost_usd, "max_cost_usd")
+    if (config.max_cost_usd <= 0) {
+      throw new Error("config.json: max_cost_usd must be a positive number")
+    }
   }
   if (typeof config.quality_gates !== "object" || config.quality_gates === null || Array.isArray(config.quality_gates)) {
     throw new Error("config.json: quality_gates must be an object")

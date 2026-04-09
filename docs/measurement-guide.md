@@ -161,10 +161,13 @@ The complete measurement config in `config.json`:
   "secondary_metrics": {
     "fcp_ms": { "direction": "lower" }
   },
-  "max_consecutive_discards": 10
+  "max_consecutive_discards": 10,
+  "max_cost_usd": 20
 }
 ```
 
 **Secondary metrics** are tracked alongside quality gates but without hard thresholds — they appear in context packets so the agent can see them, but they don't cause discards.
 
 **max_consecutive_discards** controls when AutoAuto auto-stops if the agent is stuck (default: 10).
+
+**max_cost_usd** sets a budget cap — the run stops when cumulative agent cost exceeds this amount. Optional; when omitted, cost is tracked but unlimited. Can also be set or overridden per-run in the PreRun screen.

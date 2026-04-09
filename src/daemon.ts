@@ -82,6 +82,7 @@ async function main() {
   const modelConfig = runConfig ? runConfigToModelSlot(runConfig) : { provider: "claude" as const, model: "sonnet", effort: "high" as const }
   if (!runConfig?.max_experiments) throw new Error("run-config.json must specify max_experiments")
   const maxExperiments = runConfig.max_experiments
+  const maxCostUsd = runConfig?.max_cost_usd
   const ideasBacklogEnabled = runConfig?.ideas_backlog_enabled ?? true
   const carryForward = runConfig?.carry_forward ?? true
   const source = runConfig?.source ?? "manual"
@@ -231,6 +232,7 @@ async function main() {
         callbacks,
         {
           maxExperiments,
+          maxCostUsd,
           signal: abortController.signal,
           stopRequested: () => stopRequested,
           ideasBacklogEnabled,
@@ -251,6 +253,7 @@ async function main() {
         callbacks,
         {
           maxExperiments,
+          maxCostUsd,
           signal: abortController.signal,
           stopRequested: () => stopRequested,
           ideasBacklogEnabled,

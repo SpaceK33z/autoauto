@@ -57,6 +57,7 @@ interface ExecutionScreenProps {
   ideasBacklogEnabled: boolean
   navigate: (screen: Screen) => void
   maxExperiments: number
+  maxCostUsd?: number
   /** Use git worktree for isolation (default true). When false, runs in-place in main checkout. */
   useWorktree?: boolean
   /** Carry forward context from previous runs (default true). */
@@ -121,7 +122,7 @@ function Divider({ width, label }: { width: number; label?: string }) {
   return <text fg="#666666">{"─".repeat(innerWidth)}</text>
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, useWorktree = true, carryForward = true, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
@@ -259,7 +260,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           }
         } else {
           // Spawn mode: create worktree, spawn daemon
-          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward)
+          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward, "manual", maxCostUsd)
           if (cancelled) return
 
           activeRunDir = result.runDir
@@ -359,7 +360,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       cancelled = true
       watcherRef.current?.stop()
     }
-  }, [cwd, programSlug, modelConfig, maxExperiments, useWorktree, carryForward, attachRunId, ideasBacklogEnabled])
+  }, [cwd, programSlug, modelConfig, maxExperiments, maxCostUsd, useWorktree, carryForward, attachRunId, ideasBacklogEnabled])
 
   const cleanupRunEnvironment = useCallback(async () => {
     if (runState?.in_place) {
@@ -774,6 +775,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             direction={programConfig?.direction ?? "lower"}
             metricField={programConfig?.metric_field ?? "metric"}
             totalCostUsd={totalCostUsd}
+            maxCostUsd={maxCostUsd}
             metricHistory={metricHistory}
             currentPhaseLabel={currentPhaseLabel}
             improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
@@ -924,6 +926,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             direction={programConfig?.direction ?? "lower"}
             metricField={programConfig?.metric_field ?? "metric"}
             totalCostUsd={totalCostUsd}
+            maxCostUsd={maxCostUsd}
             metricHistory={metricHistory}
             currentPhaseLabel="Complete"
             improvementPct={programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
@@ -1012,6 +1015,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             direction={programConfig?.direction ?? "lower"}
             metricField={programConfig?.metric_field ?? "metric"}
             totalCostUsd={totalCostUsd}
+            maxCostUsd={maxCostUsd}
             metricHistory={metricHistory}
             currentPhaseLabel={currentPhaseLabel}
             improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
