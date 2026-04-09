@@ -89,12 +89,13 @@ describe("SettingsScreen E2E", () => {
     expect(lastNav).toBe("home")
   })
 
-  test("toggles notifications on and shows command field", async () => {
+  test("cycles notification preset and shows test row", async () => {
     harness = await renderTui(<SettingsWrapper cwd={fixture.cwd} />)
     await harness.frame()
     for (let i = 0; i < 7; i++) await harness.press("j")
     await harness.press("l")
     const frame = await harness.flush()
-    expect(frame).toContain("Command")
+    expect(frame).toContain("macOS Notification")
+    expect(frame).toContain("Test Notification")
   })
 })

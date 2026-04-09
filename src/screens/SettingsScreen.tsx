@@ -7,10 +7,12 @@ import {
   formatEffortSlot,
   formatModelSlot,
   getEffortChoicesForSlot,
+  getNotificationCommand,
   isEffortConfigurable,
   mergeSelectedModelSlot,
   saveProjectConfig,
-  DEFAULT_NOTIFICATION_COMMAND,
+  NOTIFICATION_PRESETS,
+  NOTIFICATION_PRESET_IDS,
   PROVIDER_CHOICES,
   PROVIDER_LABELS,
 } from "../lib/config.ts"
@@ -30,7 +32,9 @@ interface SettingsScreenProps {
 // 0: exec provider   1: exec model   2: exec effort
 // 3: support provider 4: support model 5: support effort
 // 6: ideas backlog
-// 7: notification toggle  8: notification command  9: test notification
+// 7: notification preset
+// 8: notification command (only when preset === "custom")
+// 9: test notification (only when preset !== "off")
 function makeTestState(): RunState {
   return {
     run_id: "20260408-120000",
@@ -68,8 +72,10 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
   const [testStatus, setTestStatus] = useState<string | null>(null)
   const testTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const notifyEnabled = config.notificationCommand !== null
-  const rowCount = notifyEnabled ? 10 : 8
+  const preset = config.notificationPreset
+  const isCustom = preset === "custom"
+  const notifyEnabled = preset !== "off"
+  const rowCount = notifyEnabled ? (isCustom ? 10 : 9) : 8
 
   useEffect(() => {
     return () => {
@@ -98,12 +104,10 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
     })
   }
 
-  function toggleNotifications() {
+  function cyclePreset(direction: -1 | 1) {
     updateConfig((prev) => ({
       ...prev,
-      notificationCommand: prev.notificationCommand === null
-        ? DEFAULT_NOTIFICATION_COMMAND
-        : null,
+      notificationPreset: cycleChoice(NOTIFICATION_PRESET_IDS, prev.notificationPreset, direction),
     }))
   }
 
@@ -114,7 +118,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
   }
 
   async function fireTestNotification() {
-    const cmd = config.notificationCommand
+    const cmd = getNotificationCommand(config)
     if (!cmd) return
     if (testTimeoutRef.current) clearTimeout(testTimeoutRef.current)
     setTestStatus("Sending...")
@@ -140,9 +144,9 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       return
     }
 
-    // Notification toggle
+    // Notification preset
     if (selected === 7) {
-      toggleNotifications()
+      cyclePreset(direction)
       return
     }
 
@@ -169,10 +173,10 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
     if (key.name === "return") {
       if (selected === 1 || selected === 4) {
         setPickingSlot(selected === 1 ? "executionModel" : "supportModel")
-      } else if (selected === 8 && notifyEnabled) {
+      } else if (selected === 8 && isCustom) {
         setEditingCommand(true)
         setInputKey((k) => k + 1)
-      } else if (selected === 9 && notifyEnabled) {
+      } else if (notifyEnabled && selected === rowCount - 1) {
         fireTestNotification()
       }
     }
@@ -272,48 +276,47 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
         <text fg="#888888">{"(on run complete)"}</text>
       </box>
       <CycleField
-        label="Enabled"
-        value={notifyEnabled ? "On" : "Off"}
-        description={notifyEnabled
-          ? "Run a shell command when a run finishes"
-          : "No notifications"}
+        label="Preset"
+        value={NOTIFICATION_PRESETS.find((p) => p.id === preset)?.label ?? "Off"}
         isFocused={selected === 7}
       />
       {notifyEnabled && (
         <>
-          <box flexDirection="column">
-            {editingCommand && selected === 8 ? (
-              <box border borderStyle="rounded" height={3}>
-                <input
-                  key={inputKey}
-                  focused
-                  value={config.notificationCommand ?? ""}
-                  placeholder="Shell command with {{program}}, {{status}}, etc."
-                  onSubmit={handleCommandSubmit}
-                />
-              </box>
-            ) : (
-              <text>
-                {selected === 8 ? (
-                  <span fg="#7aa2f7"><strong>{`  Command: ${config.notificationCommand ?? ""}`}</strong></span>
-                ) : (
-                  `  Command: ${config.notificationCommand ?? ""}`
-                )}
-              </text>
-            )}
-            {selected === 8 && !editingCommand && (
-              <text fg="#888888">{"  Enter to edit \u2022 Variables: {{program}} {{run_id}} {{status}} {{experiments}} {{keeps}} {{best_metric}} {{improvement_pct}} {{duration}}"}</text>
-            )}
-          </box>
+          {isCustom && (
+            <box flexDirection="column">
+              {editingCommand && selected === 8 ? (
+                <box border borderStyle="rounded" height={3}>
+                  <input
+                    key={inputKey}
+                    focused
+                    value={config.notificationCommand ?? ""}
+                    placeholder="Shell command with {{program}}, {{status}}, etc."
+                    onSubmit={handleCommandSubmit}
+                  />
+                </box>
+              ) : (
+                <text>
+                  {selected === 8 ? (
+                    <span fg="#7aa2f7"><strong>{`  Command: ${config.notificationCommand ?? ""}`}</strong></span>
+                  ) : (
+                    `  Command: ${config.notificationCommand ?? ""}`
+                  )}
+                </text>
+              )}
+              {selected === 8 && !editingCommand && (
+                <text fg="#888888">{"  Enter to edit \u2022 Variables: {{program}} {{run_id}} {{status}} {{experiments}} {{keeps}} {{best_metric}} {{improvement_pct}} {{duration}}"}</text>
+              )}
+            </box>
+          )}
           <box flexDirection="column">
             <text>
-              {selected === 9 ? (
+              {selected === rowCount - 1 ? (
                 <span fg="#7aa2f7"><strong>{`  Test Notification${testStatus ? ` \u2014 ${testStatus}` : ""}`}</strong></span>
               ) : (
                 `  Test Notification${testStatus ? ` \u2014 ${testStatus}` : ""}`
               )}
             </text>
-            {selected === 9 && (
+            {selected === rowCount - 1 && (
               <text fg="#888888">{"  Press Enter to send a test notification with sample data"}</text>
             )}
           </box>
