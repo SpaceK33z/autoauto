@@ -176,7 +176,7 @@ export async function createTestFixture(): Promise<TestFixture> {
     await mkdir(runDir, { recursive: true })
 
     const branchName = `autoauto-${slug}-${run.run_id}`
-    let baselineSha = initSha
+    const baselineSha = initSha
     let lastKnownGoodSha = initSha
 
     if (run.createGitBranch) {
