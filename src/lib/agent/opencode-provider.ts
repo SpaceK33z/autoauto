@@ -8,6 +8,7 @@ import type {
   AgentSessionConfig,
   AuthResult,
 } from "./types.ts"
+import { combineAgentCosts } from "./cost.ts"
 import { createPushStream } from "../push-stream.ts"
 
 type OpenCodeServer = Awaited<ReturnType<typeof createOpencode>>["server"]
@@ -37,6 +38,14 @@ type OpenCodeAssistantMessage = {
     input?: number
     output?: number
   }
+}
+
+type OpenCodeSessionChild = {
+  id: string
+}
+
+type OpenCodeSessionMessage = {
+  info?: unknown
 }
 
 function parseModel(model: string | undefined): { providerID: string; modelID: string } | undefined {
@@ -98,11 +107,16 @@ function getTextFromParts(parts: unknown): string {
     .join("")
 }
 
-function extractCost(info: unknown, startedAt: number): AgentCost {
+function extractCost(
+  info: unknown,
+  startedAt: number,
+  options?: { includeDuration?: boolean },
+): AgentCost {
   const message = (typeof info === "object" && info !== null ? info : {}) as OpenCodeAssistantMessage
+  const includeDuration = options?.includeDuration ?? true
   return {
     total_cost_usd: message.cost ?? 0,
-    duration_ms: Date.now() - startedAt,
+    duration_ms: includeDuration ? Date.now() - startedAt : 0,
     duration_api_ms: 0,
     num_turns: 1,
     input_tokens: message.tokens?.input ?? 0,
@@ -234,10 +248,12 @@ class OpenCodeSession implements AgentSession {
         if (text.trim()) {
           this.events.push({ type: "assistant_complete", text })
         }
+        const rootCost = extractCost(result.data?.info, startedAt)
+        const childCost = await this.aggregateChildCosts(client, created.data.id, startedAt)
         this.events.push({
           type: "result",
           success: true,
-          cost: extractCost(result.data?.info, startedAt),
+          cost: combineAgentCosts(rootCost, childCost) ?? rootCost,
         })
       }
     } finally {
@@ -245,6 +261,41 @@ class OpenCodeSession implements AgentSession {
       await consumeEvents.catch(() => {})
       this.events.end()
     }
+  }
+
+  private async aggregateChildCosts(
+    client: OpencodeClient,
+    sessionID: string,
+    rootStartedAt: number,
+  ): Promise<AgentCost | undefined> {
+    try {
+      return await this.collectSessionTreeCost(client, sessionID, rootStartedAt)
+    } catch {
+      return undefined
+    }
+  }
+
+  private async collectSessionTreeCost(
+    client: OpencodeClient,
+    sessionID: string,
+    rootStartedAt: number,
+  ): Promise<AgentCost | undefined> {
+    const childSessions = await client.session.children({ sessionID })
+    const childCosts = await Promise.all(
+      ((childSessions.data ?? []) as OpenCodeSessionChild[]).map(async (child) => {
+        const [messages, descendantCost] = await Promise.all([
+          client.session.messages({ sessionID: child.id }),
+          this.collectSessionTreeCost(client, child.id, rootStartedAt),
+        ])
+
+        const messageCosts = ((messages.data ?? []) as OpenCodeSessionMessage[])
+          .map((message) => extractCost(message.info, rootStartedAt, { includeDuration: false }))
+
+        return combineAgentCosts(...messageCosts, descendantCost)
+      }),
+    )
+
+    return combineAgentCosts(...childCosts)
   }
 
   private async consumeEvents(
