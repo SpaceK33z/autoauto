@@ -39,6 +39,7 @@ export async function spawnDaemon(
   ideasBacklogEnabled = true,
   useWorktree = true,
   carryForward = true,
+  source: "manual" | "queue" = "manual",
 ): Promise<{ runId: string; runDir: string; worktreePath: string | null; pid: number }> {
   // 1. Check working tree
   if (!(await isWorkingTreeClean(mainRoot))) {
@@ -80,6 +81,7 @@ export async function spawnDaemon(
       ideas_backlog_enabled: ideasBacklogEnabled,
       in_place: useWorktree ? undefined : true,
       carry_forward: carryForward,
+      source,
     }
     await writeRunConfig(runDir, runConfig)
 

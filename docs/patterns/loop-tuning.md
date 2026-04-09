@@ -37,6 +37,7 @@ The ideas backlog prevents agents from retrying failed approaches. One implement
 
 **Cross-run memory (carry forward):** When starting a new run, AutoAuto can feed the previous run's ideas backlog and kept-experiment summaries into the new run's context. This extends the backlog's anti-repetition benefit across program iterations — the agent won't retry approaches that a previous run already explored and discarded. Carry forward is adaptive: if the current run's own backlog grows large, previous ideas are dropped to stay within context limits. The framing is termination-aware: stagnation nudges the agent toward orthogonal exploration (Liu et al.'s "pivot" pattern), while max-experiments signals that unexplored directions may remain.
 
+
 ## Ratchet logic
 
 The core keep/discard loop:

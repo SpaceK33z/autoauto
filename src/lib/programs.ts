@@ -34,6 +34,11 @@ export const AUTOAUTO_DIR = ".autoauto"
 
 let cachedRoot: string | undefined
 
+/** Reset the cached project root (for tests). */
+export function resetProjectRoot(): void {
+  cachedRoot = undefined
+}
+
 function assertFiniteNumber(value: unknown, path: string): asserts value is number {
   if (typeof value !== "number" || !isFinite(value)) {
     throw new Error(`config.json: ${path} must be a finite number`)

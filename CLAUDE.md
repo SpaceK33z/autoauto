@@ -45,6 +45,27 @@ Always run both checks before considering work done:
 bun lint && bun typecheck
 ```
 
+## Testing
+
+Follow **Red-Green-Refactor** (TDD cycle) when adding or fixing features:
+
+1. **Red** — Write a failing test first that captures the expected behavior
+2. **Green** — Write the minimal code to make the test pass
+3. **Refactor** — Clean up the code while keeping tests green
+
+E2E tests live in `src/e2e/` and use OpenTUI's test renderer (`@opentui/react/test-utils`):
+
+- `fixture.ts` — `createTestFixture()` creates an isolated temp git repo with `.autoauto` structure
+- `helpers.ts` — `renderTui()` returns a `TuiHarness` with `frame()`, `press()`, `enter()`, `escape()`, `type()`, `waitForText()`, etc.
+- `mock-provider.ts` — `MockProvider` emits scripted `AgentEvent` sequences without any real SDK
+
+```bash
+bun test src/e2e/          # Run all E2E tests
+bun test src/e2e/foo.e2e.test.tsx  # Run one test file
+```
+
+**Known limitation:** `<scrollbox flexGrow={1}>` causes text overlap in `captureCharFrame()`. Assert content above the scrollbox or test keyboard callbacks (which work regardless).
+
 ## OpenTUI Conventions
 
 - Layout props are **direct props**, not style objects: `<box flexDirection="column">` not `<box style={{...}}>`
@@ -100,6 +121,7 @@ src/
     measure.ts           # Measurement execution, validation, comparison
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
+    queue.ts               # Sequential run queue: persistence, manipulation, daemon chaining
     run.ts               # Run state persistence, types, results I/O, previous run context
     run-setup.ts         # Run bootstrap: directory init, measurement locking
     system-prompts/      # Agent system prompts

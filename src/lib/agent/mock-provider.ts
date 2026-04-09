@@ -3,6 +3,7 @@ import type {
   AgentSession,
   AgentSessionConfig,
   AgentEvent,
+  AgentModelOption,
   AuthResult,
 } from "./types.ts"
 
@@ -16,6 +17,10 @@ export class MockProvider implements AgentProvider {
   constructor(
     private events: AgentEvent[] = [],
     private authResult: AuthResult = { authenticated: true, account: { email: "test@example.com" } },
+    private models: AgentModelOption[] = [
+      { provider: "claude", model: "sonnet", label: "Sonnet", isDefault: true },
+      { provider: "claude", model: "opus", label: "Opus" },
+    ],
   ) {}
 
   createSession(_config: AgentSessionConfig): AgentSession {
@@ -30,6 +35,14 @@ export class MockProvider implements AgentProvider {
 
   async checkAuth(): Promise<AuthResult> {
     return this.authResult
+  }
+
+  async listModels(): Promise<AgentModelOption[]> {
+    return this.models
+  }
+
+  async getDefaultModel(): Promise<string> {
+    return this.models.find((m) => m.isDefault)?.model ?? "sonnet"
   }
 }
 

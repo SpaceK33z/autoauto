@@ -34,6 +34,19 @@ A **run** is one execution of a program — a session of autonomous experiments.
 
 Run state is persisted atomically to `state.json`, so runs can recover from crashes.
 
+## Queue
+
+The **queue** lets you schedule multiple runs to execute sequentially — ideal for overnight optimization. Queue entries are stored in `.autoauto/queue.json` and drain automatically:
+
+- Add runs to the queue from the PreRunScreen (`a` key) with per-run configuration
+- The first item starts immediately; each completing daemon spawns the next
+- A compact Queue panel appears at the bottom of the HomeScreen when items are pending
+- **Program exclusivity** — a program is either queue-managed or manual, never both
+- Failed entries retry up to 2 times before being skipped
+- If the TUI is closed and reopened, stalled queues resume automatically
+
+Stop an active queued run to advance to the next, or clear the entire queue.
+
 ## Experiments
 
 An **experiment** is a single iteration of the loop:
@@ -112,6 +125,7 @@ Carry forward is termination-aware: when the previous run ended via stagnation, 
 Carry forward is enabled by default. You can disable it in the PreRun screen ("Previous Run Context" toggle) or via CLI (`--no-carry-forward`). It's automatically skipped when no previous runs exist.
 
 **Important:** Previous run code changes are NOT merged into the working tree. The agent is told to treat previous results as guidance, not as existing code.
+
 
 ## Agents
 

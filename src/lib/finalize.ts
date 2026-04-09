@@ -626,6 +626,7 @@ export async function saveSummaryOnly(
   return { summary: report, mode: "summary-only", groups: [], cost }
 }
 
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return
   throwAbortError(signal)

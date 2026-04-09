@@ -38,7 +38,7 @@ export function stripFinalizeGroupsBlock(text: string): string {
   return text.replace(/<finalize_groups>[\s\S]*?<\/finalize_groups>/g, "").trim()
 }
 
-interface FinalizeApprovalProps {
+export interface FinalizeApprovalProps {
   /** Agent's full review text */
   summary: string
   /** Proposed file groups (null if none extracted) */
@@ -143,6 +143,10 @@ export function FinalizeApproval({
   }, [hasGroups])
 
   useEffect(() => {
+    setSelectedAction(0)
+  }, [hasGroups])
+
+  useEffect(() => {
     if (isRefining) setInputFocused(false)
   }, [isRefining])
 
@@ -193,15 +197,15 @@ export function FinalizeApproval({
       {/* Groups section */}
       {hasGroups && (
         <box flexDirection="column" paddingX={1} paddingTop={1}>
-          <text fg="#9ece6a"><strong>Proposed Groups ({proposedGroups.length})</strong></text>
+          <text fg="#9ece6a"><strong>{`Proposed Groups (${proposedGroups.length})`}</strong></text>
           <box height={1} />
           {proposedGroups.map((g, i) => (
             <box key={g.name} flexDirection="column">
               <box flexDirection="row">
-                <text fg="#ffffff" selectable><strong>{i + 1}. {g.title}</strong></text>
-                <text fg={RISK_COLORS[g.risk] ?? "#888888"} selectable> [{g.risk} risk]</text>
+                <text fg="#ffffff" selectable><strong>{`${i + 1}. ${g.title}`}</strong></text>
+                <text fg={RISK_COLORS[g.risk] ?? "#888888"} selectable>{` [${g.risk} risk]`}</text>
               </box>
-              <text fg="#888888" selectable>   Files: {g.files.join(", ")}</text>
+              <text fg="#888888" selectable>{`   Files: ${g.files.join(", ")}`}</text>
               {g.description ? <text fg="#666666" selectable>   {g.description}</text> : null}
             </box>
           ))}
