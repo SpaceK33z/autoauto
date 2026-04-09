@@ -10,6 +10,23 @@ import { $ } from "bun"
 import { DEFAULT_CONFIG } from "../lib/config.ts"
 import { setProvider } from "../lib/agent/index.ts"
 import { MockProvider } from "../lib/agent/mock-provider.ts"
+import type { DraftSession } from "../lib/drafts.ts"
+import type { QueueEntry, QueueFile } from "../lib/queue.ts"
+
+export interface DraftFixtureConfig {
+  type?: "setup" | "update"
+  programSlug?: string | null
+  createdAt?: string
+  mode?: "choose" | "scope" | "chat"
+  initialMessage?: string | null
+  messages?: { role: "user" | "assistant"; content: string }[]
+}
+
+export interface QueueEntryFixture {
+  programSlug: string
+  maxExperiments?: number
+  useWorktree?: boolean
+}
 
 export interface TestFixture {
   /** Root directory of the temp git repo */
@@ -20,6 +37,10 @@ export interface TestFixture {
   createRun: (slug: string, run: RunFixtureConfig) => Promise<string>
   /** Write the project config */
   writeProjectConfig: (config: ProjectConfigFixture) => Promise<void>
+  /** Create a draft session file */
+  createDraft: (name: string, config?: DraftFixtureConfig) => Promise<void>
+  /** Create queue entries */
+  createQueueEntries: (entries: QueueEntryFixture[]) => Promise<void>
   /** Clean up the temp directory */
   cleanup: () => Promise<void>
 }
@@ -55,6 +76,10 @@ export interface RunFixtureConfig {
   started_at?: string
   termination_reason?: string | null
   results?: ResultFixture[]
+  /** Create a real git branch matching the run's branch_name. Defaults to false. */
+  createGitBranch?: boolean
+  /** Number of fake experiment commits to create on the branch. Requires createGitBranch. */
+  commitCount?: number
 }
 
 export interface ProjectConfigFixture {
@@ -93,6 +118,12 @@ export function registerMockProviders(events: import("../lib/agent/types.ts").Ag
   ]))
 }
 
+/** Check if a git branch exists in the repo. */
+export async function branchExists(cwd: string, branchName: string): Promise<boolean> {
+  const result = await $`git show-ref --verify --quiet refs/heads/${branchName}`.cwd(cwd).nothrow().quiet()
+  return result.exitCode === 0
+}
+
 export async function createTestFixture(): Promise<TestFixture> {
   const cwd = await mkdtemp(join(tmpdir(), "autoauto-e2e-"))
 
@@ -103,6 +134,8 @@ export async function createTestFixture(): Promise<TestFixture> {
   await Bun.write(join(cwd, "README.md"), "# test repo\n")
   await $`git add -A`.cwd(cwd).quiet()
   await $`git commit -m "init"`.cwd(cwd).quiet()
+
+  const initSha = (await $`git rev-parse HEAD`.cwd(cwd).text()).trim()
 
   // Create .autoauto directory
   const autoautoDir = join(cwd, ".autoauto")
@@ -144,6 +177,24 @@ export async function createTestFixture(): Promise<TestFixture> {
     const runDir = join(programDir, "runs", run.run_id)
     await mkdir(runDir, { recursive: true })
 
+    const branchName = `autoauto-${slug}-${run.run_id}`
+    const baselineSha = initSha
+    let lastKnownGoodSha = initSha
+
+    if (run.createGitBranch) {
+      const returnBranch = (await $`git rev-parse --abbrev-ref HEAD`.cwd(cwd).text()).trim()
+      await $`git checkout -b ${branchName}`.cwd(cwd).quiet()
+      const commitCount = run.commitCount ?? 0
+      for (let i = 1; i <= commitCount; i++) {
+        const filename = `experiment-${slug}-${run.run_id}-${i}.txt`
+        await Bun.write(join(cwd, filename), `experiment ${i} result\n`)
+        await $`git add ${filename}`.cwd(cwd).quiet()
+        await $`git commit -m ${`experiment ${i}: optimize hot path`}`.cwd(cwd).quiet()
+      }
+      await $`git checkout ${returnBranch}`.cwd(cwd).quiet()
+      lastKnownGoodSha = (await $`git rev-parse ${branchName}`.cwd(cwd).text()).trim()
+    }
+
     const state = {
       run_id: run.run_id,
       program_slug: slug,
@@ -156,9 +207,9 @@ export async function createTestFixture(): Promise<TestFixture> {
       total_keeps: run.total_keeps ?? 0,
       total_discards: run.total_discards ?? 0,
       total_crashes: run.total_crashes ?? 0,
-      branch_name: `autoauto-${slug}-${run.run_id}`,
-      original_baseline_sha: "0000000000000000",
-      last_known_good_sha: "0000000000000000",
+      branch_name: branchName,
+      original_baseline_sha: baselineSha,
+      last_known_good_sha: lastKnownGoodSha,
       candidate_sha: null,
       started_at: run.started_at ?? new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -185,9 +236,44 @@ export async function createTestFixture(): Promise<TestFixture> {
     )
   }
 
+  async function createDraft(name: string, config: DraftFixtureConfig = {}): Promise<void> {
+    const draftsDir = join(autoautoDir, "_drafts")
+    await mkdir(draftsDir, { recursive: true })
+    const draft: DraftSession = {
+      type: config.type ?? "setup",
+      programSlug: config.programSlug ?? null,
+      createdAt: config.createdAt ?? new Date().toISOString(),
+      provider: "claude",
+      model: "sonnet",
+      effort: "high",
+      sdkSessionId: null,
+      mode: config.mode ?? "chat",
+      initialMessage: config.initialMessage ?? null,
+      messages: config.messages ?? [],
+    }
+    await Bun.write(join(draftsDir, `${name}.json`), JSON.stringify(draft, null, 2))
+  }
+
+  async function createQueueEntries(entries: QueueEntryFixture[]): Promise<void> {
+    const queue: QueueFile = {
+      nextId: entries.length + 1,
+      entries: entries.map((e, i): QueueEntry => ({
+        id: i + 1,
+        programSlug: e.programSlug,
+        modelConfig: { ...DEFAULT_CONFIG.executionModel },
+        maxExperiments: e.maxExperiments ?? 10,
+        useWorktree: e.useWorktree ?? true,
+        addedAt: new Date().toISOString(),
+        retryCount: 0,
+        lastError: null,
+      })),
+    }
+    await Bun.write(join(autoautoDir, "queue.json"), JSON.stringify(queue, null, 2))
+  }
+
   async function cleanup(): Promise<void> {
     await rm(cwd, { recursive: true, force: true })
   }
 
-  return { cwd, createProgram, createRun, writeProjectConfig, cleanup }
+  return { cwd, createProgram, createRun, writeProjectConfig, createDraft, createQueueEntries, cleanup }
 }
