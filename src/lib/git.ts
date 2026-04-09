@@ -50,7 +50,11 @@ export class DirtyWorkingTreeError extends Error {
 }
 
 export async function isWorkingTreeClean(cwd: string): Promise<boolean> {
-  return !(await $`git status --porcelain`.cwd(cwd).text()).trim()
+  const lines = (await $`git status --porcelain`.cwd(cwd).text()).trim()
+  if (!lines) return true
+  // Ignore autoauto-owned files (measurement PID/log, diagnostics) that live in the worktree
+  const significant = lines.split("\n").filter((l) => !/ \.autoauto-/.test(l))
+  return significant.length === 0
 }
 
 export async function getWorkingTreeStatus(cwd: string): Promise<string> {
