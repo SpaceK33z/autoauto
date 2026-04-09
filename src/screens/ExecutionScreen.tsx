@@ -7,14 +7,14 @@ import type { RunState, ExperimentResult, TerminationReason } from "../lib/run.t
 import { getRunStats } from "../lib/run.ts"
 import { removeWorktree } from "../lib/worktree.ts"
 import {
-  runFinalizeReview,
-  refineFinalizeGroups,
-  applyFinalizeGroups,
-  saveSummaryOnly,
+  buildFinalizeContext,
+  buildFinalizeInitialMessage,
+  saveFinalizeReport,
+  extractFinalizeDone,
+  generateSummaryReport,
   type FinalizeResult,
-  type FinalizeReviewResult,
-  type ProposedGroup,
 } from "../lib/finalize.ts"
+import { getFinalizeSystemPrompt } from "../lib/system-prompts/index.ts"
 import { runVerification, appendVerificationResults, type VerificationResult } from "../lib/verify.ts"
 import { VerifyResultsOverlay } from "../components/VerifyResultsOverlay.tsx"
 import { formatShellError, DirtyWorkingTreeError, getWorkingTreeStatus } from "../lib/git.ts"
@@ -35,12 +35,14 @@ import { RunSettingsOverlay } from "../components/RunSettingsOverlay.tsx"
 import { StatsHeader } from "../components/StatsHeader.tsx"
 import { ResultsTable } from "../components/ResultsTable.tsx"
 import { AgentPanel } from "../components/AgentPanel.tsx"
-import { FinalizeApproval } from "../components/FinalizeApproval.tsx"
+import { Chat } from "../components/Chat.tsx"
 import { DirtyTreePrompt } from "../components/DirtyTreePrompt.tsx"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
 import { truncateStreamText } from "../lib/format.ts"
 
-type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_review" | "finalize_complete" | "error" | "dirty"
+type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error" | "dirty"
+
+const FINALIZE_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError"
@@ -159,14 +161,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [verifyProgress, setVerifyProgress] = useState<string | null>(null)
   const [verificationResults, setVerificationResults] = useState<VerificationResult[] | null>(null)
 
-  // Finalize review state
-  const [reviewData, setReviewData] = useState<FinalizeReviewResult | null>(null)
-  const [reviewSummary, setReviewSummary] = useState("")
-  const [reviewGroups, setReviewGroups] = useState<ProposedGroup[] | null>(null)
-  const [reviewValidationError, setReviewValidationError] = useState<string | null>(null)
-  const [isRefining, setIsRefining] = useState(false)
-  const [refiningText, setRefiningText] = useState("")
-  const [refiningToolStatus, setRefiningToolStatus] = useState<string | null>(null)
+  // Finalize chat state
+  const [finalizeSystemPrompt, setFinalizeSystemPrompt] = useState<string | null>(null)
+  const [finalizeInitialMessage, setFinalizeInitialMessage] = useState<string | null>(null)
+  const [finalizeCwd, setFinalizeCwd] = useState<string | null>(null)
 
   const secondaryMetricsConfig = useMemo(() => programConfig?.secondary_metrics, [programConfig])
   const ideasVisible = showIdeas && ideasText.length > 0
@@ -397,47 +395,22 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
   const handleFinalize = useCallback(async () => {
     if (!runState || !runDir || !programConfig) return
-
-    const finalizeAbort = new AbortController()
-    abortControllerRef.current = finalizeAbort
-
     setPhase("finalizing")
-    setAgentStreamText("")
-    setToolStatus(null)
-    setCurrentPhaseLabel("Finalizing...")
 
     try {
       const worktreePath = runState.in_place ? undefined : runState.worktree_path
-      const review = await runFinalizeReview(
-        cwd,
-        runDir,
-        runState,
-        programConfig,
-        supportModelConfig,
-        {
-          onStreamText: (text) => setAgentStreamText(prev => truncateStreamText(prev, text)),
-          onToolStatus: (status) => setToolStatus(status),
-        },
-        finalizeAbort.signal,
-        worktreePath,
-      )
-
-      setTotalCostUsd(prev => prev + (review.cost?.total_cost_usd ?? 0))
-      setReviewData(review)
-      setReviewSummary(review.summary)
-      setReviewGroups(review.proposedGroups)
-      setReviewValidationError(review.validationError)
-      setPhase("finalize_review")
+      const effectiveCwd = worktreePath ?? cwd
+      const context = await buildFinalizeContext(effectiveCwd, runDir, runState, programConfig)
+      const systemPrompt = getFinalizeSystemPrompt(context)
+      const initialMessage = await buildFinalizeInitialMessage(context)
+      setFinalizeSystemPrompt(systemPrompt)
+      setFinalizeInitialMessage(initialMessage)
+      setFinalizeCwd(effectiveCwd)
     } catch (err: unknown) {
-      if (isAbortError(err)) {
-        setToolStatus(null)
-        setPhase("complete")
-        return
-      }
       setLastError(formatShellError(err, "Finalize failed"))
       setPhase("error")
     }
-  }, [cwd, runDir, runState, programConfig, supportModelConfig])
+  }, [cwd, runDir, runState, programConfig])
 
   const restoreInPlaceBranch = useCallback(async () => {
     if (runState?.in_place && runState.original_branch) {
@@ -446,109 +419,28 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     }
   }, [cwd, runState])
 
-  const completeFinalizeWith = useCallback((result: FinalizeResult) => {
-    setFinalizeResult(result)
-    setReviewData(null)
-    setPhase("finalize_complete")
-  }, [])
+  const handleFinalizeMessagesChange = useCallback(async (messages: Array<{ role: "user" | "assistant"; content: string }>) => {
+    if (!runState || !runDir || !programConfig) return
 
-  const handleFinalizeApprove = useCallback(async () => {
-    if (!runState || !runDir || !programConfig || !reviewData || !reviewGroups) return
+    // Check the last assistant message for the completion marker
+    const lastAssistant = messages.findLast(m => m.role === "assistant")
+    if (!lastAssistant) return
 
-    setPhase("finalizing")
-    setAgentStreamText("")
-    setCurrentPhaseLabel("Creating branches...")
+    const branch = extractFinalizeDone(lastAssistant.content)
+    if (!branch) return
 
+    // Agent is done — save report and transition
     try {
-      const worktreePath = runState.in_place ? undefined : runState.worktree_path
-      const result = await applyFinalizeGroups(
-        cwd,
-        programSlug,
-        runDir,
-        runState,
-        programConfig,
-        reviewGroups,
-        reviewData.savedHead,
-        reviewSummary,
-        reviewData.results,
-        worktreePath,
-        reviewData.cost,
-      )
-
+      const summary = generateSummaryReport(runState, results, programConfig, lastAssistant.content)
+      await saveFinalizeReport(runDir, summary)
       await restoreInPlaceBranch()
-      completeFinalizeWith(result)
+      setFinalizeResult({ summary, branch })
+      setPhase("finalize_complete")
     } catch (err: unknown) {
-      setLastError(formatShellError(err, "Finalize failed"))
+      setLastError(formatShellError(err, "Failed to save finalize report"))
       setPhase("error")
     }
-  }, [cwd, programSlug, runDir, runState, programConfig, reviewData, reviewGroups, reviewSummary, restoreInPlaceBranch, completeFinalizeWith])
-
-  const handleFinalizeSkipGrouping = useCallback(async () => {
-    if (!runState || !runDir || !programConfig || !reviewData) return
-
-    try {
-      const result = await saveSummaryOnly(
-        runState,
-        reviewData.results,
-        programConfig,
-        reviewSummary,
-        runDir,
-        reviewData.cost,
-      )
-
-      await restoreInPlaceBranch()
-      completeFinalizeWith(result)
-    } catch (err: unknown) {
-      setLastError(formatShellError(err, "Finalize failed"))
-      setPhase("error")
-    }
-  }, [runDir, runState, programConfig, reviewData, reviewSummary, restoreInPlaceBranch, completeFinalizeWith])
-
-  const handleFinalizeRefine = useCallback(async (feedback: string) => {
-    if (!runState || !reviewData) return
-
-    const refineAbort = new AbortController()
-    abortControllerRef.current = refineAbort
-
-    setIsRefining(true)
-    setRefiningText("")
-    setRefiningToolStatus(null)
-
-    try {
-      const worktreePath = runState.in_place ? undefined : runState.worktree_path
-      const refined = await refineFinalizeGroups(
-        reviewSummary,
-        feedback,
-        reviewData.changedFiles,
-        supportModelConfig,
-        cwd,
-        {
-          onStreamText: (text) => setRefiningText(prev => truncateStreamText(prev, text)),
-          onToolStatus: (status) => setRefiningToolStatus(status),
-        },
-        refineAbort.signal,
-        worktreePath,
-      )
-
-      setTotalCostUsd(prev => prev + (refined.cost?.total_cost_usd ?? 0))
-      setReviewSummary(refined.summary)
-      setReviewGroups(refined.proposedGroups)
-      setReviewValidationError(refined.validationError)
-    } catch (err: unknown) {
-      if (isAbortError(err)) return
-      setLastError(formatShellError(err, "Refinement failed"))
-    } finally {
-      setIsRefining(false)
-      setRefiningText("")
-      setRefiningToolStatus(null)
-    }
-  }, [cwd, runState, reviewData, reviewSummary, supportModelConfig])
-
-  const handleFinalizeCancel = useCallback(() => {
-    abortControllerRef.current.abort()
-    setPhase("complete")
-    setReviewData(null)
-  }, [])
+  }, [runState, runDir, programConfig, results, restoreInPlaceBranch])
 
   const handleUpdateProgram = useCallback(async () => {
     await cleanupRunEnvironment()
@@ -609,12 +501,16 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   }, [autoFinalize, phase, handleFinalize])
 
   useKeyboard((key) => {
-    if (phase === "finalize_review") {
-      // Ctrl+C during refinement aborts the agent
-      if (isRefining && key.ctrl && key.name === "c") {
-        abortControllerRef.current.abort()
+    if (phase === "finalizing") {
+      // Escape cancels finalize and returns to complete phase
+      // (unmounting Chat triggers session cleanup)
+      if (key.name === "escape") {
+        setPhase("complete")
+        setFinalizeSystemPrompt(null)
+        setFinalizeInitialMessage(null)
+        setFinalizeCwd(null)
       }
-      // FinalizeApproval component handles the rest
+      // Chat component handles all other keyboard input
       return
     }
 
@@ -766,10 +662,6 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       }
     }
 
-    // During finalize: Ctrl+C to abort
-    if (phase === "finalizing" && (key.ctrl && key.name === "c")) {
-      abortControllerRef.current.abort()
-    }
   })
 
   // Clean up abort timer on unmount
@@ -1021,70 +913,26 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         </>
       )}
 
-      {phase === "finalizing" && (
-        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Finalize">
-          <StatsHeader
-            experimentNumber={experimentNumber}
-            maxExperiments={displayMaxExperiments}
-            width={termWidth}
-            modelLabel={headerModelLabel}
-            totalKeeps={runState?.total_keeps ?? 0}
-            totalDiscards={runState?.total_discards ?? 0}
-            totalCrashes={runState?.total_crashes ?? 0}
-            currentBaseline={runState?.current_baseline ?? 0}
-            originalBaseline={runState?.original_baseline ?? 0}
-            bestMetric={runState?.best_metric ?? 0}
-            direction={programConfig?.direction ?? "lower"}
-            metricField={programConfig?.metric_field ?? "metric"}
-            totalCostUsd={totalCostUsd}
-            maxCostUsd={maxCostUsd}
-            metricHistory={metricHistory}
-            currentPhaseLabel={currentPhaseLabel}
-            improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
-            isRunning
-          />
-
-          <Divider width={termWidth} label="Agent" />
-
-          <AgentPanel
-            streamingText={agentStreamText}
-            toolStatus={toolStatus}
-            isRunning={true}
-          />
-        </box>
-      )}
-
-      {phase === "finalize_review" && (
-        <FinalizeApproval
-          summary={reviewSummary}
-          proposedGroups={reviewGroups}
-          validationError={reviewValidationError}
-          isRefining={isRefining}
-          refiningText={refiningText}
-          toolStatus={refiningToolStatus}
-          onApprove={handleFinalizeApprove}
-          onSkipGrouping={handleFinalizeSkipGrouping}
-          onRefine={handleFinalizeRefine}
-          onCancel={handleFinalizeCancel}
+      {phase === "finalizing" && finalizeSystemPrompt && (
+        <Chat
+          cwd={finalizeCwd ?? cwd}
+          systemPrompt={finalizeSystemPrompt}
+          tools={FINALIZE_TOOLS}
+          allowedTools={FINALIZE_TOOLS}
+          provider={supportModelConfig.provider}
+          model={supportModelConfig.model}
+          effort={supportModelConfig.effort}
+          initialMessage={finalizeInitialMessage ?? undefined}
+          title={`Finalize · ${headerModelLabel}`}
+          onMessagesChange={handleFinalizeMessagesChange}
         />
       )}
 
       {phase === "finalize_complete" && finalizeResult && (
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Finalize Complete">
           <box flexDirection="column" paddingX={1}>
-            {finalizeResult.mode === "grouped" && finalizeResult.groups.length > 0 ? (
-              <>
-                <text fg="#9ece6a" selectable>Created {finalizeResult.groups.length} branch{finalizeResult.groups.length > 1 ? "es" : ""}:</text>
-                <box height={1} />
-                {finalizeResult.groups.map((g) => (
-                  <box key={g.name} flexDirection="column">
-                    <text fg="#9ece6a" selectable>  {g.branchName}</text>
-                    <text fg="#666666" selectable>    {g.files.length} file{g.files.length > 1 ? "s" : ""}: {g.files.map((f) => f.split("/").pop()).join(", ")}</text>
-                  </box>
-                ))}
-              </>
-            ) : (
-              <text fg="#888888" selectable>No group branches created</text>
+            {finalizeResult.branch && (
+              <text fg="#9ece6a" selectable>Changes packaged on branch: {finalizeResult.branch}</text>
             )}
             <box height={1} />
             <text fg="#ffffff">Summary saved to run directory. Press Escape to go back.</text>

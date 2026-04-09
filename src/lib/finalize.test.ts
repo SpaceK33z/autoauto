@@ -3,15 +3,15 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { $ } from "bun"
-import { setProvider } from "./agent/index.ts"
-import type { AgentEvent, AgentProvider, AgentSession, AgentSessionConfig, AuthResult } from "./agent/types.ts"
-import { MockProvider } from "./agent/mock-provider.ts"
-import { extractFinalizeGroups, refineFinalizeGroups, runFinalizeReview, validateGroups } from "./finalize.ts"
-import type { ModelSlot } from "./config.ts"
+import {
+  buildFinalizeContext,
+  buildFinalizeInitialMessage,
+  extractFinalizeDone,
+  generateSummaryReport,
+  saveFinalizeReport,
+} from "./finalize.ts"
 import type { ProgramConfig } from "./programs.ts"
 import type { RunState } from "./run.ts"
-
-const TEST_MODEL: ModelSlot = { provider: "claude", model: "test-model", effort: "low" }
 
 const TEST_CONFIG: ProgramConfig = {
   metric_field: "runtime_ms",
@@ -20,54 +20,6 @@ const TEST_CONFIG: ProgramConfig = {
   repeats: 1,
   quality_gates: {},
   max_experiments: 5,
-}
-
-class ScriptedProvider implements AgentProvider {
-  readonly name = "scripted"
-
-  constructor(
-    private readonly events: AgentEvent[],
-    private readonly onRun?: (config: AgentSessionConfig) => Promise<void> | void,
-  ) {}
-
-  createSession(config: AgentSessionConfig): AgentSession {
-    return new ScriptedSession(this.events, this.onRun, config)
-  }
-
-  runOnce(_prompt: string, config: AgentSessionConfig): AgentSession {
-    return this.createSession(config)
-  }
-
-  async checkAuth(): Promise<AuthResult> {
-    return { authenticated: true, account: { email: "test@example.com" } }
-  }
-}
-
-class ScriptedSession implements AgentSession {
-  readonly sessionId = "test-session"
-  private closed = false
-
-  constructor(
-    private readonly events: AgentEvent[],
-    private readonly onRun: ((config: AgentSessionConfig) => Promise<void> | void) | undefined,
-    private readonly config: AgentSessionConfig,
-  ) {}
-
-  pushMessage(): void {}
-
-  endInput(): void {}
-
-  close(): void {
-    this.closed = true
-  }
-
-  async *[Symbol.asyncIterator](): AsyncIterator<AgentEvent> {
-    await this.onRun?.(this.config)
-    for (const event of this.events) {
-      if (this.closed) break
-      yield event
-    }
-  }
 }
 
 async function createFinalizeFixture(): Promise<{
@@ -98,6 +50,7 @@ async function createFinalizeFixture(): Promise<{
     join(runDir, "results.tsv"),
     [
       "experiment_number\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\tdiff_stats",
+      `0\t${baselineSha}\t100\t\tkeep\tbaseline\t500\t`,
       `1\t${headSha}\t90\t\tkeep\tImprove metric\t1000\t`,
     ].join("\n") + "\n",
   )
@@ -122,10 +75,10 @@ async function createFinalizeFixture(): Promise<{
     started_at: now,
     updated_at: now,
     provider: "claude",
-    model: TEST_MODEL.model,
-    effort: TEST_MODEL.effort,
+    model: "test-model",
+    effort: "low",
     termination_reason: "max_experiments",
-    original_branch: branchName,
+    original_branch: "main",
     error: null,
     error_phase: null,
   }
@@ -134,219 +87,173 @@ async function createFinalizeFixture(): Promise<{
     projectRoot,
     runDir,
     state,
-    cleanup: async () => {
-      await rm(projectRoot, { recursive: true, force: true })
-      await rm(runDir, { recursive: true, force: true })
-    },
+    cleanup: () => Promise.all([
+      rm(projectRoot, { recursive: true, force: true }),
+      rm(runDir, { recursive: true, force: true }),
+    ]).then(() => {}),
   }
 }
 
-describe("extractFinalizeGroups", () => {
-  test("extracts valid groups", () => {
-    const text = `Some review text here.
-<finalize_groups>
-[
-  {
-    "name": "lazy-load-images",
-    "title": "perf(images): lazy-load below-fold images",
-    "description": "Added intersection observer",
-    "files": ["src/ImageLoader.tsx", "src/lazy.ts"],
-    "risk": "low"
-  },
-  {
-    "name": "remove-lodash",
-    "title": "refactor: remove lodash dependency",
-    "description": "Replaced with native methods",
-    "files": ["package.json", "src/utils.ts"],
-    "risk": "medium"
-  }
-]
-</finalize_groups>
-More text after.`
-
-    const groups = extractFinalizeGroups(text)
-    expect(groups).not.toBeNull()
-    expect(groups!.length).toBe(2)
-    expect(groups![0].name).toBe("lazy-load-images")
-    expect(groups![0].files).toEqual(["src/ImageLoader.tsx", "src/lazy.ts"])
-    expect(groups![0].risk).toBe("low")
-    expect(groups![1].name).toBe("remove-lodash")
-    expect(groups![1].risk).toBe("medium")
+describe("extractFinalizeDone", () => {
+  test("extracts branch name from valid marker", () => {
+    const text = `All done!\n\n<finalize_done branch="autoauto-demo-20260408" />`
+    expect(extractFinalizeDone(text)).toBe("autoauto-demo-20260408")
   })
 
-  test("returns null when no XML tags present", () => {
-    expect(extractFinalizeGroups("just some text without tags")).toBeNull()
+  test("returns null when no marker present", () => {
+    expect(extractFinalizeDone("just some text without a marker")).toBeNull()
   })
 
-  test("returns null for empty array", () => {
-    expect(extractFinalizeGroups("<finalize_groups>[]</finalize_groups>")).toBeNull()
+  test("returns null for marker in code block far from end", () => {
+    const codeBlock = "```\n<finalize_done branch=\"fake\" />\n```"
+    const padding = "x".repeat(600)
+    expect(extractFinalizeDone(codeBlock + padding)).toBeNull()
   })
 
-  test("returns null for malformed JSON", () => {
-    expect(extractFinalizeGroups("<finalize_groups>{not json]</finalize_groups>")).toBeNull()
+  test("extracts marker at end after content", () => {
+    const text = "Summary of changes.\n\n<finalize_done branch=\"my-branch\" />"
+    expect(extractFinalizeDone(text)).toBe("my-branch")
   })
 
-  test("returns null when name is missing", () => {
-    const text = `<finalize_groups>[{"title": "fix", "files": ["a.ts"]}]</finalize_groups>`
-    expect(extractFinalizeGroups(text)).toBeNull()
+  test("returns null for malformed marker", () => {
+    expect(extractFinalizeDone("<finalize_done />")).toBeNull()
+    expect(extractFinalizeDone("<finalize_done branch= />")).toBeNull()
+    expect(extractFinalizeDone("finalize_done branch=\"x\"")).toBeNull()
   })
 
-  test("returns null when files is empty", () => {
-    const text = `<finalize_groups>[{"name": "a", "title": "fix", "files": []}]</finalize_groups>`
-    expect(extractFinalizeGroups(text)).toBeNull()
+  test("handles branch names with slashes and hyphens", () => {
+    const text = `<finalize_done branch="feature/autoauto-prog-20260408-143022" />`
+    expect(extractFinalizeDone(text)).toBe("feature/autoauto-prog-20260408-143022")
   })
 
-  test("normalizes group names to kebab-case", () => {
-    const text = `<finalize_groups>[{"name": "My Cool Feature!", "title": "feat", "files": ["a.ts"]}]</finalize_groups>`
-    const groups = extractFinalizeGroups(text)
-    expect(groups![0].name).toBe("my-cool-feature")
-  })
-
-  test("defaults risk to low when invalid", () => {
-    const text = `<finalize_groups>[{"name": "a", "title": "fix", "files": ["a.ts"], "risk": "extreme"}]</finalize_groups>`
-    const groups = extractFinalizeGroups(text)
-    expect(groups![0].risk).toBe("low")
-  })
-
-  test("defaults description to empty string when missing", () => {
-    const text = `<finalize_groups>[{"name": "a", "title": "fix", "files": ["a.ts"]}]</finalize_groups>`
-    const groups = extractFinalizeGroups(text)
-    expect(groups![0].description).toBe("")
+  test("returns null when content follows a valid marker", () => {
+    const text = `<finalize_done branch="autoauto-demo-20260408" />\nStill packaging changes...`
+    expect(extractFinalizeDone(text)).toBeNull()
   })
 })
 
-describe("validateGroups", () => {
-  test("validates a correct partition", () => {
-    const groups = [
-      { name: "a", title: "fix a", description: "", files: ["x.ts", "y.ts"], risk: "low" as const },
-      { name: "b", title: "fix b", description: "", files: ["z.ts"], risk: "low" as const },
-    ]
-    const result = validateGroups(groups, ["x.ts", "y.ts", "z.ts"])
-    expect(result.valid).toBe(true)
-  })
-
-  test("rejects overlapping files", () => {
-    const groups = [
-      { name: "a", title: "fix", description: "", files: ["x.ts"], risk: "low" as const },
-      { name: "b", title: "fix", description: "", files: ["x.ts"], risk: "low" as const },
-    ]
-    const result = validateGroups(groups, ["x.ts"])
-    expect(result.valid).toBe(false)
-    if (!result.valid) expect(result.reason).toContain("x.ts")
-  })
-
-  test("rejects when files are unassigned", () => {
-    const groups = [
-      { name: "a", title: "fix", description: "", files: ["x.ts"], risk: "low" as const },
-    ]
-    const result = validateGroups(groups, ["x.ts", "y.ts"])
-    expect(result.valid).toBe(false)
-    if (!result.valid) expect(result.reason).toContain("y.ts")
-  })
-
-  test("strips phantom files silently", () => {
-    const groups = [
-      { name: "a", title: "fix", description: "", files: ["x.ts", "phantom.ts"], risk: "low" as const },
-    ]
-    const result = validateGroups(groups, ["x.ts"])
-    expect(result.valid).toBe(true)
-    if (result.valid) expect(result.groups[0].files).toEqual(["x.ts"])
-  })
-
-  test("removes groups left empty after phantom stripping", () => {
-    const groups = [
-      { name: "a", title: "fix", description: "", files: ["x.ts"], risk: "low" as const },
-      { name: "b", title: "fix", description: "", files: ["phantom.ts"], risk: "low" as const },
-    ]
-    const result = validateGroups(groups, ["x.ts"])
-    expect(result.valid).toBe(true)
-    if (result.valid) expect(result.groups.length).toBe(1)
-  })
-
-  test("rejects all-phantom groups", () => {
-    const groups = [
-      { name: "a", title: "fix", description: "", files: ["phantom.ts"], risk: "low" as const },
-    ]
-    const result = validateGroups(groups, ["x.ts"])
-    expect(result.valid).toBe(false)
-  })
-
-  test("rejects duplicate group names", () => {
-    const groups = [
-      { name: "a", title: "fix", description: "", files: ["x.ts"], risk: "low" as const },
-      { name: "a", title: "fix", description: "", files: ["y.ts"], risk: "low" as const },
-    ]
-    const result = validateGroups(groups, ["x.ts", "y.ts"])
-    expect(result.valid).toBe(false)
-    if (!result.valid) expect(result.reason).toContain("Duplicate")
-  })
-})
-
-describe("finalize agent safeguards", () => {
-  test("runFinalizeReview rejects when the agent dirties the repo", async () => {
+describe("buildFinalizeContext", () => {
+  test("returns correct context shape", async () => {
     const fixture = await createFinalizeFixture()
-    setProvider("claude", new ScriptedProvider(
-      [{ type: "result", success: true }],
-      async (config) => {
-        await Bun.write(join(config.cwd!, "rogue.txt"), "not allowed\n")
-      },
-    ) as AgentProvider)
-
     try {
-      await expect(runFinalizeReview(
+      const context = await buildFinalizeContext(
         fixture.projectRoot,
         fixture.runDir,
         fixture.state,
         TEST_CONFIG,
-        TEST_MODEL,
-        { onStreamText() {}, onToolStatus() {} },
-      )).rejects.toThrow("Finalize agent modified the repository")
+      )
+
+      expect(context.programSlug).toBe("demo")
+      expect(context.branchName).toBe(fixture.state.branch_name)
+      expect(context.originalBranch).toBe("main")
+      expect(context.originalBaselineSha).toBe(fixture.state.original_baseline_sha)
+      expect(context.results.length).toBeGreaterThan(0)
+      expect(context.stats.total_keeps).toBe(1)
+      expect(context.changedFiles).toContain("feature.ts")
+      expect(context.riskAssessmentEnabled).toBe(true)
+      expect(context.cwd).toBe(fixture.projectRoot)
     } finally {
       await fixture.cleanup()
     }
   })
 
-  test("refineFinalizeGroups rejects when the agent dirties the repo", async () => {
+  test("respects finalize_risk_assessment=false", async () => {
     const fixture = await createFinalizeFixture()
-    setProvider("claude", new ScriptedProvider(
-      [{ type: "result", success: true }],
-      async (config) => {
-        await Bun.write(join(config.cwd!, "rogue.txt"), "not allowed\n")
-      },
-    ) as AgentProvider)
-
     try {
-      await expect(refineFinalizeGroups(
-        "previous summary",
-        "split this differently",
-        ["feature.ts"],
-        TEST_MODEL,
+      const context = await buildFinalizeContext(
         fixture.projectRoot,
-        { onStreamText() {}, onToolStatus() {} },
-      )).rejects.toThrow("Finalize agent modified the repository")
+        fixture.runDir,
+        fixture.state,
+        { ...TEST_CONFIG, finalize_risk_assessment: false },
+      )
+      expect(context.riskAssessmentEnabled).toBe(false)
     } finally {
       await fixture.cleanup()
     }
   })
+})
 
-  test("runFinalizeReview throws AbortError when aborted before the agent runs", async () => {
+describe("buildFinalizeInitialMessage", () => {
+  test("includes run stats and results", async () => {
     const fixture = await createFinalizeFixture()
-    setProvider("claude", new MockProvider([]) as unknown as AgentProvider)
-    const controller = new AbortController()
-    controller.abort()
-
     try {
-      await expect(runFinalizeReview(
+      const context = await buildFinalizeContext(
         fixture.projectRoot,
         fixture.runDir,
         fixture.state,
         TEST_CONFIG,
-        TEST_MODEL,
-        { onStreamText() {}, onToolStatus() {} },
-        controller.signal,
-      )).rejects.toMatchObject({ name: "AbortError" })
+      )
+      const message = await buildFinalizeInitialMessage(context)
+
+      expect(message).toContain("demo")
+      expect(message).toContain("Run Statistics")
+      expect(message).toContain("Experiment Results")
+      expect(message).toContain("Changed Files")
+      expect(message).toContain("feature.ts")
+      expect(message).toContain("Git History")
+      expect(message).toContain("Full Diff")
     } finally {
       await fixture.cleanup()
+    }
+  })
+})
+
+describe("generateSummaryReport", () => {
+  test("generates markdown report", () => {
+    const now = new Date().toISOString()
+    const state: RunState = {
+      run_id: "20260408-000000",
+      program_slug: "test-prog",
+      phase: "complete",
+      experiment_number: 2,
+      original_baseline: 100,
+      current_baseline: 85,
+      best_metric: 85,
+      best_experiment: 2,
+      total_keeps: 2,
+      total_discards: 1,
+      total_crashes: 0,
+      branch_name: "autoauto-test",
+      original_baseline_sha: "abc1234567",
+      last_known_good_sha: "def7890123",
+      candidate_sha: null,
+      started_at: now,
+      updated_at: now,
+      error: null,
+      error_phase: null,
+    }
+
+    const results = [
+      { experiment_number: 1, commit: "aaa1111111", metric_value: 95, secondary_values: "", status: "keep" as const, description: "First improvement", measurement_duration_ms: 1000 },
+      { experiment_number: 2, commit: "bbb2222222", metric_value: 90, secondary_values: "", status: "discard" as const, description: "Failed attempt", measurement_duration_ms: 800 },
+      { experiment_number: 3, commit: "ccc3333333", metric_value: 85, secondary_values: "", status: "keep" as const, description: "Second improvement", measurement_duration_ms: 900 },
+    ]
+
+    const report = generateSummaryReport(state, results, TEST_CONFIG, "Agent review text here.")
+
+    expect(report).toContain("# Run Summary: test-prog")
+    expect(report).toContain("## Overview")
+    expect(report).toContain("## Statistics")
+    expect(report).toContain("## Metric Timeline")
+    expect(report).toContain("## Kept Changes")
+    expect(report).toContain("## Agent Review")
+    expect(report).toContain("Agent review text here.")
+    expect(report).toContain("First improvement")
+    expect(report).toContain("Second improvement")
+    expect(report).not.toContain("Finalize Groups")
+  })
+})
+
+describe("saveFinalizeReport", () => {
+  test("writes summary.md to run directory", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "autoauto-finalize-report-"))
+    try {
+      await saveFinalizeReport(runDir, "# Test Summary\n\nSome content.")
+
+      const written = await Bun.file(join(runDir, "summary.md")).text()
+      expect(written).toBe("# Test Summary\n\nSome content.")
+    } finally {
+      await rm(runDir, { recursive: true, force: true })
     }
   })
 })

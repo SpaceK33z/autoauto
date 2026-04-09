@@ -40,9 +40,9 @@ AutoAuto uses an agent provider abstraction (`src/lib/agent/`) that decouples th
 | Setup Agent | `getSetupSystemPrompt()` | Long-lived multi-turn | `system-prompts/setup.ts` |
 | Update Agent | `getUpdateSystemPrompt()` | Long-lived multi-turn | `system-prompts/update.ts` |
 | Experiment Agent | `getExperimentSystemPrompt()` | One-shot per iteration | `system-prompts/experiment.ts` |
-| Finalize Agent | `getFinalizeSystemPrompt()` | One-shot | `system-prompts/finalize.ts` |
+| Finalize Agent | `getFinalizeSystemPrompt()` | Long-lived multi-turn | `system-prompts/finalize.ts` |
 
-All agents use `permissionMode: "bypassPermissions"` and tools: Read, Write, Edit, Bash, Glob, Grep. The Finalize Agent has read-only tools with SHA-based safety checks.
+All agents use `permissionMode: "bypassPermissions"` and tools: Read, Write, Edit, Bash, Glob, Grep.
 
 ## Data layer
 
@@ -140,12 +140,11 @@ Stop/abort escalation: `q` -> confirmation -> stop-after-current; `Ctrl+C` -> ab
 
 ## Finalize
 
-`src/lib/finalize.ts` — post-run review and branch grouping:
+`src/lib/finalize.ts` — post-run review context and report generation:
 
-1. **Review phase:** read-only agent produces structured summary with `<finalize_groups>` XML
-2. **Refine phase:** optional multi-turn loop for user feedback
-3. **Apply phase:** one branch per group, cherry-picked from experiment HEAD
-4. **Validation:** no overlaps, no phantom files, full coverage, unique names
-5. **Fallback:** summary-only if grouping fails or user skips
+- `buildFinalizeContext()` — assembles run results, stats, changed files, and diff into a context object
+- `buildFinalizeInitialMessage()` — formats context into the initial chat message
+- `generateSummaryReport()` — produces markdown summary of the run
+- `saveFinalizeReport()` — writes summary.md to run directory
 
-Safety: HEAD SHA + working tree status checked before and after agent execution.
+The finalize agent runs as a multi-turn chat session (same as setup/update agents) with full write access. It guides the user through experiment review, risk assessment, exclusions, branch selection, and code packaging.

@@ -109,44 +109,6 @@ export async function getDiffBetween(cwd: string, fromSha: string, toSha: string
   return await $`git diff ${fromSha} ${toSha}`.cwd(cwd).text()
 }
 
-/** Creates a group branch from baseline, applying only the specified files from headSha.
- *  Used by finalize to split kept experiments into independent, mergeable branches.
- *  Returns the new commit SHA. */
-export async function createGroupBranch(
-  cwd: string,
-  branchName: string,
-  baselineSha: string,
-  headSha: string,
-  files: string[],
-  commitMessage: string,
-): Promise<string> {
-  // Delete stale branch from a previous crashed attempt
-  if (await branchExists(cwd, branchName)) {
-    await $`git branch -D ${branchName}`.cwd(cwd).quiet()
-  }
-
-  try {
-    await $`git checkout -b ${branchName} ${baselineSha}`.cwd(cwd).quiet()
-  } catch (err) {
-    throw new Error(formatShellError(err, `git checkout -b ${branchName}`), { cause: err })
-  }
-
-  try {
-    // Stage only this group's files from the final experiment state
-    await $`git checkout ${headSha} -- ${files}`.cwd(cwd).quiet()
-  } catch (err) {
-    throw new Error(formatShellError(err, `git checkout files from ${headSha.slice(0, 10)}`), { cause: err })
-  }
-
-  try {
-    await $`git commit -m ${commitMessage}`.cwd(cwd).quiet()
-  } catch (err) {
-    throw new Error(formatShellError(err, `git commit for group "${branchName}"`), { cause: err })
-  }
-
-  return getFullSha(cwd)
-}
-
 /** Diff statistics: lines added and removed between two SHAs. */
 export interface DiffStats {
   lines_added: number

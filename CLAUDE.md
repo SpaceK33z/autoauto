@@ -139,7 +139,7 @@ src/
     format.ts              # Table formatting utilities (padRight, truncate, column allocation)
     syntax-theme.ts        # Tokyo Night syntax highlighting theme for code display
     worktree.ts            # Git worktree create/remove for run isolation
-    finalize.ts            # Post-run finalize: agent review, group branches, squash fallback
+    finalize.ts            # Post-run finalize: context building, report generation, completion detection
     daemon-callbacks.ts    # FileCallbacks: LoopCallbacks impl for daemon (per-experiment stream log writes)
     daemon-lifecycle.ts    # Daemon identity, heartbeat, signals, crash recovery, locking
     run-context.ts         # Build update agent context from previous run data
