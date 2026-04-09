@@ -31,7 +31,8 @@
     "build": "bun build --compile src/index.tsx --outfile dist/autoauto",
     "lint": "oxlint",
     "typecheck": "bun tsc --noEmit",
-    "test": "bun test src"
+    "test": "bun test src",
+    "test:all": "bun test src"
   },
   "bin": {
     "autoauto": "./src/index.tsx"

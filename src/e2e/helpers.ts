@@ -6,6 +6,8 @@
 import { testRender } from "@opentui/react/test-utils"
 import { act } from "react"
 
+export const noop = () => {}
+
 export interface TuiHarness {
   /** Render one frame and return the captured text */
   frame: () => Promise<string>
