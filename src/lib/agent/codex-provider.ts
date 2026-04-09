@@ -101,7 +101,7 @@ function hasWriteTools(config: AgentSessionConfig): boolean {
   const tools = config.allowedTools ?? config.tools ?? []
   return tools.some((tool) => {
     const normalized = tool.toLowerCase()
-    return normalized === "write" || normalized === "edit"
+    return normalized === "write" || normalized === "edit" || normalized === "bash"
   })
 }
 
