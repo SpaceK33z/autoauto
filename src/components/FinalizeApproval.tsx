@@ -139,9 +139,8 @@ export function FinalizeApproval({
   }, [inputKey, handleTextareaSubmit])
 
   useEffect(() => {
-    if (selectedAction <= actions.length - 1) return
-    setSelectedAction(actions.length - 1)
-  }, [actions.length, selectedAction])
+    setSelectedAction(0)
+  }, [hasGroups])
 
   useEffect(() => {
     setSelectedAction(0)
