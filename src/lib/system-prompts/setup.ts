@@ -267,7 +267,7 @@ Requirements:
 - stdout: exactly ONE JSON object, nothing else (no logs, no progress, no debug)
 - stderr: OK for logs/debug output (won't interfere with JSON parsing)
 - Exit 0 on success, nonzero on failure
-- Must complete in <30 seconds ideally, <60 seconds max
+- Must complete in <30 seconds ideally, <60 seconds by default (configurable via \`measurement_timeout\` in config.json)
 - Must be deterministic: lock random seeds, avoid network calls if possible
 - Reuse long-lived processes: keep dev servers running, reuse browser instances
 - The metric field name MUST match \`metric_field\` in config.json
@@ -324,6 +324,8 @@ Guidelines:
 - \`noise_threshold\`: Start with 0.02 (2%) for stable metrics. Use 0.05 (5%) for noisier metrics. Discuss with the user based on the measurement type.
 - \`repeats\`: Use 3 for fast, stable metrics. Use 5 for noisy ones. More repeats = more reliable but slower experiments.
 - \`max_consecutive_discards\`: Optional. Auto-stops the run after this many consecutive non-improving experiments. Default 10 if omitted. Recommend higher for cheap/noisy measurements, lower for expensive ones.
+- \`measurement_timeout\`: Optional. Timeout in milliseconds for each measure.sh run. Default 60000 (60s). Set this based on validation results — the validation output includes \`recommended_timeout\` computed as 3× the observed average duration (floor 60s). Always set it when measurements take >15s on average. For slow measurements (compilation benchmarks, integration tests), this prevents false timeouts during runs.
+- \`build_timeout\`: Optional. Timeout in milliseconds for build.sh. Default 600000 (10 min). Only set this if the build step is exceptionally slow (e.g. large Rust/C++ projects). Most projects won't need to change this.
 - \`quality_gates\`: Hard constraints — if a gate fails, the experiment is discarded regardless of the primary metric. Only include gates for metrics that could realistically regress. Use \`max\` for metrics that should stay below a threshold, \`min\` for metrics that should stay above. If there are no meaningful quality gates, use an empty object: \`"quality_gates": {}\`
 - \`secondary_metrics\`: Advisory metrics — tracked and shown to the agent, but do NOT influence keep/discard decisions. Each has a \`direction\` ("lower" or "higher") so the agent and dashboard can show improvement/regression. Use for metrics the user wants to monitor but not gate on (e.g., memory usage while optimizing latency, readability while optimizing bundle size). Field names must not overlap with \`metric_field\` or \`quality_gates\`. Omit if there are no secondary metrics to track.
 
@@ -432,7 +434,7 @@ After fixing, re-run validation with the same command.
 
 ### Updating Config
 
-When the user accepts the measurement stability, update config.json with the recommended noise_threshold, repeats, and max_consecutive_discards using the Edit tool.
+When the user accepts the measurement stability, update config.json with the recommended noise_threshold, repeats, max_consecutive_discards, and measurement_timeout using the Edit tool.
 
 Always confirm with the user before updating: "Based on the validation results, I recommend a noise threshold of X% and Y repeats. Should I update config.json?"
 
@@ -440,6 +442,8 @@ Always confirm with the user before updating: "Based on the validation results, 
 - For fast, cheap measurements: recommend 10-15 (let it explore more, low cost per attempt)
 - For slow, expensive measurements: recommend 5-8 (fail fast to save budget)
 - For highly noisy metrics (CV% 10%+): recommend higher values (12-15) since noise causes more false discards
+
+\`measurement_timeout\`: The validation output includes \`recommended_timeout\` (3× observed avg duration, floor 60s). Always include this in the config update when the recommended value exceeds the default 60s. For measurements averaging >15s, this prevents false timeouts during actual runs. Example: "Your measurements average 25s, so I'm setting measurement_timeout to 75000ms (75s) to allow headroom."
 
 ## Measurement Script Requirements
 
