@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.4.0](https://github.com/SpaceK33z/autoauto/compare/v1.3.0...v1.4.0) (2026-04-09)
+
+
+### Features
+
+* add queue management CLI commands ([#21](https://github.com/SpaceK33z/autoauto/issues/21)) ([60ba2eb](https://github.com/SpaceK33z/autoauto/commit/60ba2eba416dcf4015869c31f128fc50142477d2))
+* codex provider cost estimation from config and token pricing ([d15caa5](https://github.com/SpaceK33z/autoauto/commit/d15caa50ea55c2b5b3759caa84fd4ed6505ed119))
+* dedicated UI for dirty working tree with agent-powered commit ([4d1fadc](https://github.com/SpaceK33z/autoauto/commit/4d1fadc8c4e690ffe71a7c9f5fa17e4df9ab898a))
+* keep_simplifications toggle in pre-run screen ([59192e0](https://github.com/SpaceK33z/autoauto/commit/59192e0b85c29b2ccf660a545936b2174ed0cccc))
+* opencode provider child session cost aggregation ([fa47719](https://github.com/SpaceK33z/autoauto/commit/fa47719d68e5954bccddcfc17055d7684ee4f214))
+* redesign finalize as conversational multi-turn chat ([#25](https://github.com/SpaceK33z/autoauto/issues/25)) ([cdf808e](https://github.com/SpaceK33z/autoauto/commit/cdf808e8461ff9803e24ab344674de06cf7156d0))
+* show current branch name on dirty tree prompt ([d2697a5](https://github.com/SpaceK33z/autoauto/commit/d2697a59cbf935d68aa2b7ff7b16ae1d00a26ef1))
+* surface turn budget to experiment agents to prevent analysis paralysis ([584ebcf](https://github.com/SpaceK33z/autoauto/commit/584ebcfc9b4e958c364c21d963db5fe788728ef0))
+
+
+### Bug Fixes
+
+* clean up update draft when exiting via PostUpdatePrompt ([e334128](https://github.com/SpaceK33z/autoauto/commit/e33412801cfac08554ae1e6f2454fd9b46d6bc1d))
+* codex sandbox mode blocks git commands in dirty tree commit agent ([5e961a0](https://github.com/SpaceK33z/autoauto/commit/5e961a031dc59541cec6bf22d5fd2a47a9c223f9))
+* update pre-run E2E tests for budget cap field navigation ([1c224bf](https://github.com/SpaceK33z/autoauto/commit/1c224bf002df8c6cfd3178a99552a65294ac7d1a))
+
 ## [1.3.0](https://github.com/SpaceK33z/autoauto/compare/v1.2.0...v1.3.0) (2026-04-09)
 
 
