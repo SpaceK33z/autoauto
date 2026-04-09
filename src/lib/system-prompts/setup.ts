@@ -310,6 +310,7 @@ Guidelines:
   "direction": "<lower|higher>",
   "noise_threshold": <decimal, e.g. 0.02 for 2%>,
   "repeats": <integer, typically 3-5>,
+  "max_experiments": <integer, default cap per run, e.g. 50>,
   "quality_gates": {
     "<field_name>": { "max": <number> },
     "<field_name>": { "min": <number> }
@@ -323,6 +324,7 @@ Guidelines:
 Guidelines:
 - \`noise_threshold\`: Start with 0.02 (2%) for stable metrics. Use 0.05 (5%) for noisier metrics. Discuss with the user based on the measurement type.
 - \`repeats\`: Use 3 for fast, stable metrics. Use 5 for noisy ones. More repeats = more reliable but slower experiments.
+- \`max_experiments\`: Required. Default cap on experiments per run (user can override in the pre-run screen). Use 50 as a sensible default for most programs. Lower (20-30) for expensive/slow measurements, higher (100+) for cheap/fast ones.
 - \`max_consecutive_discards\`: Optional. Auto-stops the run after this many consecutive non-improving experiments. Default 10 if omitted. Recommend higher for cheap/noisy measurements, lower for expensive ones.
 - \`measurement_timeout\`: Optional. Timeout in milliseconds for each measure.sh run. Default 60000 (60s). Set this based on validation results — the validation output includes \`recommended_timeout\` computed as 3× the observed average duration (floor 60s). Always set it when measurements take >15s on average. For slow measurements (compilation benchmarks, integration tests), this prevents false timeouts during runs.
 - \`build_timeout\`: Optional. Timeout in milliseconds for build.sh. Default 600000 (10 min). Only set this if the build step is exceptionally slow (e.g. large Rust/C++ projects). Most projects won't need to change this.
