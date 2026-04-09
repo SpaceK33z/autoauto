@@ -297,7 +297,9 @@ async function runMeasurementAndDecide(
   )
 
   // 5. Check for simplification auto-keep: net-negative LOC within noise
-  const isSimplification = verdict === "noise"
+  const keepSimplifications = config.keep_simplifications !== false
+  const isSimplification = keepSimplifications
+    && verdict === "noise"
     && diffStats != null
     && diffStats.lines_removed > diffStats.lines_added
 
@@ -424,6 +426,7 @@ export async function runExperimentLoop(
   // Re-read from run-config.json each iteration to support mid-run TUI changes
   let effectiveMaxExperiments = options.maxExperiments
   let effectiveMaxCostUsd = options.maxCostUsd
+  let effectiveKeepSimplifications = config.keep_simplifications
 
   try {
   while (true) {
@@ -431,6 +434,7 @@ export async function runExperimentLoop(
     if (runConfig) {
       effectiveMaxExperiments = runConfig.max_experiments
       if (runConfig.max_cost_usd !== undefined) effectiveMaxCostUsd = runConfig.max_cost_usd
+      if (runConfig.keep_simplifications !== undefined) effectiveKeepSimplifications = runConfig.keep_simplifications
     }
 
     // --- Check stop conditions ---
@@ -497,10 +501,11 @@ export async function runExperimentLoop(
     callbacks.onStateUpdate(state)
 
     // --- Build context packet ---
+    const maxTurns = config.max_turns ?? 50
     const packet = await buildContextPacket(
-      cwd, programDir, runDir, state, config, { ideasBacklogEnabled, consecutiveDiscards, maxConsecutiveDiscards, measurementDiagnostics: lastDiagnostics, previousRunContext },
+      cwd, programDir, runDir, state, config, { ideasBacklogEnabled, consecutiveDiscards, maxConsecutiveDiscards, maxTurns, measurementDiagnostics: lastDiagnostics, previousRunContext },
     )
-    const systemPrompt = getExperimentSystemPrompt(packet.program_md, { ideasBacklogEnabled })
+    const systemPrompt = getExperimentSystemPrompt(packet.program_md, { ideasBacklogEnabled, keepSimplifications: effectiveKeepSimplifications })
     const userPrompt = buildExperimentPrompt(packet)
 
     // --- Spawn experiment agent ---
@@ -516,7 +521,7 @@ export async function runExperimentLoop(
       (text) => callbacks.onAgentStream(text),
       (status) => callbacks.onAgentToolUse(status),
       options.signal,
-      config.max_turns ?? 50,
+      maxTurns,
     )
 
     // Log cost data if available + accumulate tokens on run state
@@ -663,9 +668,12 @@ export async function runExperimentLoop(
     }
 
     // --- Hand off to measurement ---
+    const effectiveConfig = effectiveKeepSimplifications !== config.keep_simplifications
+      ? { ...config, keep_simplifications: effectiveKeepSimplifications }
+      : config
     const measurementResult = await runMeasurementAndDecide(
       cwd, runDir, measureShPath, buildShPath,
-      config, state, startSha, candidateSha, outcome.description,
+      effectiveConfig, state, startSha, candidateSha, outcome.description,
       outcome.diff_stats,
       callbacks,
       (result) => recordIdeasBacklog(ideasBacklogEnabled, runDir, result, outcome.notes),

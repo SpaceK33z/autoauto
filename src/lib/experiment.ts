@@ -42,6 +42,7 @@ export interface ContextPacket {
   secondary_metrics?: Record<string, { direction: "lower" | "higher"; last_kept_value?: number }>
   consecutive_discards: number
   max_consecutive_discards: number
+  max_turns: number
   measurement_diagnostics?: string
   previous_results: string
   previous_ideas: string
@@ -72,7 +73,7 @@ export async function buildContextPacket(
   runDir: string,
   state: RunState,
   config: { metric_field: string; direction: "lower" | "higher"; secondary_metrics?: Record<string, { direction: "lower" | "higher" }> },
-  options: { ideasBacklogEnabled?: boolean; consecutiveDiscards?: number; maxConsecutiveDiscards?: number; measurementDiagnostics?: string; previousRunContext?: PreviousRunContext } = {},
+  options: { ideasBacklogEnabled?: boolean; consecutiveDiscards?: number; maxConsecutiveDiscards?: number; maxTurns?: number; measurementDiagnostics?: string; previousRunContext?: PreviousRunContext } = {},
 ): Promise<ContextPacket> {
   const [programMd, resultsRaw, recentGitLog] = await Promise.all([
     Bun.file(join(programDir, "program.md")).text(),
@@ -155,6 +156,7 @@ export async function buildContextPacket(
     secondary_metrics: secondaryMetrics,
     consecutive_discards: options.consecutiveDiscards ?? 0,
     max_consecutive_discards: options.maxConsecutiveDiscards ?? 10,
+    max_turns: options.maxTurns ?? 50,
     measurement_diagnostics: options.measurementDiagnostics,
     previous_results: prev?.previousResults ?? "",
     previous_ideas: previousIdeas,
@@ -243,6 +245,7 @@ ${packet.previous_ideas}
 - Original baseline: ${packet.original_baseline}
 - Best achieved: ${packet.best_metric} (experiment #${packet.best_experiment})
 - Total: ${packet.total_keeps} keeps, ${packet.total_discards} discards
+- Turn budget: ${packet.max_turns} turns (you will be terminated if you exceed this — pace yourself)
 ${secondarySection}${previousRunSection}
 ## Last Outcome
 ${packet.last_outcome}

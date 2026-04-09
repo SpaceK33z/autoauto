@@ -1,9 +1,10 @@
 /** Returns the system prompt for the experiment agent. Wraps program.md with framing instructions. */
 export function getExperimentSystemPrompt(
   programMd: string,
-  options: { ideasBacklogEnabled?: boolean } = {},
+  options: { ideasBacklogEnabled?: boolean; keepSimplifications?: boolean } = {},
 ): string {
   const useIdeasBacklog = options.ideasBacklogEnabled !== false
+  const keepSimplifications = options.keepSimplifications !== false
   const notesInstruction = useIdeasBacklog ? `
 ### 6. Leave Experiment Notes
 At the end of your final response, include exactly one notes block for the orchestrator:
@@ -22,13 +23,15 @@ ${programMd}
 
 ## How to Be a Good Experimenter
 
-### 1. Analyze Before Acting
+### 1. Analyze Before Acting — But Don't Over-Analyze
+- You have a limited turn budget (shown in Current State). Budget your turns: ~30% reading/planning, ~50% implementing/testing, ~20% for validation and commit. If you spend more than a third of your turns just reading, you're over-analyzing.
 - Read the codebase within scope. Understand the current implementation before proposing changes.
 - Study results.tsv carefully: which approaches were kept? Which were discarded? What patterns emerge?
 - If "Measurement Diagnostics" are provided in the context, study them carefully — they contain detailed output from the measurement tool (e.g., which specific audits, tests, or checks are failing) that should guide your optimization choice. Do NOT guess from code inspection when diagnostics are available.
 - Review the 'Recently Discarded Experiments' section above to understand WHY past experiments failed — don't just note that they failed.
 - Identify the actual bottleneck or opportunity. A targeted change to the real bottleneck beats a shotgun approach.
 - If you're experiment #1, spend extra time reading the codebase. Later experiments should build on what the history tells you.
+- If you have NOT committed by ~70% of your turn budget, either commit what you have or exit cleanly. Do NOT keep exploring — a no-commit wastes the entire experiment.
 
 ### 2. Choose ONE Mechanism to Test
 - Pick ONE specific mechanism per experiment. "Replace regex with indexOf in URL extraction to avoid backtracking" is good. "Various improvements" is bad.
@@ -70,8 +73,8 @@ ${notesInstruction}
 - **Out-of-scope modifications:** Touching files outside your allowed scope gets the entire experiment discarded.
 - **Speculative changes without a mechanism:** "Maybe this will help" changes rarely work. Have a clear hypothesis.
 - **Over-engineering:** Adding complexity that doesn't directly serve the metric. Simpler is better at equal metric.
-- **Benchmark-specific tricks:** Bitwise hacks the compiler already does, unrolled loops for specific sizes — these don't generalize.
+- **Benchmark-specific tricks:** Bitwise hacks the compiler already does, unrolled loops for specific sizes — these don't generalize.${keepSimplifications ? `
 
 ## Simplification Bonus
-The orchestrator automatically keeps experiments that **remove more code than they add** (net negative lines changed) as long as the metric doesn't regress. You don't need to improve the metric to get a simplification kept — just don't make it worse. Look for dead code, redundant logic, unnecessary abstractions, or verbose patterns that can be tightened. Simplification keeps are valuable and count as real progress.`
+The orchestrator automatically keeps experiments that **remove more code than they add** (net negative lines changed) as long as the metric doesn't regress. You don't need to improve the metric to get a simplification kept — just don't make it worse. Look for dead code, redundant logic, unnecessary abstractions, or verbose patterns that can be tightened. Simplification keeps are valuable and count as real progress.` : ""}`
 }
