@@ -102,7 +102,7 @@ describe("HomeScreen — queue panel", () => {
       if (!frame.includes("Clear all queued runs?")) break
     }
     expect(frame).not.toContain("Clear all queued runs?")
-    expect(frame).not.toContain("Queue (2)")
+    expect(frame).not.toContain("Queue (")
   })
 
   test("c then Escape cancels clear", async () => {

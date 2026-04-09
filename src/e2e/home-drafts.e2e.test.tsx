@@ -111,11 +111,9 @@ describe("HomeScreen — drafts", () => {
     )
     await harness.waitForText("Draft")
     await harness.press("d")
-    // After deleting the draft, wait for reload — draft should disappear
     const frame = await harness.waitForText("perf-benchmark")
-    // The "Draft" label from the draft entry should be gone
-    // Only "perf-benchmark" should remain in the programs panel
     expect(frame).toContain("perf-benchmark")
+    expect(frame).not.toContain("draft-20260401-1200")
   })
 
   test("j from draft to program then e edits program", async () => {

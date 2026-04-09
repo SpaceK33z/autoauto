@@ -133,6 +133,8 @@ export async function createTestFixture(): Promise<TestFixture> {
   await $`git add -A`.cwd(cwd).quiet()
   await $`git commit -m "init"`.cwd(cwd).quiet()
 
+  const initSha = (await $`git rev-parse HEAD`.cwd(cwd).text()).trim()
+
   // Create .autoauto directory
   const autoautoDir = join(cwd, ".autoauto")
   await mkdir(autoautoDir, { recursive: true })
@@ -174,11 +176,10 @@ export async function createTestFixture(): Promise<TestFixture> {
     await mkdir(runDir, { recursive: true })
 
     const branchName = `autoauto-${slug}-${run.run_id}`
-    let baselineSha = "0000000000000000"
-    let lastKnownGoodSha = "0000000000000000"
+    let baselineSha = initSha
+    let lastKnownGoodSha = initSha
 
     if (run.createGitBranch) {
-      baselineSha = (await $`git rev-parse HEAD`.cwd(cwd).text()).trim()
       const returnBranch = (await $`git rev-parse --abbrev-ref HEAD`.cwd(cwd).text()).trim()
       await $`git checkout -b ${branchName}`.cwd(cwd).quiet()
       const commitCount = run.commitCount ?? 0
