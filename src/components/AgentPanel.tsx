@@ -141,8 +141,8 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
 
   if (selectedResult) {
     return (
-      <box flexDirection="column" flexGrow={1}>
-        <scrollbox flexGrow={1}>
+      <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0}>
+        <scrollbox flexGrow={1} minHeight={0}>
           <ExperimentDetail result={selectedResult} secondaryMetrics={secondaryMetrics} />
         </scrollbox>
         <box paddingX={1}>
@@ -153,8 +153,8 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
   }
 
   return (
-    <box flexDirection="column" flexGrow={1}>
-      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
+    <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0}>
+      <scrollbox flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom">
         {!streamingText && isRunning && (
           <box paddingX={1} flexDirection="column">
             <WaitingIndicator phaseLabel={phaseLabel} experimentNumber={experimentNumber} toolStatus={toolStatus} />

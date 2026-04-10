@@ -67,14 +67,17 @@ export function StatsHeader({ isRunning = false, ...props }: StatsHeaderProps) {
   const improvementStr = formatImprovementPct(props.improvementPct)
   const sparkline = renderSparkline(props.metricHistory, props.direction)
   const contentWidth = Math.max(props.width - 4, 0)
+  const modelWidth = Math.min(props.modelLabel.length, Math.max(Math.floor(contentWidth * 0.35), 0))
+  const separatorWidth = modelWidth > 0 && contentWidth > modelWidth ? 1 : 0
+  const statsWidth = Math.max(contentWidth - modelWidth - separatorWidth, 0)
   const costDisplay = props.maxCostUsd != null
     ? `$${props.totalCostUsd.toFixed(2)}/$${props.maxCostUsd.toFixed(2)}`
     : `$${props.totalCostUsd.toFixed(2)}`
 
   return (
-      <box paddingX={1} flexDirection="column">
-        <box width={contentWidth} flexDirection="row" justifyContent="space-between">
-          <text selectable>
+      <box paddingX={1} flexDirection="column" flexShrink={0}>
+        <box width={contentWidth} height={1} flexDirection="row" flexShrink={0}>
+          <text width={statsWidth} selectable>
             <span fg="#9ece6a"><strong>kept {props.totalKeeps}</strong></span>
             {"    "}
             <span fg="#ff5555">disc {props.totalDiscards}</span>
@@ -85,10 +88,11 @@ export function StatsHeader({ isRunning = false, ...props }: StatsHeaderProps) {
             {"    "}
             <span fg="#ffffff">#{props.experimentNumber}/{props.maxExperiments}</span>
           </text>
-          <text fg="#666666" selectable>{props.modelLabel}</text>
+          {separatorWidth > 0 && <box width={separatorWidth} />}
+          <text width={modelWidth} fg="#666666" selectable>{props.modelLabel}</text>
         </box>
-        <box>
-          <text selectable>
+        <box width={contentWidth} height={1} flexShrink={0}>
+          <text width={contentWidth} selectable>
             <span fg="#ffffff">baseline </span>
             <span fg="#7aa2f7">{props.currentBaseline}</span>
             {"    "}
@@ -108,8 +112,8 @@ export function StatsHeader({ isRunning = false, ...props }: StatsHeaderProps) {
             ) : null}
           </text>
         </box>
-        <box>
-          <text selectable>
+        <box width={contentWidth} height={1} flexShrink={0}>
+          <text width={contentWidth} selectable>
             {isRunning ? <Spinner /> : <span fg="#ffffff">{">"}</span>}
             <span fg="#ffffff">{" "}{props.currentPhaseLabel}</span>
           </text>

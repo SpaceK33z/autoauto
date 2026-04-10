@@ -69,6 +69,23 @@ function renderExecution(navigateFn: (s: Screen) => void = () => {}) {
   )
 }
 
+function renderExecutionCompact(navigateFn: (s: Screen) => void = () => {}) {
+  return renderTui(
+    <ExecutionScreen
+      cwd={fixture.cwd}
+      programSlug="perf-opt"
+      modelConfig={MODEL}
+      supportModelConfig={MODEL}
+      ideasBacklogEnabled={false}
+      navigate={navigateFn}
+      maxExperiments={10}
+      attachRunId="20260401-100000"
+      readOnly
+    />,
+    { width: 120, height: 12 },
+  )
+}
+
 describe("ExecutionScreen E2E — attach to completed run", () => {
   test("displays completed run with results", async () => {
     harness = await renderExecution()
@@ -99,5 +116,22 @@ describe("ExecutionScreen E2E — attach to completed run", () => {
     await harness.waitForText("kept 3", 5000)
     await harness.escape()
     expect(lastNav).toBe("home")
+  })
+
+  test("keeps results area stable in short terminals", async () => {
+    harness = await renderExecutionCompact()
+    // Wait for completed state to load (stats header shows "kept 3" once run data is reconstructed)
+    const frame = await harness.waitForText("kept 3", 5000)
+    const lines = frame.split("\n")
+    const resultsLine = lines.find((line) => line.includes("Results"))
+    const headerLine = lines.find((line) => line.includes("commit"))
+
+    expect(resultsLine).toBeDefined()
+    expect(headerLine).toBeDefined()
+    // Verify no text overlap between adjacent rows
+    expect(resultsLine).not.toContain("kept")
+    expect(resultsLine).not.toContain("disc")
+    expect(headerLine).not.toContain("baseline")
+    expect(headerLine).not.toContain("best")
   })
 })

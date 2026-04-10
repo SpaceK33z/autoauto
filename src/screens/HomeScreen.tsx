@@ -347,6 +347,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     <box
       flexDirection="column"
       flexGrow={1}
+      minWidth={0}
       border
       borderStyle="rounded"
       borderColor={programsFocused ? "#7aa2f7" : "#666666"}
@@ -418,6 +419,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     <box
       flexDirection="column"
       flexGrow={1}
+      minWidth={0}
       border
       borderStyle="rounded"
       borderColor={runsFocused ? "#7aa2f7" : "#666666"}
@@ -499,6 +501,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     <box
       flexDirection="column"
       flexGrow={1}
+      minWidth={0}
       border
       borderStyle="rounded"
       borderColor={queueFocused ? "#7aa2f7" : "#666666"}
@@ -546,9 +549,9 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   ) : null
 
   return (
-    <box flexGrow={1} flexDirection="column">
+    <box flexGrow={1} flexDirection="column" minHeight={0}>
       {runsPanel}
-      <box flexDirection="row" flexGrow={1}>
+      <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
         {programsPanel}
         {queuePanel}
       </box>

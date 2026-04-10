@@ -57,7 +57,7 @@ const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highligh
   const line = formatCell(`${fixedCells.join("")}${secondaryCells.join("")}${trailingCells.join("")}`, lineWidth)
 
   return (
-    <box width={rowWidth} paddingX={1} backgroundColor={bg}>
+    <box width={rowWidth} height={1} paddingX={1} backgroundColor={bg} flexShrink={0}>
       <text width={lineWidth} fg={fg} selectable>
         {line}
       </text>
@@ -139,15 +139,15 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
   const headerLine = formatCell(headerCells.join(""), innerWidth)
 
   return (
-    <box flexDirection="column" flexGrow={1}>
-      <box width={rowWidth} paddingX={1}>
+    <box flexDirection="column" flexGrow={1} width="100%" minHeight={0} minWidth={0}>
+      <box width={rowWidth} height={1} paddingX={1} flexShrink={0}>
         <text width={innerWidth} fg="#ffffff">
           {headerLine}
         </text>
       </box>
-      <scrollbox flexGrow={1} stickyScroll={!focused} stickyStart="bottom">
+      <scrollbox flexGrow={1} minHeight={0} stickyScroll={!focused} stickyStart="bottom">
         {experiments.length === 0 ? (
-          <box width={rowWidth} paddingX={1}>
+          <box width={rowWidth} height={1} paddingX={1} flexShrink={0}>
             <text width={innerWidth} fg="#ffffff">
               {formatCell(experimentNumber != null && experimentNumber > 0
                 ? `Running experiment #${experimentNumber}...`

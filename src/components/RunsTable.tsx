@@ -159,7 +159,7 @@ const RunRow = memo(function RunRow({
   const slug = state.program_slug
 
   return (
-    <box width={rowWidth} paddingX={1} backgroundColor={selected ? "#333333" : undefined} onMouseDown={onMouseDown}>
+    <box width={rowWidth} height={1} paddingX={1} backgroundColor={selected ? "#333333" : undefined} flexShrink={0} onMouseDown={onMouseDown}>
       <text width={lineWidth} selectable>
         <span fg={dotColor}>{formatCell(dotChar, widths.status)}</span>
         <span fg="#ffffff">{formatCell(slug, widths.program)}</span>
@@ -199,9 +199,9 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
   const validRuns = runs.filter((r) => r.state != null)
 
   return (
-    <box flexDirection="column" flexGrow={1} width="100%">
+    <box flexDirection="column" flexGrow={1} width="100%" minHeight={0} minWidth={0}>
       {/* Header */}
-      <box width={rowWidth} paddingX={1}>
+      <box width={rowWidth} height={1} paddingX={1} flexShrink={0}>
         <text width={innerWidth} fg="#666666">
           {formatCell("", widths.status)}
           {formatCell("program", widths.program)}
@@ -213,9 +213,9 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
         </text>
       </box>
 
-      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
+      <scrollbox flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom">
         {validRuns.length === 0 ? (
-          <box paddingX={1}>
+          <box height={1} paddingX={1} flexShrink={0}>
             <text fg="#666666">No runs yet.</text>
           </box>
         ) : (

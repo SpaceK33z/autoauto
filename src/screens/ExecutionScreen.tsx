@@ -38,7 +38,7 @@ import { AgentPanel } from "../components/AgentPanel.tsx"
 import { Chat } from "../components/Chat.tsx"
 import { DirtyTreePrompt } from "../components/DirtyTreePrompt.tsx"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
-import { truncateStreamText } from "../lib/format.ts"
+import { formatCell, truncateStreamText } from "../lib/format.ts"
 
 type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error" | "dirty"
 
@@ -106,7 +106,7 @@ function getRunModelConfig(state: RunState | null, fallback: ModelSlot): ModelSl
 
 function IdeasPanel({ text }: { text: string }) {
   return (
-    <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
+    <scrollbox flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom">
       <box paddingX={1} flexDirection="column">
         <markdown content={text} syntaxStyle={syntaxStyle} conceal />
       </box>
@@ -119,14 +119,23 @@ function Divider({ width, label }: { width: number; label?: string }) {
   if (label) {
     const labelStr = `─ ${label} `
     const rest = "─".repeat(Math.max(innerWidth - labelStr.length, 0))
-    return <text fg="#666666">{labelStr}{rest}</text>
+    return (
+      <box height={1} flexShrink={0}>
+        <text width={innerWidth} fg="#666666">{formatCell(`${labelStr}${rest}`, innerWidth)}</text>
+      </box>
+    )
   }
-  return <text fg="#666666">{"─".repeat(innerWidth)}</text>
+  return (
+    <box height={1} flexShrink={0}>
+      <text width={innerWidth} fg="#666666">{formatCell("─".repeat(innerWidth), innerWidth)}</text>
+    </box>
+  )
 }
 
 export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, keepSimplifications, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
+  const inlineWidth = Math.max(termWidth - 4, 0)
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
   const [runState, setRunState] = useState<RunState | null>(null)
   const [currentPhaseLabel, setCurrentPhaseLabel] = useState(attachRunId ? "Connecting..." : "Starting daemon...")
@@ -683,7 +692,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   }, [])
 
   return (
-    <box flexDirection="column" flexGrow={1}>
+    <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0}>
       {(phase === "starting" || phase === "running") && (
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`${programSlug}`}>
           <StatsHeader
@@ -710,7 +719,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           {compact ? (
             <>
               <box paddingX={1}>
-                <text>
+                <text width={inlineWidth}>
                   {tableFocused ? (
                     <>
                       <span fg="#7aa2f7"><strong>[ Results ]</strong></span>
@@ -777,8 +786,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                       <Divider width={Math.floor(termWidth * 0.4)} label="Ideas" />
                     </box>
                   </box>
-                  <box flexDirection="row" flexGrow={1}>
-                    <box flexDirection="column" flexGrow={3}>
+                  <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
+                    <box flexDirection="column" flexGrow={3} minHeight={0} minWidth={0}>
                       <AgentPanel
                         streamingText={agentStreamText}
                         toolStatus={toolStatus}
@@ -787,7 +796,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                         secondaryMetrics={secondaryMetricsConfig}
                       />
                     </box>
-                    <box flexDirection="column" flexGrow={2}>
+                    <box flexDirection="column" flexGrow={2} minHeight={0} minWidth={0}>
                       <IdeasPanel text={ideasText} />
                     </box>
                   </box>
@@ -884,8 +893,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             <>
               <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
               {ideasVisible ? (
-                <box flexDirection="row" flexGrow={1}>
-                  <box flexDirection="column" flexGrow={3}>
+                <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
+                  <box flexDirection="column" flexGrow={3} minHeight={0} minWidth={0}>
                     <AgentPanel
                       streamingText={agentStreamText}
                       toolStatus={toolStatus}
@@ -894,7 +903,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                       secondaryMetrics={secondaryMetricsConfig}
                     />
                   </box>
-                  <box flexDirection="column" flexGrow={2}>
+                  <box flexDirection="column" flexGrow={2} minHeight={0} minWidth={0}>
                     <Divider width={Math.floor(termWidth * 0.38)} label="Ideas" />
                     <IdeasPanel text={ideasText} />
                   </box>
@@ -946,7 +955,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       )}
 
       {phase === "finalizing" && finalizeSystemPrompt && (
-        <box flexDirection="column" flexGrow={1}>
+        <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0}>
           <Chat
             cwd={finalizeCwd ?? cwd}
             systemPrompt={finalizeSystemPrompt}
@@ -966,8 +975,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       )}
 
       {phase === "finalize_complete" && finalizeResult && (
-        <box flexDirection="column" flexGrow={1}>
-          <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Finalize Complete">
+        <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0}>
+          <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0} border borderStyle="rounded" title="Finalize Complete">
             <box flexDirection="column" paddingX={1}>
               {finalizeResult.branch && (
                 <text fg="#9ece6a" selectable>Changes packaged on branch: {finalizeResult.branch}</text>
