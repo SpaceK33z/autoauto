@@ -34,7 +34,7 @@ AutoAuto wraps the full autoresearch workflow — from defining what to optimize
 │   4. Keep if improved beyond noise threshold, discard otherwise    │
 │   5. Repeat                                                        │
 │ Runs in a git worktree — your main checkout stays clean.           │
-│ Survives terminal close.                                           │
+│ Survives terminal close. Prevents macOS sleep automatically.       │
 └────────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─ Finalize ─────────────────────────────────────────────────────────┐
@@ -152,6 +152,7 @@ After the loop completes (or you stop it), a Finalize Agent reviews the accumula
 | **Re-baselining** — fresh baseline after keeps and after consecutive discards | Environment drift causing phantom improvements |
 | **Stagnation detection** — auto-stops after 10 consecutive non-improving experiments | Burning money when the agent is stuck |
 | **Simplicity criterion** — auto-keeps within-noise changes that reduce LOC | Rewarding code simplification even without metric gain |
+| **Sleep prevention** — `caffeinate` keeps macOS awake during runs | System sleeping mid-experiment during overnight runs |
 
 ## Data model
 
