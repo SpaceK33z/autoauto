@@ -92,13 +92,12 @@ describe("daemon startup failure", () => {
     // When measure.sh fails, the daemon handles it gracefully:
     // writes error to state.json and exits cleanly.
     const cwd = await mkdtemp(join(tmpdir(), "daemon-fail-measure-"))
+    const programSlug = "bad-measure"
+    const programDir = join(cwd, ".autoauto", "programs", programSlug)
     try {
       await $`git init`.cwd(cwd).quiet()
       await $`git config user.email "test@test.com"`.cwd(cwd).quiet()
       await $`git config user.name "Test User"`.cwd(cwd).quiet()
-
-      const programSlug = "bad-measure"
-      const programDir = join(cwd, ".autoauto", "programs", programSlug)
       await mkdir(programDir, { recursive: true })
 
       await Bun.write(
@@ -152,13 +151,12 @@ describe("daemon startup failure", () => {
     // Simulates a daemon that wrote a heartbeat then crashed immediately.
     // getDaemonStatus should detect the dead PID rather than trusting the fresh heartbeat.
     const cwd = await mkdtemp(join(tmpdir(), "daemon-fail-pidcheck-"))
+    const programSlug = "pid-check"
+    const programDir = join(cwd, ".autoauto", "programs", programSlug)
     try {
       await $`git init`.cwd(cwd).quiet()
       await $`git config user.email "test@test.com"`.cwd(cwd).quiet()
       await $`git config user.name "Test User"`.cwd(cwd).quiet()
-
-      const programSlug = "pid-check"
-      const programDir = join(cwd, ".autoauto", "programs", programSlug)
       await mkdir(programDir, { recursive: true })
       await Bun.write(join(cwd, ".autoauto", "config.json"), JSON.stringify({
         executionModel: { provider: "claude", model: "sonnet", effort: "high" },
@@ -190,13 +188,12 @@ describe("daemon startup failure", () => {
 
   test("writes error to daemon.log when program config is missing", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "daemon-fail-noconfig-"))
+    const programSlug = "no-config"
+    const programDir = join(cwd, ".autoauto", "programs", programSlug)
     try {
       await $`git init`.cwd(cwd).quiet()
       await $`git config user.email "test@test.com"`.cwd(cwd).quiet()
       await $`git config user.name "Test User"`.cwd(cwd).quiet()
-
-      const programSlug = "no-config"
-      const programDir = join(cwd, ".autoauto", "programs", programSlug)
       await mkdir(join(programDir, "runs"), { recursive: true })
 
       await Bun.write(
