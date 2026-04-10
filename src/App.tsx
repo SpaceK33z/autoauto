@@ -70,6 +70,19 @@ export function App() {
       }
       // execution screen handles its own Escape
     }
+
+    // Dev-only: Ctrl+D dumps a debug snapshot to /tmp
+    if (process.env.DEV && key.ctrl && key.name === "d") {
+      key.stopPropagation()
+      const buffer = renderer.currentRenderBuffer
+      if (buffer) {
+        const frameBytes = buffer.getRealCharBytes(true)
+        const frame = new TextDecoder().decode(frameBytes)
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+        const meta = `Screen: ${screen} | ${width}x${height} | ${timestamp}\n${"─".repeat(width)}\n`
+        Bun.write(`/tmp/autoauto-debug-${timestamp}.txt`, meta + frame)
+      }
+    }
   })
 
   if (!screen) {
