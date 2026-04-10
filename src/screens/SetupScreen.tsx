@@ -26,7 +26,7 @@ const MODE_OPTIONS = [
   },
   {
     name: "I know what I want to optimize",
-    description: "Describe your target and start setting up",
+    description: "A prompt, skill, performance metric, or anything measurable",
     value: "direct",
   },
 ]
@@ -326,7 +326,7 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName
       initialMessage={isUpdate ? updateInitialMessage! : initialMessage}
       emptyStateHint={isUpdate
         ? "Describe what you'd like to change about this program."
-        : (!initialMessage ? 'Describe what you want to optimize — e.g. "reduce bundle size", "improve API latency", "increase test coverage".' : undefined)}
+        : (!initialMessage ? 'Describe what you want to optimize — e.g. "improve a skill or prompt", "reduce bundle size", "improve API latency".' : undefined)}
       inputPlaceholder={isUpdate
         ? 'e.g. "fix the measurement script" or "widen the scope"'
         : (!initialMessage ? 'e.g. "I want to reduce the homepage load time"' : undefined)}
