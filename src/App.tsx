@@ -46,14 +46,8 @@ export function App() {
   // Load project config + reload when returning to home
   useEffect(() => {
     if (screen === "home") {
-      loadProjectConfig(cwd).then(async (config) => {
+      loadProjectConfig(cwd).then((config) => {
         setProjectConfig(config)
-        // Queue fallback: if queue has pending items but nothing running, resume
-        try {
-          await startNextFromQueue(projectRoot, config.ideasBacklogEnabled)
-        } catch (err) {
-          process.stderr.write(`[queue] Resume failed: ${err}\n`)
-        }
       })
     }
     if (screen === "pre-run" && selectedProgram) {
@@ -172,6 +166,13 @@ export function App() {
               }
               setScreen("setup")
             }}
+            onResumeQueue={async () => {
+              try {
+                await startNextFromQueue(projectRoot, projectConfig.ideasBacklogEnabled)
+              } catch (err) {
+                process.stderr.write(`[queue] Resume failed: ${err}\n`)
+              }
+            }}
           />
         )}
         {screen === "setup" && !showPostUpdatePrompt && (
@@ -237,16 +238,13 @@ export function App() {
             programHasQueueEntries={queueHasProgram}
             onAddToQueue={async (overrides) => {
               try {
-                const { wasEmpty } = await appendToQueue(projectRoot, {
+                await appendToQueue(projectRoot, {
                   programSlug: selectedProgram,
                   modelConfig: overrides.modelConfig,
                   maxExperiments: overrides.maxExperiments,
                   maxCostUsd: overrides.maxCostUsd,
                   useWorktree: overrides.useWorktree,
                 })
-                if (wasEmpty) {
-                  await startNextFromQueue(projectRoot, projectConfig.ideasBacklogEnabled)
-                }
               } catch (err) {
                 process.stderr.write(`[queue] Failed to enqueue: ${err}\n`)
               } finally {

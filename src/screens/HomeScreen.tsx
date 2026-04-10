@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import {
   listPrograms,
@@ -22,6 +22,7 @@ interface HomeScreenProps {
   onUpdateProgram: (slug: string) => void
   onFinalizeRun: (run: RunInfo) => void
   onResumeDraft: (draftName: string, draft: DraftSession) => void
+  onResumeQueue?: () => void
 }
 
 interface HomeData {
@@ -104,7 +105,7 @@ async function loadHomeData(cwd: string): Promise<HomeData> {
 
 type Panel = "programs" | "runs" | "queue"
 
-export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpdateProgram, onFinalizeRun, onResumeDraft }: HomeScreenProps) {
+export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpdateProgram, onFinalizeRun, onResumeDraft, onResumeQueue }: HomeScreenProps) {
   const { width } = useTerminalDimensions()
   const [data, setData] = useState<HomeData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -117,10 +118,15 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   const [confirmClearQueue, setConfirmClearQueue] = useState(false)
   const [selectedQueueIndex, setSelectedQueueIndex] = useState(0)
   const [deleting, setDeleting] = useState(false)
+  const onResumeQueueRef = useRef(onResumeQueue)
+  onResumeQueueRef.current = onResumeQueue
 
   useEffect(() => {
     loadHomeData(cwd)
-      .then(setData)
+      .then((d) => {
+        setData(d)
+        onResumeQueueRef.current?.()
+      })
       .catch((err: unknown) => {
         setError(formatShellError(err))
       })
