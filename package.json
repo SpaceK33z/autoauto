@@ -27,7 +27,7 @@
     "tsconfig.json"
   ],
   "scripts": {
-    "dev": "bun run src/index.tsx",
+    "dev": "DEV=1 bun run src/index.tsx",
     "build": "bun build --compile src/index.tsx --outfile dist/autoauto",
     "lint": "oxlint",
     "typecheck": "bun tsc --noEmit",
