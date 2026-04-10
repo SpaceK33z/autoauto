@@ -617,6 +617,15 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         setStopping(true)
         setCurrentPhaseLabel("Stopping after current experiment...")
         if (runDir) sendStop(runDir).catch(() => {})
+      } else if (key.name === "a") {
+        setShowStopConfirm(false)
+        setStopping(true)
+        setCurrentPhaseLabel("Aborting...")
+        abortSentRef.current = true
+        if (runDir) sendAbort(runDir).catch(() => {})
+        abortTimerRef.current = setTimeout(() => {
+          if (runDir) forceKillDaemon(runDir).catch(() => {})
+        }, 5_000)
       } else if (key.name === "n" || key.name === "escape") {
         setShowStopConfirm(false)
       }
@@ -826,7 +835,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
           {showStopConfirm && (
             <box paddingX={1}>
-              <text fg="#e0af68" selectable>Stop after current experiment finishes? (y/n)</text>
+              <text fg="#e0af68" selectable>Stop after current experiment (y) / Abort immediately (a) / Cancel (n)</text>
             </box>
           )}
 
