@@ -484,7 +484,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       const worktreeCwd = runState.in_place ? cwd : (runState.worktree_path ?? cwd)
       const programDir = getProgramDir(cwd, programSlug)
 
-      const results = await runVerification({
+      const verificationRunResults = await runVerification({
         target,
         repeats,
         config: programConfig,
@@ -495,8 +495,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         onProgress: (status) => setVerifyProgress(status),
       })
 
-      await appendVerificationResults(runDir, results, runState)
-      setVerificationResults(prev => [...(prev ?? []), ...results])
+      await appendVerificationResults(runDir, verificationRunResults, runState)
+      setVerificationResults(prev => [...(prev ?? []), ...verificationRunResults])
     } catch (err: unknown) {
       if (!isAbortError(err)) {
         setLastError(formatShellError(err, "Verification failed"))
