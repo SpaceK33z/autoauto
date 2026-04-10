@@ -1569,12 +1569,16 @@ async function cmdValidate(args: ParsedArgs) {
   const numRuns = parsePositiveInt(runsStr)
   if (numRuns == null) die(`Invalid --runs value: "${runsStr}". Must be a positive integer.`)
 
-  const measurePath = join(programDir, "measure.sh")
+  let measurePath = join(programDir, "measure.sh")
   const configPath = join(programDir, "config.json")
 
-  // Check measure script exists
+  // Check measure script exists (fall back to extensionless "measure")
   if (!(await Bun.file(measurePath).exists())) {
-    die(`Measurement script not found at ${measurePath}`)
+    const fallback = join(programDir, "measure")
+    if (!(await Bun.file(fallback).exists())) {
+      die(`Measurement script not found at ${measurePath} or ${fallback}`)
+    }
+    measurePath = fallback
   }
 
   const scriptPath = join(dirname(fileURLToPath(import.meta.url)), "lib", "validate-measurement.ts")
