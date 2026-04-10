@@ -14,5 +14,6 @@ export {
   updateMaxCostUsd,
   getMaxCostUsd,
   findActiveRun,
+  readDaemonLogTail,
   type DaemonStatus,
 } from "./daemon-status.ts"
