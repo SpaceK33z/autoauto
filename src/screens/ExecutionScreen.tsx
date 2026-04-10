@@ -28,6 +28,7 @@ import {
   getDaemonStatus,
   updateMaxExperiments,
   getMaxExperiments,
+  readDaemonLogTail,
   type DaemonWatcher,
 } from "../lib/daemon-client.ts"
 import { RunCompletePrompt } from "../components/RunCompletePrompt.tsx"
@@ -196,8 +197,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           if (!status.alive) {
             // Daemon died — show complete state
             try {
-              const reconstructed = await reconstructState(activeRunDir, programDir)
-              const currentMax = await getMaxExperiments(activeRunDir)
+              const [reconstructed, currentMax, logTail] = await Promise.all([
+                reconstructState(activeRunDir, programDir),
+                getMaxExperiments(activeRunDir),
+                readDaemonLogTail(activeRunDir),
+              ])
               if (!cancelled) {
                 setRunDir(activeRunDir)
                 setRunState(reconstructed.state)
@@ -216,18 +220,20 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   maxExpTextRef.current = text
                 }
                 if (reconstructed.state.phase === "crashed") {
-                  setLastError(reconstructed.state.error ?? "Daemon crashed")
+                  setLastError(reconstructed.state.error ?? (logTail || "Daemon crashed"))
                   setPhase("error")
                 } else if (reconstructed.state.phase === "complete") {
                   setPhase("complete")
                 } else {
-                  setLastError(`Daemon is not running; last phase was ${reconstructed.state.phase}`)
+                  const detail = logTail ? `\n\n${logTail}` : ""
+                  setLastError(`Daemon is not running; last phase was ${reconstructed.state.phase}${detail}`)
                   setPhase("error")
                 }
               }
             } catch (err: unknown) {
               if (!cancelled) {
-                setLastError(formatShellError(err))
+                const logTail = await readDaemonLogTail(activeRunDir)
+                setLastError(logTail || formatShellError(err))
                 setPhase("error")
               }
             }
@@ -319,25 +325,29 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             },
             onDaemonDied: () => {
               if (cancelled) return
-              // Re-read final state
-              reconstructState(activeRunDir, programDir).then((final) => {
+              // Re-read final state + daemon log for error context
+              Promise.all([
+                reconstructState(activeRunDir, programDir).catch(() => null),
+                readDaemonLogTail(activeRunDir),
+              ]).then(([final, logTail]) => {
                 if (cancelled) return
-                setRunState(final.state)
-                setResults(final.results)
-                setMetricHistory(final.metricHistory)
-                setTerminationReason(final.state.termination_reason ?? null)
-                if (final.state.phase === "crashed") {
-                  setLastError(final.state.error ?? "Daemon died unexpectedly")
-                  setPhase("error")
-                } else if (final.state.phase === "complete") {
-                  setPhase("complete")
+                if (final) {
+                  setRunState(final.state)
+                  setResults(final.results)
+                  setMetricHistory(final.metricHistory)
+                  setTerminationReason(final.state.termination_reason ?? null)
+                  if (final.state.phase === "crashed") {
+                    setLastError(final.state.error ?? (logTail || "Daemon died unexpectedly"))
+                    setPhase("error")
+                  } else if (final.state.phase === "complete") {
+                    setPhase("complete")
+                  } else {
+                    const detail = logTail ? `\n\n${logTail}` : ""
+                    setLastError(`Daemon died unexpectedly while ${final.state.phase}${detail}`)
+                    setPhase("error")
+                  }
                 } else {
-                  setLastError(`Daemon died unexpectedly while ${final.state.phase}`)
-                  setPhase("error")
-                }
-              }).catch(() => {
-                if (!cancelled) {
-                  setLastError("Daemon died and state could not be read")
+                  setLastError(logTail || "Daemon died and state could not be read")
                   setPhase("error")
                 }
               })

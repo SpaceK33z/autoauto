@@ -58,6 +58,14 @@ export async function getDaemonStatus(runDir: string): Promise<DaemonStatus> {
     }
   }
 
+  // Heartbeat is fresh, but verify the process is actually alive.
+  // The daemon may have crashed right after writing a heartbeat.
+  try {
+    process.kill(daemon.pid, 0)
+  } catch {
+    return { alive: false, starting: false, daemonJson: daemon }
+  }
+
   return { alive: true, starting: false, daemonJson: daemon }
 }
 
@@ -185,6 +193,26 @@ export async function updateMaxCostUsd(runDir: string, maxCostUsd: number | unde
 export async function getMaxCostUsd(runDir: string): Promise<number | undefined> {
   const config = await readRunConfig(runDir)
   return config?.max_cost_usd
+}
+
+// --- Daemon Log ---
+
+/**
+ * Read the last ~2KB of daemon.log for error context when daemon dies.
+ * Returns empty string if the log doesn't exist or is empty.
+ */
+export async function readDaemonLogTail(runDir: string): Promise<string> {
+  try {
+    const file = Bun.file(join(runDir, "daemon.log"))
+    const size = file.size
+    if (size === 0) return ""
+    const tail = size > 2048
+      ? await file.slice(size - 2048, size).text()
+      : await file.text()
+    return tail.trim()
+  } catch {
+    return ""
+  }
 }
 
 // --- Active Run Detection ---

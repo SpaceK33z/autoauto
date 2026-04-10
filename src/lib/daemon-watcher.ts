@@ -154,11 +154,34 @@ export function watchRunDir(
     scheduleRead(currentStreamFile)
   }, 250)
 
-  // Backup heartbeat timer (5-10s)
+  // Guard against duplicate onDaemonDied calls from overlapping timers
+  let daemonDiedFired = false
+
+  // Early startup check — poll quickly for the first few seconds to catch
+  // daemons that crash immediately (e.g. bad config). After 5s, fall back to
+  // the slower 7s heartbeat interval.
+  let earlyCheckCount = 0
+  const earlyCheckTimer = setInterval(async () => {
+    if (stopped) return
+    earlyCheckCount++
+    if (earlyCheckCount > 5) {
+      clearInterval(earlyCheckTimer)
+      return
+    }
+    const status = await getDaemonStatus(runDir)
+    if (!status.alive && !status.starting && !stopped && !daemonDiedFired) {
+      daemonDiedFired = true
+      callbacks.onDaemonDied()
+      clearInterval(earlyCheckTimer)
+    }
+  }, 1_000)
+
+  // Backup heartbeat timer (7s)
   const heartbeatTimer = setInterval(async () => {
     if (stopped) return
     const status = await getDaemonStatus(runDir)
-    if (!status.alive && !status.starting) {
+    if (!status.alive && !status.starting && !daemonDiedFired) {
+      daemonDiedFired = true
       callbacks.onDaemonDied()
     }
   }, 7_000)
@@ -184,6 +207,7 @@ export function watchRunDir(
       stopped = true
       watcher?.close()
       clearInterval(streamPollTimer)
+      clearInterval(earlyCheckTimer)
       clearInterval(heartbeatTimer)
       if (pollTimer) clearInterval(pollTimer)
       if (flushTimer) clearTimeout(flushTimer)
