@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.5.0](https://github.com/SpaceK33z/autoauto/compare/v1.4.0...v1.5.0) (2026-04-10)
+
+
+### Features
+
+* add --version/-v flag to CLI ([8745515](https://github.com/SpaceK33z/autoauto/commit/87455159d688e281ef66e161023ec8916e7d3bdc))
+* add abort option to stop confirmation dialog ([6dedba4](https://github.com/SpaceK33z/autoauto/commit/6dedba4f63e741c9e0141891b1a4a911475a5bdb))
+* add click-to-focus for all panels in execution screen ([f8dc59b](https://github.com/SpaceK33z/autoauto/commit/f8dc59bbb9641f85da3449cb648e5d8609317dcf))
+* add Ctrl+D debug frame snapshot in dev mode ([b70bb59](https://github.com/SpaceK33z/autoauto/commit/b70bb595a22c3c9a00c4ef3b5f497bb05a3a6630))
+* detect provider quota/rate-limit errors and stop experiment loop ([4add972](https://github.com/SpaceK33z/autoauto/commit/4add9729cf87bfae56c74f29b01386f5585e2891))
+* improve setup config defaults and confirmation flow ([db5eb1e](https://github.com/SpaceK33z/autoauto/commit/db5eb1eb23b5e02dcd2b653218794eaec550c071))
+* prevent macOS sleep during daemon runs via caffeinate ([4a0a1ce](https://github.com/SpaceK33z/autoauto/commit/4a0a1ceb36683a6576ff52af0a3626ec3dc5b6b0))
+* redesign home screen layout with runs on top and mouse selection ([aaaf19e](https://github.com/SpaceK33z/autoauto/commit/aaaf19eca9229e846edeb427ba23964645424395))
+* show finalization summary when viewing finalized runs ([7bc68e6](https://github.com/SpaceK33z/autoauto/commit/7bc68e6978ea7b96906a6957b89e5f7f31329c4a))
+* split first-time setup into conversational and experiment agent model pickers ([17ab0b5](https://github.com/SpaceK33z/autoauto/commit/17ab0b5f8690baa9742d1d8101fed7a95af5cad9))
+* surface skills/prompts as first example in setup screen ([19c8755](https://github.com/SpaceK33z/autoauto/commit/19c87552bfbb9bc08ee79872f01fafe22baec5cb))
+
+
+### Bug Fixes
+
+* exclude .autoauto-* files from dirty worktree check ([1f9b1da](https://github.com/SpaceK33z/autoauto/commit/1f9b1da70dc4a7f1f33a861663e0e7823afcced7))
+* handle caffeinate spawn failures gracefully in sandboxed environments ([b0ca279](https://github.com/SpaceK33z/autoauto/commit/b0ca279a4615434ed546ca66170c3fdad3218a26))
+* improve pre-run screen keybindings for start and queue actions ([4fb6a81](https://github.com/SpaceK33z/autoauto/commit/4fb6a813facdc211b973b676c51493414c4804a7))
+* install cross-platform native deps for darwin-x64 release build ([828441b](https://github.com/SpaceK33z/autoauto/commit/828441bb8aed8d5fd312cc39b67cd2ea5c4e9992))
+* prevent flex layout overflow with explicit min dimensions and row heights ([a886caf](https://github.com/SpaceK33z/autoauto/commit/a886cafe424b490dfdbf1f70db03fa2b642bc97b))
+* resolve 9 failing CI tests ([491b534](https://github.com/SpaceK33z/autoauto/commit/491b5340be3e1c1420491d34bf7f42661546a542))
+* sanitize ANSI sequences and control chars in table cell formatting ([1529193](https://github.com/SpaceK33z/autoauto/commit/1529193cd394b78606e5590c5b88fd24670210c3))
+* show phase-appropriate keyboard shortcuts on execution screen ([0ee1803](https://github.com/SpaceK33z/autoauto/commit/0ee1803160ddab129716bb9b74878ef2be6c757a))
+
 ## [1.4.0](https://github.com/SpaceK33z/autoauto/compare/v1.3.0...v1.4.0) (2026-04-09)
 
 
