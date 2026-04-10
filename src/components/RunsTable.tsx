@@ -11,6 +11,7 @@ export interface RunsTableProps {
   width: number
   focused?: boolean
   selectedIndex?: number
+  onSelectIndex?: (index: number) => void
 }
 
 const FINALIZED_COLOR = "#73daca" // teal
@@ -131,12 +132,18 @@ const RunRow = memo(function RunRow({
   run,
   config,
   widths,
+  lineWidth,
+  rowWidth,
   selected,
+  onMouseDown,
 }: {
   run: RunInfo
   config: ProgramConfig | undefined
   widths: RunColumnWidths
+  lineWidth: number
+  rowWidth: number
   selected: boolean
+  onMouseDown?: () => void
 }) {
   const state = run.state
   if (!state) return null
@@ -152,8 +159,8 @@ const RunRow = memo(function RunRow({
   const slug = state.program_slug
 
   return (
-    <box paddingX={1} backgroundColor={selected ? "#333333" : undefined}>
-      <text selectable>
+    <box width={rowWidth} paddingX={1} backgroundColor={selected ? "#333333" : undefined} onMouseDown={onMouseDown}>
+      <text width={lineWidth} selectable>
         <span fg={dotColor}>{formatCell(dotChar, widths.status)}</span>
         <span fg="#ffffff">{formatCell(slug, widths.program)}</span>
         <span fg="#ffffff">{formatCell(String(totalExp), widths.exp)}</span>
@@ -166,8 +173,9 @@ const RunRow = memo(function RunRow({
   )
 })
 
-export function RunsTable({ runs, programConfigs, width, focused = false, selectedIndex = 0 }: RunsTableProps) {
+export function RunsTable({ runs, programConfigs, width, focused = false, selectedIndex = 0, onSelectIndex }: RunsTableProps) {
   const innerWidth = Math.max(width - CHROME, 0)
+  const rowWidth = innerWidth + 2
   const fixedWidth = COL_STATUS + COL_PROGRAM + COL_EXP + COL_MODEL + COL_TOKENS + COL_TIME
   const [statusWidth, programWidth, expWidth, modelWidth, tokensWidth, timeWidth, gainsWidth] = allocateColumnWidths(innerWidth, [
     { ideal: COL_STATUS, min: 0 },
@@ -191,10 +199,10 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
   const validRuns = runs.filter((r) => r.state != null)
 
   return (
-    <box flexDirection="column" flexGrow={1}>
+    <box flexDirection="column" flexGrow={1} width="100%">
       {/* Header */}
-      <box paddingX={1}>
-        <text fg="#666666">
+      <box width={rowWidth} paddingX={1}>
+        <text width={innerWidth} fg="#666666">
           {formatCell("", widths.status)}
           {formatCell("program", widths.program)}
           {formatCell("exp", widths.exp)}
@@ -217,7 +225,10 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
               run={run}
               config={programConfigs[run.state!.program_slug]}
               widths={widths}
+              lineWidth={innerWidth}
+              rowWidth={rowWidth}
               selected={focused && index === selectedIndex}
+              onMouseDown={onSelectIndex ? () => onSelectIndex(index) : undefined}
             />
           ))
         )}

@@ -33,8 +33,6 @@ interface HomeData {
 }
 
 const MAX_RUNS = 50
-const SIDE_BY_SIDE_MIN_WIDTH = 120
-const PROGRAMS_PANEL_WIDTH = 50
 
 function relativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime()
@@ -119,8 +117,6 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   const [confirmClearQueue, setConfirmClearQueue] = useState(false)
   const [selectedQueueIndex, setSelectedQueueIndex] = useState(0)
   const [deleting, setDeleting] = useState(false)
-
-  const sideBySide = width >= SIDE_BY_SIDE_MIN_WIDTH
 
   useEffect(() => {
     loadHomeData(cwd)
@@ -350,12 +346,12 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   const programsPanel = (
     <box
       flexDirection="column"
-      flexGrow={sideBySide ? 0 : 1}
-      width={sideBySide ? PROGRAMS_PANEL_WIDTH : undefined}
+      flexGrow={1}
       border
       borderStyle="rounded"
       borderColor={programsFocused ? "#7aa2f7" : "#666666"}
       title="Programs"
+      onMouseDown={() => setFocusedPanel("programs")}
     >
       {totalProgramItems === 0 ? (
         <box flexGrow={1} justifyContent="center" alignItems="center">
@@ -374,6 +370,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
                 key={`draft-${d.name}`}
                 paddingX={1}
                 backgroundColor={isSelected ? "#333333" : undefined}
+                onMouseDown={() => { setFocusedPanel("programs"); setSelectedIndex(i) }}
               >
                 <text>
                   <span fg="#e0af68">{"* "}</span>
@@ -389,6 +386,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
                 key={p.name}
                 paddingX={1}
                 backgroundColor={isSelected ? "#333333" : undefined}
+                onMouseDown={() => { setFocusedPanel("programs"); setSelectedIndex(i + draftsCount) }}
               >
                 <text>
                   {p.hasActiveRun ? (
@@ -416,7 +414,6 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     </box>
   )
 
-  const runsTableWidth = sideBySide ? width - PROGRAMS_PANEL_WIDTH : width
   const runsPanel = (
     <box
       flexDirection="column"
@@ -425,13 +422,15 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       borderStyle="rounded"
       borderColor={runsFocused ? "#7aa2f7" : "#666666"}
       title="Runs"
+      onMouseDown={() => setFocusedPanel("runs")}
     >
       <RunsTable
         runs={data?.allRuns ?? []}
         programConfigs={data?.programConfigs ?? {}}
-        width={runsTableWidth}
+        width={width}
         focused={runsFocused}
         selectedIndex={selectedRunIndex}
+        onSelectIndex={(i) => { setFocusedPanel("runs"); setSelectedRunIndex(i) }}
       />
     </box>
   )
@@ -499,17 +498,18 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   const queuePanel = hasQueueItems ? (
     <box
       flexDirection="column"
-      height={Math.min(queueEntries.length + 2, 8)}
+      flexGrow={1}
       border
       borderStyle="rounded"
       borderColor={queueFocused ? "#7aa2f7" : "#666666"}
       title={`Queue (${queueEntries.length})`}
+      onMouseDown={() => setFocusedPanel("queue")}
     >
       <scrollbox flexGrow={1}>
         {queueEntries.map((entry, i) => {
           const isSelected = queueFocused && i === selectedQueueIndex
           return (
-            <box key={entry.id} paddingX={1} backgroundColor={isSelected ? "#333333" : undefined}>
+            <box key={entry.id} paddingX={1} backgroundColor={isSelected ? "#333333" : undefined} onMouseDown={() => { setFocusedPanel("queue"); setSelectedQueueIndex(i) }}>
               <text>
                 <span fg={i === 0 ? "#7aa2f7" : "#ffffff"}>{i === 0 ? "\u25B6 " : "  "}</span>
                 <span fg="#ffffff">{entry.programSlug}</span>
@@ -545,27 +545,13 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     </box>
   ) : null
 
-  if (sideBySide) {
-    return (
-      <box flexGrow={1} flexDirection="column">
-        <box flexGrow={1} flexDirection="row">
-          {programsPanel}
-          {runsPanel}
-        </box>
-        {queuePanel}
-        {deleteDialog}
-        {deleteProgramDialog}
-        {clearQueueDialog}
-      </box>
-    )
-  }
-
   return (
     <box flexGrow={1} flexDirection="column">
-      <box flexGrow={1}>
-        {focusedPanel === "queue" ? null : (focusedPanel === "programs" ? programsPanel : runsPanel)}
+      {runsPanel}
+      <box flexDirection="row" flexGrow={1}>
+        {programsPanel}
+        {queuePanel}
       </box>
-      {queuePanel}
       {deleteDialog}
       {deleteProgramDialog}
       {clearQueueDialog}
