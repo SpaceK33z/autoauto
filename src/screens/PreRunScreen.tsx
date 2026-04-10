@@ -120,16 +120,23 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       navigate("home")
       return
     }
-    if (key.name === "a" && onAddToQueue && selected !== 0 && selected !== 1) {
+    if (key.name === "s") {
+      handleStart()
+      return
+    }
+    if (key.name === "a") {
       handleAddToQueue()
       return
     }
+
+    // Enter activates the focused field (cycle/toggle/open picker)
     if (key.name === "return") {
-      if (selected === 3) {
-        setPickingModel(true)
-        return
-      }
-      handleStart()
+      if (selected === 2) { handleCycleProvider(1); return }
+      if (selected === 3) { setPickingModel(true); return }
+      if (selected === 4) { handleCycleEffort(1); return }
+      if (selected === 5) { setUseWorktree((v) => !v); return }
+      if (selected === 6) { setKeepSimplifications((v) => !v); return }
+      if (selected === 7 && hasPreviousRuns) { setCarryForward((v) => !v); return }
       return
     }
 
@@ -181,9 +188,9 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const effortDisplay = formatEffortSlot(modelSlot)
   const footerHint = onAddToQueue
     ? programHasQueueEntries
-      ? "  Enter: open model picker | a: add to queue | Escape: back | Tab: next field"
-      : "  Enter: start/open model picker | a: add to queue | Escape: back | Tab: next field"
-    : "  Enter: start/open model picker | Escape: back | Tab: next field"
+      ? "  a: add to queue | Enter: toggle field | Escape: back | Tab: next"
+      : "  s: start | a: add to queue | Enter: toggle field | Escape: back | Tab: next"
+    : "  s: start | Enter: toggle field | Escape: back | Tab: next"
 
   if (pickingModel) {
     return (
@@ -272,7 +279,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       <box flexGrow={1} />
 
       {programHasQueueEntries && (
-        <text fg="#ff9e64">{"  \u26A0 This program has queued runs. Use 'a' to add to queue."}</text>
+        <text fg="#ff9e64">{"  \u26A0 This program has queued runs. Press 'a' to add to queue."}</text>
       )}
       <text fg="#666666">{footerHint}</text>
     </box>
