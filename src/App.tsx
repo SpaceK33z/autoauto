@@ -4,6 +4,7 @@ import {
   useRenderer,
   useTerminalDimensions,
 } from "@opentui/react"
+import { colors } from "./lib/theme.ts"
 import { HomeScreen } from "./screens/HomeScreen.tsx"
 import { SetupScreen } from "./screens/SetupScreen.tsx"
 import { SettingsScreen } from "./screens/SettingsScreen.tsx"
@@ -83,7 +84,7 @@ export function App() {
     return (
       <box flexDirection="column" width={width} height={height}>
         <box flexGrow={1} justifyContent="center" alignItems="center">
-          <text fg="#888888">Loading...</text>
+          <text fg={colors.textMuted}>Loading...</text>
         </box>
       </box>
     )
@@ -284,7 +285,7 @@ export function App() {
 
       {screen !== "pre-run" && screen !== "execution" && (
         <box height={1} flexShrink={0} paddingX={1}>
-          <text fg="#888888">{footerText}</text>
+          <text fg={colors.textMuted}>{footerText}</text>
         </box>
       )}
     </box>

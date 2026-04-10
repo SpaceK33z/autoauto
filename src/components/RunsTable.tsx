@@ -3,6 +3,7 @@ import type { RunInfo, RunState } from "../lib/run.ts"
 import type { ProgramConfig } from "../lib/programs.ts"
 import { allocateColumnWidths, formatCell } from "../lib/format.ts"
 import { formatModelSlot, type EffortLevel } from "../lib/config.ts"
+import { colors } from "../lib/theme.ts"
 
 export interface RunsTableProps {
   runs: RunInfo[]
@@ -14,25 +15,23 @@ export interface RunsTableProps {
   onSelectIndex?: (index: number) => void
 }
 
-const FINALIZED_COLOR = "#73daca" // teal
-
 function phaseColor(state: RunState | null): string {
-  if (!state) return "#666666"
-  if (state.phase === "complete" && state.finalized_at) return FINALIZED_COLOR
+  if (!state) return colors.textDim
+  if (state.phase === "complete" && state.finalized_at) return colors.info
   switch (state.phase) {
     case "agent_running":
     case "measuring":
     case "baseline":
-      return "#7aa2f7" // blue — in progress
+      return colors.primary
     case "complete":
-      return "#9ece6a" // green
+      return colors.success
     case "crashed":
-      return "#ff5555" // red
+      return colors.error
     case "stopping":
     case "finalizing":
-      return "#e0af68" // yellow
+      return colors.warning
     default:
-      return "#666666" // dim
+      return colors.textDim
   }
 }
 
@@ -64,25 +63,25 @@ function formatGains(
   const hasKeeps = state.total_keeps > 0
 
   if (!hasKeeps) {
-    return { text: "—", color: "#666666" }
+    return { text: "—", color: colors.textDim }
   }
 
   if (!config) {
-    return { text: "—", color: "#666666" }
+    return { text: "—", color: colors.textDim }
   }
 
   const original = state.original_baseline
   const best = state.best_metric
 
   if (original === 0) {
-    return { text: "—", color: "#666666" }
+    return { text: "—", color: colors.textDim }
   }
 
   const absDelta = best - original
   const relPct = ((best - original) / Math.abs(original)) * 100
 
   const isGood = config.direction === "lower" ? absDelta < 0 : absDelta > 0
-  const color = isGood ? "#9ece6a" : "#ff5555"
+  const color = isGood ? colors.success : colors.error
 
   const sign = absDelta >= 0 ? "+" : ""
   const absStr = Math.abs(absDelta) >= 1000
@@ -155,18 +154,18 @@ const RunRow = memo(function RunRow({
   const gainsText = state.finalized_branch
     ? `${gains.text} → ${state.finalized_branch}`
     : gains.text
-  const gainsColor = state.finalized_at ? FINALIZED_COLOR : gains.color
+  const gainsColor = state.finalized_at ? colors.info : gains.color
   const slug = state.program_slug
 
   return (
-    <box width={rowWidth} height={1} paddingX={1} backgroundColor={selected ? "#333333" : undefined} flexShrink={0} onMouseDown={onMouseDown}>
+    <box width={rowWidth} height={1} paddingX={1} backgroundColor={selected ? colors.surfaceSelected : undefined} flexShrink={0} onMouseDown={onMouseDown}>
       <text width={lineWidth} selectable>
         <span fg={dotColor}>{formatCell(dotChar, widths.status)}</span>
-        <span fg="#ffffff">{formatCell(slug, widths.program)}</span>
-        <span fg="#ffffff">{formatCell(String(totalExp), widths.exp)}</span>
-        <span fg="#ffffff">{formatCell(formatModelEffort(state), widths.model)}</span>
-        <span fg="#ffffff">{formatCell(formatTokens(state.total_tokens), widths.tokens)}</span>
-        <span fg="#ffffff">{formatCell(formatDuration(state.started_at, state.updated_at, state.phase), widths.time)}</span>
+        <span fg={colors.text}>{formatCell(slug, widths.program)}</span>
+        <span fg={colors.text}>{formatCell(String(totalExp), widths.exp)}</span>
+        <span fg={colors.text}>{formatCell(formatModelEffort(state), widths.model)}</span>
+        <span fg={colors.text}>{formatCell(formatTokens(state.total_tokens), widths.tokens)}</span>
+        <span fg={colors.text}>{formatCell(formatDuration(state.started_at, state.updated_at, state.phase), widths.time)}</span>
         <span fg={gainsColor}>{formatCell(gainsText, widths.gains)}</span>
       </text>
     </box>
@@ -202,7 +201,7 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
     <box flexDirection="column" flexGrow={1} width="100%" minHeight={0} minWidth={0}>
       {/* Header */}
       <box width={rowWidth} height={1} paddingX={1} flexShrink={0}>
-        <text width={innerWidth} fg="#666666">
+        <text width={innerWidth} fg={colors.textDim}>
           {formatCell("", widths.status)}
           {formatCell("program", widths.program)}
           {formatCell("exp", widths.exp)}
@@ -216,7 +215,7 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
       <scrollbox flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom">
         {validRuns.length === 0 ? (
           <box height={1} paddingX={1} flexShrink={0}>
-            <text fg="#666666">No runs yet.</text>
+            <text fg={colors.textDim}>No runs yet.</text>
           </box>
         ) : (
           validRuns.map((run, index) => (

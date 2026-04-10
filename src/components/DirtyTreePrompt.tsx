@@ -6,6 +6,7 @@ import { getProvider } from "../lib/agent/index.ts"
 import { formatToolEvent } from "../lib/tool-events.ts"
 import { truncateStreamText } from "../lib/format.ts"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
+import { colors } from "../lib/theme.ts"
 
 interface DirtyTreePromptProps {
   cwd: string
@@ -128,19 +129,19 @@ export function DirtyTreePrompt({
   return (
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Uncommitted Changes">
       <box flexDirection="column" padding={1}>
-        <text fg="#e0af68"><strong>Working tree has uncommitted changes</strong></text>
+        <text fg={colors.warning}><strong>Working tree has uncommitted changes</strong></text>
         <box height={1} />
-        <text fg="#888888">Working directory: {cwd}{branch ? ` (${branch})` : ""}</text>
+        <text fg={colors.textMuted}>Working directory: {cwd}{branch ? ` (${branch})` : ""}</text>
         <box height={1} />
-        <text fg="#ffffff"><strong>Changed files:</strong></text>
+        <text fg={colors.text}><strong>Changed files:</strong></text>
         {fileLines.map((line, i) => (
-          <text key={i} fg="#ff9e64" selectable>{"  "}{line}</text>
+          <text key={i} fg={colors.orange} selectable>{"  "}{line}</text>
         ))}
       </box>
 
       {commitError && (
         <box padding={1}>
-          <text fg="#ff5555">{commitError}</text>
+          <text fg={colors.error}>{commitError}</text>
         </box>
       )}
 
@@ -148,12 +149,12 @@ export function DirtyTreePrompt({
         <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
           <box paddingX={1} flexDirection="column">
             {commitToolStatus && (
-              <text fg="#666666" selectable>{commitToolStatus}</text>
+              <text fg={colors.textDim} selectable>{commitToolStatus}</text>
             )}
             {commitStreamText ? (
               <markdown content={commitStreamText} syntaxStyle={syntaxStyle} streaming />
             ) : (
-              <text fg="#7aa2f7">Agent analyzing changes...</text>
+              <text fg={colors.primary}>Agent analyzing changes...</text>
             )}
           </box>
         </scrollbox>
@@ -162,20 +163,20 @@ export function DirtyTreePrompt({
           <box height={1} />
           <text><strong>What would you like to do?</strong></text>
           <box height={1} />
-          <text fg={selected === 0 ? "#ffffff" : "#888888"}>
+          <text fg={selected === 0 ? colors.text : colors.textMuted}>
             {selected === 0 ? " > " : "   "}
             Commit (let agent analyze & commit changes)
           </text>
-          <text fg={selected === 1 ? "#ffffff" : "#888888"}>
+          <text fg={selected === 1 ? colors.text : colors.textMuted}>
             {selected === 1 ? " > " : "   "}
             Retry (re-check and try again)
           </text>
-          <text fg={selected === 2 ? "#ffffff" : "#888888"}>
+          <text fg={selected === 2 ? colors.text : colors.textMuted}>
             {selected === 2 ? " > " : "   "}
             Quit (go back to home)
           </text>
           <box height={1} />
-          <text fg="#888888">j/k move · Enter select · c commit · r retry · q/Esc quit</text>
+          <text fg={colors.textMuted}>j/k move · Enter select · c commit · r retry · q/Esc quit</text>
         </box>
       )}
     </box>

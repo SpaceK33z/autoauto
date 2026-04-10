@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useKeyboard } from "@opentui/react"
+import { colors } from "../lib/theme.ts"
 
 interface PostUpdatePromptProps {
   programSlug: string
@@ -26,17 +27,17 @@ export function PostUpdatePrompt({ programSlug, onStartRun, onGoHome }: PostUpda
   return (
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Program Updated">
       <box flexDirection="column" padding={1}>
-        <text fg="#9ece6a"><strong>Program updated</strong></text>
+        <text fg={colors.success}><strong>Program updated</strong></text>
         <box height={1} />
         <text selectable>Program: {programSlug}</text>
         <box height={1} />
         <text><strong>What would you like to do?</strong></text>
         <box height={1} />
-        <text fg={selected === 0 ? "#ffffff" : "#888888"}>
+        <text fg={selected === 0 ? colors.text : colors.textMuted}>
           {selected === 0 ? " > " : "   "}
           Start a new run
         </text>
-        <text fg={selected === 1 ? "#ffffff" : "#888888"}>
+        <text fg={selected === 1 ? colors.text : colors.textMuted}>
           {selected === 1 ? " > " : "   "}
           Go back to home
         </text>

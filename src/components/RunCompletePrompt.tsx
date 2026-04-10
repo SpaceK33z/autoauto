@@ -4,6 +4,7 @@ import type { RunState } from "../lib/run.ts"
 import { getRunStats } from "../lib/run.ts"
 import type { TerminationReason } from "../lib/experiment-loop.ts"
 import type { VerificationResult } from "../lib/verify.ts"
+import { colors } from "../lib/theme.ts"
 
 interface RunCompletePromptProps {
   state: RunState
@@ -81,7 +82,7 @@ export function RunCompletePrompt({
   return (
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Run Complete">
       <box flexDirection="column" padding={1}>
-        <text fg="#9ece6a" selectable><strong>{reasonLabel}</strong></text>
+        <text fg={colors.success} selectable><strong>{reasonLabel}</strong></text>
         <box height={1} />
         <text selectable>Program: {state.program_slug}</text>
         <text selectable>Branch: {state.branch_name}</text>
@@ -91,12 +92,12 @@ export function RunCompletePrompt({
         {stats.total_keeps > 0 && (
           <text selectable>Keep rate: {(stats.keep_rate * 100).toFixed(0)}%</text>
         )}
-        {error && <text fg="#ff5555" selectable>Error: {error}</text>}
+        {error && <text fg={colors.error} selectable>Error: {error}</text>}
 
         {verificationResults && verificationResults.length > 0 && (
           <>
             <box height={1} />
-            <text fg="#7aa2f7" selectable><strong>Verification Results</strong></text>
+            <text fg={colors.primary} selectable><strong>Verification Results</strong></text>
             {verificationResults.map((r, i) => (
               <box key={`${r.target}-${i}`} flexDirection="column">
                 {r.success ? (
@@ -104,18 +105,18 @@ export function RunCompletePrompt({
                     {"  "}{r.target === "baseline" ? "Baseline" : "Current"}: {r.original_metric} {"\u2192"} {r.median_metric} ({formatPctDelta(r.original_metric, r.median_metric)})
                   </text>
                 ) : (
-                  <text fg="#ff5555" selectable>
+                  <text fg={colors.error} selectable>
                     {"  "}{r.target === "baseline" ? "Baseline" : "Current"}: failed — {r.failure_reason}
                   </text>
                 )}
                 {r.success && Object.keys(r.median_quality_gates).length > 0 && (
-                  <text fg="#888888" selectable>
+                  <text fg={colors.textMuted} selectable>
                     {"    "}Quality gates: {Object.entries(r.median_quality_gates).map(([k, v]) => `${k}=${v}`).join(", ")}
                     {!r.quality_gates_passed && r.gate_violations.length > 0 ? ` (FAILED: ${r.gate_violations.join("; ")})` : ""}
                   </text>
                 )}
                 {r.success && Object.keys(r.median_secondary_metrics).length > 0 && (
-                  <text fg="#888888" selectable>
+                  <text fg={colors.textMuted} selectable>
                     {"    "}Secondary: {Object.entries(r.median_secondary_metrics).map(([k, v]) => `${k}=${v}`).join(", ")}
                   </text>
                 )}
@@ -127,31 +128,31 @@ export function RunCompletePrompt({
         {isVerifying && (
           <>
             <box height={1} />
-            <text fg="#e0af68" selectable>{verifyProgress ?? "Verifying..."}</text>
+            <text fg={colors.warning} selectable>{verifyProgress ?? "Verifying..."}</text>
           </>
         )}
 
         <box height={1} />
         <text><strong>What would you like to do?</strong></text>
         <box height={1} />
-        <text fg={selected === 0 ? "#ffffff" : "#888888"}>
+        <text fg={selected === 0 ? colors.text : colors.textMuted}>
           {selected === 0 ? " > " : "   "}
           Finalize (review & package changes)
         </text>
-        <text fg={selected === 1 ? "#ffffff" : "#888888"}>
+        <text fg={selected === 1 ? colors.text : colors.textMuted}>
           {selected === 1 ? " > " : "   "}
           Update Program (edit config/scripts)
         </text>
-        <text fg={selected === 2 ? "#ffffff" : "#888888"}>
+        <text fg={selected === 2 ? colors.text : colors.textMuted}>
           {selected === 2 ? " > " : "   "}
           Verify Results (re-run measurements)
         </text>
-        <text fg={selected === 3 ? "#ffffff" : "#888888"}>
+        <text fg={selected === 3 ? colors.text : colors.textMuted}>
           {selected === 3 ? " > " : "   "}
           Done (keep branch as-is)
         </text>
         <box height={1} />
-        <text fg="#888888">j/k move · Enter select · f finalize · u update · v verify · d done</text>
+        <text fg={colors.textMuted}>j/k move · Enter select · f finalize · u update · v verify · d done</text>
       </box>
     </box>
   )

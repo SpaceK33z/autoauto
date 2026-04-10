@@ -17,6 +17,7 @@ import { checkAuth } from "../lib/auth.ts"
 import { formatShellError } from "../lib/git.ts"
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
+import { colors } from "../lib/theme.ts"
 
 interface FirstSetupScreenProps {
   cwd: string
@@ -140,11 +141,11 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="First-Time Setup">
       <box height={1} />
       <text>{"  Welcome! Pick models for your agents."}</text>
-      <text fg="#888888">{"  You can change these later in Settings."}</text>
+      <text fg={colors.textMuted}>{"  You can change these later in Settings."}</text>
       <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Conversational Agent "}</strong></text>
-        <text fg="#888888">{"— designs experiments & writes scripts (pick a smart model)"}</text>
+        <text fg={colors.textMuted}>{"— designs experiments & writes scripts (pick a smart model)"}</text>
       </box>
       <CycleField
         label="Provider"
@@ -165,7 +166,7 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
       <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Experiment Agent "}</strong></text>
-        <text fg="#888888">{"— makes focused code changes (cheaper models work fine)"}</text>
+        <text fg={colors.textMuted}>{"— makes focused code changes (cheaper models work fine)"}</text>
       </box>
       <CycleField
         label="Provider"
@@ -186,22 +187,22 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
       <box height={1} />
       <text>
         {isContinueFocused ? (
-          <span fg="#7aa2f7"><strong>{"  [ Continue ]"}</strong></span>
+          <span fg={colors.primary}><strong>{"  [ Continue ]"}</strong></span>
         ) : (
-          <span fg="#888888">{"  [ Continue ]"}</span>
+          <span fg={colors.textMuted}>{"  [ Continue ]"}</span>
         )}
       </text>
       {checking && (
         <>
           <box height={1} />
-          <text fg="#888888">{"  Checking authentication..."}</text>
+          <text fg={colors.textMuted}>{"  Checking authentication..."}</text>
         </>
       )}
       {error && (
         <>
           <box height={1} />
-          <text fg="#ff5555">{`  Auth failed: ${error}`}</text>
-          <text fg="#888888">{"  Change provider or fix credentials, then try again."}</text>
+          <text fg={colors.error}>{`  Auth failed: ${error}`}</text>
+          <text fg={colors.textMuted}>{"  Change provider or fix credentials, then try again."}</text>
         </>
       )}
     </box>

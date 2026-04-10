@@ -20,6 +20,7 @@ import { sendNotification } from "../lib/notify.ts"
 import type { RunState } from "../lib/run.ts"
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
+import { colors } from "../lib/theme.ts"
 
 interface SettingsScreenProps {
   cwd: string
@@ -218,7 +219,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Execution Model "}</strong></text>
-        <text fg="#888888">{"(experiment agents)"}</text>
+        <text fg={colors.textMuted}>{"(experiment agents)"}</text>
       </box>
       <CycleField
         label="Provider"
@@ -239,7 +240,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Support Model "}</strong></text>
-        <text fg="#888888">{"(setup & finalize)"}</text>
+        <text fg={colors.textMuted}>{"(setup & finalize)"}</text>
       </box>
       <CycleField
         label="Provider"
@@ -260,7 +261,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Experiment Memory "}</strong></text>
-        <text fg="#888888">{"(ideas backlog)"}</text>
+        <text fg={colors.textMuted}>{"(ideas backlog)"}</text>
       </box>
       <CycleField
         label="Ideas Backlog"
@@ -273,7 +274,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       <box height={1} />
       <box flexDirection="row">
         <text><strong>{"  Notifications "}</strong></text>
-        <text fg="#888888">{"(on run complete)"}</text>
+        <text fg={colors.textMuted}>{"(on run complete)"}</text>
       </box>
       <CycleField
         label="Preset"
@@ -297,27 +298,27 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
               ) : (
                 <text>
                   {selected === 8 ? (
-                    <span fg="#7aa2f7"><strong>{`  Command: ${config.notificationCommand ?? ""}`}</strong></span>
+                    <span fg={colors.primary}><strong>{`  Command: ${config.notificationCommand ?? ""}`}</strong></span>
                   ) : (
                     `  Command: ${config.notificationCommand ?? ""}`
                   )}
                 </text>
               )}
               {selected === 8 && !editingCommand && (
-                <text fg="#888888">{"  Enter to edit \u2022 Variables: {{program}} {{run_id}} {{status}} {{experiments}} {{keeps}} {{best_metric}} {{improvement_pct}} {{duration}}"}</text>
+                <text fg={colors.textMuted}>{"  Enter to edit \u2022 Variables: {{program}} {{run_id}} {{status}} {{experiments}} {{keeps}} {{best_metric}} {{improvement_pct}} {{duration}}"}</text>
               )}
             </box>
           )}
           <box flexDirection="column">
             <text>
               {selected === rowCount - 1 ? (
-                <span fg="#7aa2f7"><strong>{`  Test Notification${testStatus ? ` \u2014 ${testStatus}` : ""}`}</strong></span>
+                <span fg={colors.primary}><strong>{`  Test Notification${testStatus ? ` \u2014 ${testStatus}` : ""}`}</strong></span>
               ) : (
                 `  Test Notification${testStatus ? ` \u2014 ${testStatus}` : ""}`
               )}
             </text>
             {selected === rowCount - 1 && (
-              <text fg="#888888">{"  Press Enter to send a test notification with sample data"}</text>
+              <text fg={colors.textMuted}>{"  Press Enter to send a test notification with sample data"}</text>
             )}
           </box>
         </>

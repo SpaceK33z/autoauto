@@ -4,6 +4,7 @@ import type { ExperimentResult, ExperimentStatus } from "../lib/run.ts"
 import { parseSecondaryValues } from "../lib/run.ts"
 import type { SecondaryMetric } from "../lib/programs.ts"
 import { allocateColumnWidths, formatCell, type ColumnSpec } from "../lib/format.ts"
+import { colors } from "../lib/theme.ts"
 
 interface ResultsTableProps {
   results: ExperimentResult[]
@@ -18,12 +19,12 @@ interface ResultsTableProps {
 
 export function statusColor(status: ExperimentStatus): string {
   switch (status) {
-    case "keep": return "#9ece6a"
-    case "discard": return "#ff5555"
-    case "crash": return "#ff5555"
-    case "measurement_failure": return "#e0af68"
-    case "verification_baseline": return "#7aa2f7"
-    case "verification_current": return "#7aa2f7"
+    case "keep": return colors.success
+    case "discard": return colors.error
+    case "crash": return colors.error
+    case "measurement_failure": return colors.warning
+    case "verification_baseline": return colors.primary
+    case "verification_current": return colors.primary
   }
 }
 
@@ -36,7 +37,7 @@ const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highligh
   lineWidth: number
   rowWidth: number
 }) {
-  const bg = selected ? "#3d59a1" : highlighted ? "#292e42" : undefined
+  const bg = selected ? colors.surfaceActiveSelection : highlighted ? colors.surfaceHighlight : undefined
   const fg = statusColor(r.status)
 
   const secondaryValues = secondaryFields.length > 0 ? parseSecondaryValues(r.secondary_values) : null
@@ -141,14 +142,14 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
   return (
     <box flexDirection="column" flexGrow={1} width="100%" minHeight={0} minWidth={0}>
       <box width={rowWidth} height={1} paddingX={1} flexShrink={0}>
-        <text width={innerWidth} fg="#ffffff">
+        <text width={innerWidth} fg={colors.text}>
           {headerLine}
         </text>
       </box>
       <scrollbox flexGrow={1} minHeight={0} stickyScroll={!focused} stickyStart="bottom">
         {experiments.length === 0 ? (
           <box width={rowWidth} height={1} paddingX={1} flexShrink={0}>
-            <text width={innerWidth} fg="#ffffff">
+            <text width={innerWidth} fg={colors.text}>
               {formatCell(experimentNumber != null && experimentNumber > 0
                 ? `Running experiment #${experimentNumber}...`
                 : "Running baseline measurement...", innerWidth)}

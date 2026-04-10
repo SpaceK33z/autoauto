@@ -1,3 +1,5 @@
+import { colors } from "../lib/theme.ts"
+
 interface RunSettingsOverlayProps {
   maxExpText: string
   experimentNumber: number
@@ -26,23 +28,23 @@ export function RunSettingsOverlay({ maxExpText, experimentNumber, validationErr
         flexDirection="column"
         paddingX={1}
         width={50}
-        backgroundColor="#1a1b26"
+        backgroundColor={colors.surface}
       >
         <box>
           <text>
-            <span fg="#7aa2f7"><strong>{`Max Experiments: ${maxExpText}`}<span fg="#7aa2f7">{"\u2588"}</span></strong></span>
+            <span fg={colors.primary}><strong>{`Max Experiments: ${maxExpText}`}<span fg={colors.primary}>{"\u2588"}</span></strong></span>
             {"  "}
             {hasMax && (
-              <span fg="#666666">{`(${experimentNumber} of ${parsed} done)`}</span>
+              <span fg={colors.textDim}>{`(${experimentNumber} of ${parsed} done)`}</span>
             )}
           </text>
         </box>
         {validationError ? (
-          <text fg="#ff5555" selectable>{validationError}</text>
+          <text fg={colors.error} selectable>{validationError}</text>
         ) : (
-          <text fg="#888888">Type a number to set the experiment limit</text>
+          <text fg={colors.textMuted}>Type a number to set the experiment limit</text>
         )}
-        <text fg="#666666">Esc: close</text>
+        <text fg={colors.textDim}>Esc: close</text>
       </box>
     </box>
   )

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { VerifyTarget } from "../lib/verify.ts"
+import { colors } from "../lib/theme.ts"
 
 interface VerifyResultsOverlayProps {
   defaultRepeats: number
@@ -58,24 +59,24 @@ export function VerifyResultsOverlay({ defaultRepeats, onConfirm, onCancel }: Ve
         flexDirection="column"
         paddingX={1}
         width={56}
-        backgroundColor="#1a1b26"
+        backgroundColor={colors.surface}
       >
-        <text fg="#e0af68">Warning: worktree will be temporarily checked out to different commits</text>
+        <text fg={colors.warning}>Warning: worktree will be temporarily checked out to different commits</text>
         <box height={1} />
         <text><strong>What to verify:</strong></text>
         {TARGETS.map((t, i) => (
-          <text key={t.value} fg={i === selectedTarget ? "#ffffff" : "#888888"}>
+          <text key={t.value} fg={i === selectedTarget ? colors.text : colors.textMuted}>
             {i === selectedTarget ? " > " : "   "}{t.label}
           </text>
         ))}
         <box height={1} />
         <text>
-          <span fg="#7aa2f7"><strong>{`Repeats: ${repeatsText}`}<span fg="#7aa2f7">{"\u2588"}</span></strong></span>
+          <span fg={colors.primary}><strong>{`Repeats: ${repeatsText}`}<span fg={colors.primary}>{"\u2588"}</span></strong></span>
           {"  "}
-          {!repeatsValid && <span fg="#ff5555">Must be a positive number</span>}
+          {!repeatsValid && <span fg={colors.error}>Must be a positive number</span>}
         </text>
         <box height={1} />
-        <text fg="#666666">j/k select target · type number for repeats · Enter confirm · Esc cancel</text>
+        <text fg={colors.textDim}>j/k select target · type number for repeats · Enter confirm · Esc cancel</text>
       </box>
     </box>
   )

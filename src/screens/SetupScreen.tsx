@@ -11,6 +11,7 @@ import { buildUpdateRunContext } from "../lib/run-context.ts"
 import { formatModelLabel, type ModelSlot } from "../lib/config.ts"
 import { formatShellError } from "../lib/git.ts"
 import { saveDraft, loadDraft, deleteDraft, draftFileName, type DraftSession, type DraftMessage } from "../lib/drafts.ts"
+import { colors } from "../lib/theme.ts"
 
 type OpenTUISubmitEvent = Parameters<NonNullable<TextareaOptions["onSubmit"]>>[0]
 
@@ -226,7 +227,7 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName
       <box flexDirection="column" flexGrow={1}>
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Resuming...">
           <box flexGrow={1} justifyContent="center" alignItems="center">
-            <text fg="#888888">Loading session...</text>
+            <text fg={colors.textMuted}>Loading session...</text>
           </box>
         </box>
       </box>
@@ -238,7 +239,7 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName
       <box flexDirection="column" flexGrow={1}>
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`Update: ${programSlug}`}>
           <box flexGrow={1} justifyContent="center" alignItems="center">
-            <text fg="#ff5555">Failed to load program: {updateLoadError}</text>
+            <text fg={colors.error}>Failed to load program: {updateLoadError}</text>
           </box>
         </box>
       </box>
@@ -250,7 +251,7 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName
       <box flexDirection="column" flexGrow={1}>
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`Update: ${programSlug}`}>
           <box flexGrow={1} justifyContent="center" alignItems="center">
-            <text fg="#888888">Loading program context...</text>
+            <text fg={colors.textMuted}>Loading program context...</text>
           </box>
         </box>
       </box>
@@ -269,8 +270,8 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName
             focused
             options={MODE_OPTIONS}
             onSelect={handleModeSelect}
-            selectedBackgroundColor="#333333"
-            selectedTextColor="#ffffff"
+            selectedBackgroundColor={colors.surfaceSelected}
+            selectedTextColor={colors.text}
           />
         </box>
       </box>
@@ -292,7 +293,7 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName
             />
           </box>
           <box height={1} />
-          <text fg="#888888">{"  Press Enter to skip and analyze everything"}</text>
+          <text fg={colors.textMuted}>{"  Press Enter to skip and analyze everything"}</text>
         </box>
       </box>
     )
@@ -304,7 +305,7 @@ export function SetupScreen({ cwd, navigate, modelConfig, programSlug, draftName
       <box flexDirection="column" flexGrow={1}>
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="New Program">
           <box flexGrow={1} justifyContent="center" alignItems="center">
-            <text fg="#888888">Preparing...</text>
+            <text fg={colors.textMuted}>Preparing...</text>
           </box>
         </box>
       </box>

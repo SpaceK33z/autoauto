@@ -20,6 +20,7 @@ import {
 } from "../lib/config.ts"
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
+import { colors } from "../lib/theme.ts"
 
 export interface PreRunOverrides {
   modelConfig: ModelSlot
@@ -216,26 +217,26 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       <box flexDirection="column">
         <text>
           {selected === 0 ? (
-            <span fg="#7aa2f7"><strong>{`  Max Experiments: ${maxExpText || ""}`}<span fg="#7aa2f7">{"\u2588"}</span></strong></span>
+            <span fg={colors.primary}><strong>{`  Max Experiments: ${maxExpText || ""}`}<span fg={colors.primary}>{"\u2588"}</span></strong></span>
           ) : (
             `  Max Experiments: ${maxExpText || "(required)"}`
           )}
         </text>
         {selected === 0 && (
-          <text fg="#888888">{"  Type a number (required)"}</text>
+          <text fg={colors.textMuted}>{"  Type a number (required)"}</text>
         )}
       </box>
 
       <box flexDirection="column">
         <text>
           {selected === 1 ? (
-            <span fg="#7aa2f7"><strong>{`  Budget Cap: ${maxCostText ? `$${maxCostText}` : ""}`}<span fg="#7aa2f7">{"\u2588"}</span></strong></span>
+            <span fg={colors.primary}><strong>{`  Budget Cap: ${maxCostText ? `$${maxCostText}` : ""}`}<span fg={colors.primary}>{"\u2588"}</span></strong></span>
           ) : (
             `  Budget Cap: ${maxCostText ? `$${maxCostText}` : "(no limit)"}`
           )}
         </text>
         {selected === 1 && (
-          <text fg="#888888">{"  Max cost in USD (optional \u2014 blank for no limit)"}</text>
+          <text fg={colors.textMuted}>{"  Max cost in USD (optional \u2014 blank for no limit)"}</text>
         )}
       </box>
 
@@ -250,9 +251,9 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       <CycleField label="Run Mode" value={useWorktree ? "Worktree (recommended)" : "In-place"} isFocused={selected === 5} />
       {!useWorktree && (
         <box flexDirection="column">
-          <text fg="#ff5555">{"  \u26A0 DANGER: Runs git reset --hard in your main checkout."}</text>
-          <text fg="#ff5555">{"    All uncommitted changes will be destroyed between experiments."}</text>
-          <text fg="#ff5555">{"    Your branch will be changed. Only use on a clean, throwaway branch."}</text>
+          <text fg={colors.error}>{"  \u26A0 DANGER: Runs git reset --hard in your main checkout."}</text>
+          <text fg={colors.error}>{"    All uncommitted changes will be destroyed between experiments."}</text>
+          <text fg={colors.error}>{"    Your branch will be changed. Only use on a clean, throwaway branch."}</text>
         </box>
       )}
 
@@ -267,11 +268,11 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       {/* Time estimate */}
       {avgMs != null && (
         <box flexDirection="column">
-          <text fg="#888888">
+          <text fg={colors.textMuted}>
             {`  Each measurement takes ~${(avgMs / 1000).toFixed(1)}s (×${repeats} repeats)`}
           </text>
           {hasMaxExp && (
-            <text fg="#888888">
+            <text fg={colors.textMuted}>
               {`  ${maxExp} experiments \u2248 ~${Math.ceil((avgMs * maxExp * repeats) / 60000)} min (measurement only)`}
             </text>
           )}
@@ -281,9 +282,9 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       <box flexGrow={1} />
 
       {programHasQueueEntries && (
-        <text fg="#ff9e64">{"  \u26A0 This program has queued runs. Press 'a' to add to queue."}</text>
+        <text fg={colors.orange}>{"  \u26A0 This program has queued runs. Press 'a' to add to queue."}</text>
       )}
-      <text fg="#666666">{footerHint}</text>
+      <text fg={colors.textDim}>{footerHint}</text>
     </box>
   )
 }

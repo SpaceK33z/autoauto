@@ -43,8 +43,10 @@ import { truncateStreamText } from "../lib/format.ts"
 type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error" | "dirty"
 
 const FINALIZE_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
-const BORDER_ACTIVE = "#7aa2f7"
-const BORDER_DIM = "#666666"
+import { colors } from "../lib/theme.ts"
+
+const BORDER_ACTIVE = colors.borderActive
+const BORDER_DIM = colors.borderDim
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError"
@@ -820,24 +822,24 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
           {showStopConfirm && (
             <box paddingX={1}>
-              <text fg="#e0af68" selectable>Stop after current experiment (y) / Abort immediately (a) / Cancel (n)</text>
+              <text fg={colors.warning} selectable>Stop after current experiment (y) / Abort immediately (a) / Cancel (n)</text>
             </box>
           )}
 
           {stopping && !showStopConfirm && (
             <box paddingX={1}>
-              <text fg="#e0af68" selectable>Stopping after current experiment...</text>
+              <text fg={colors.warning} selectable>Stopping after current experiment...</text>
             </box>
           )}
 
           {lastError && (
             <box paddingX={1}>
-              <text fg="#ff5555" selectable>{lastError}</text>
+              <text fg={colors.error} selectable>{lastError}</text>
             </box>
           )}
 
           <box paddingX={1}>
-            <text fg="#888888">Esc: detach · Tab: switch panel · s: settings · q: stop{ideasText.length > 0 ? " · i: ideas" : ""}</text>
+            <text fg={colors.textMuted}>Esc: detach · Tab: switch panel · s: settings · q: stop{ideasText.length > 0 ? " · i: ideas" : ""}</text>
           </box>
         </box>
       )}
@@ -940,7 +942,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             </box>
           )}
           <box paddingX={1}>
-            <text fg="#888888">
+            <text fg={colors.textMuted}>
               {summaryText
                 ? "Esc back"
                 : `Esc back · f finalize${ideasText.length > 0 ? " · i toggle ideas" : ""}`}
@@ -989,7 +991,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             onMessagesChange={handleFinalizeMessagesChange}
           />
           <box paddingX={1}>
-            <text fg="#888888">Esc: cancel finalize</text>
+            <text fg={colors.textMuted}>Esc: cancel finalize</text>
           </box>
         </box>
       )}
@@ -999,10 +1001,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0} border borderStyle="rounded" title="Finalize Complete">
             <box flexDirection="column" paddingX={1}>
               {finalizeResult.branch && (
-                <text fg="#9ece6a" selectable>Changes packaged on branch: {finalizeResult.branch}</text>
+                <text fg={colors.success} selectable>Changes packaged on branch: {finalizeResult.branch}</text>
               )}
               <box height={1} />
-              <text fg="#ffffff">Summary saved to run directory.</text>
+              <text fg={colors.text}>Summary saved to run directory.</text>
             </box>
             <scrollbox flexGrow={1} focused>
               <box paddingX={1} flexDirection="column">
@@ -1011,7 +1013,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             </scrollbox>
           </box>
           <box paddingX={1}>
-            <text fg="#888888">Esc: back</text>
+            <text fg={colors.textMuted}>Esc: back</text>
           </box>
         </box>
       )}
@@ -1029,10 +1031,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       {phase === "error" && (
         <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title="Error">
           <box padding={1}>
-            <text fg="#ff5555" selectable>{lastError ?? "Unknown error"}</text>
+            <text fg={colors.error} selectable>{lastError ?? "Unknown error"}</text>
           </box>
           <box padding={1}>
-            <text fg="#888888">
+            <text fg={colors.textMuted}>
               {runState && !readOnly && onUpdateProgram
                 ? "Press u to update program · Escape to go back"
                 : "Press Escape to go back"}

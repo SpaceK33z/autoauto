@@ -4,6 +4,7 @@ import type { ModelSlot } from "../lib/config.ts"
 import type { AgentProviderID } from "../lib/agent/index.ts"
 import { loadModelPickerOptions, type ModelPickerOption } from "../lib/model-options.ts"
 import { formatShellError } from "../lib/git.ts"
+import { colors } from "../lib/theme.ts"
 
 interface SelectOption {
   name: string
@@ -67,16 +68,16 @@ export function ModelPicker({ cwd, title, providerId, onSelect, onCancel }: Mode
   return (
     <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={title}>
       <box height={1} />
-      <text fg="#888888">{hint}</text>
+      <text fg={colors.textMuted}>{hint}</text>
       <box height={1} />
-      {error && <text fg="#ff5555">{`  Error: ${error}`}</text>}
-      {loading && <text fg="#888888">{"  Loading models..."}</text>}
+      {error && <text fg={colors.error}>{`  Error: ${error}`}</text>}
+      {loading && <text fg={colors.textMuted}>{"  Loading models..."}</text>}
       <select
         flexGrow={1}
         focused
         options={options}
-        selectedBackgroundColor="#333333"
-        selectedTextColor="#ffffff"
+        selectedBackgroundColor={colors.surfaceSelected}
+        selectedTextColor={colors.text}
         onSelect={(_index: number, option: SelectOption | null) => {
           if (!option?.value) return
           onSelect(option.value)

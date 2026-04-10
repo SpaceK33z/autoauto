@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { colors } from "../lib/theme.ts"
 
 interface StatsHeaderProps {
   experimentNumber: number
@@ -60,7 +61,7 @@ function Spinner() {
     return () => clearInterval(interval)
   }, [])
 
-  return <span fg="#7aa2f7">{SPINNER_CHARS[tick % SPINNER_CHARS.length]}</span>
+  return <span fg={colors.primary}>{SPINNER_CHARS[tick % SPINNER_CHARS.length]}</span>
 }
 
 export function StatsHeader({ isRunning = false, ...props }: StatsHeaderProps) {
@@ -78,44 +79,44 @@ export function StatsHeader({ isRunning = false, ...props }: StatsHeaderProps) {
       <box paddingX={1} flexDirection="column" flexShrink={0}>
         <box width={contentWidth} height={1} flexDirection="row" flexShrink={0}>
           <text width={statsWidth} selectable>
-            <span fg="#9ece6a"><strong>kept {props.totalKeeps}</strong></span>
+            <span fg={colors.success}><strong>kept {props.totalKeeps}</strong></span>
             {"    "}
-            <span fg="#ff5555">disc {props.totalDiscards}</span>
+            <span fg={colors.error}>disc {props.totalDiscards}</span>
             {"    "}
-            <span fg="#ffffff">crash {props.totalCrashes}</span>
+            <span fg={colors.text}>crash {props.totalCrashes}</span>
             {"    "}
-            <span fg="#ffffff">{costDisplay}</span>
+            <span fg={colors.text}>{costDisplay}</span>
             {"    "}
-            <span fg="#ffffff">#{props.experimentNumber}/{props.maxExperiments}</span>
+            <span fg={colors.text}>#{props.experimentNumber}/{props.maxExperiments}</span>
           </text>
           {separatorWidth > 0 && <box width={separatorWidth} />}
-          <text width={modelWidth} fg="#666666" selectable>{props.modelLabel}</text>
+          <text width={modelWidth} fg={colors.textDim} selectable>{props.modelLabel}</text>
         </box>
         <box width={contentWidth} height={1} flexShrink={0}>
           <text width={contentWidth} selectable>
-            <span fg="#ffffff">baseline </span>
-            <span fg="#7aa2f7">{props.currentBaseline}</span>
+            <span fg={colors.text}>baseline </span>
+            <span fg={colors.primary}>{props.currentBaseline}</span>
             {"    "}
-            <span fg="#ffffff">{"best "}</span>
-            <span fg="#9ece6a">{props.bestMetric}</span>
+            <span fg={colors.text}>{"best "}</span>
+            <span fg={colors.success}>{props.bestMetric}</span>
             {improvementStr ? (
               <>
                 {"    "}
-                <span fg="#e0af68">{improvementStr}</span>
+                <span fg={colors.warning}>{improvementStr}</span>
               </>
             ) : null}
             {sparkline ? (
               <>
                 {"    "}
-                <span fg="#7aa2f7">{sparkline}</span>
+                <span fg={colors.primary}>{sparkline}</span>
               </>
             ) : null}
           </text>
         </box>
         <box width={contentWidth} height={1} flexShrink={0}>
           <text width={contentWidth} selectable>
-            {isRunning ? <Spinner /> : <span fg="#ffffff">{">"}</span>}
-            <span fg="#ffffff">{" "}{props.currentPhaseLabel}</span>
+            {isRunning ? <Spinner /> : <span fg={colors.text}>{">"}</span>}
+            <span fg={colors.text}>{" "}{props.currentPhaseLabel}</span>
           </text>
         </box>
       </box>

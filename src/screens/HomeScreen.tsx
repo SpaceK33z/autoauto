@@ -13,6 +13,7 @@ import { RunsTable } from "../components/RunsTable.tsx"
 import { formatShellError } from "../lib/git.ts"
 import { listDrafts, deleteDraft, type DraftSession, type DraftEntry } from "../lib/drafts.ts"
 import { readQueue, removeFromQueue, clearQueue, type QueueFile } from "../lib/queue.ts"
+import { colors } from "../lib/theme.ts"
 
 interface HomeScreenProps {
   cwd: string
@@ -332,7 +333,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   if (loading) {
     return (
       <box flexGrow={1} justifyContent="center" alignItems="center">
-        <text fg="#888888">Loading...</text>
+        <text fg={colors.textMuted}>Loading...</text>
       </box>
     )
   }
@@ -340,7 +341,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   if (error) {
     return (
       <box flexGrow={1} justifyContent="center" alignItems="center">
-        <text fg="#ff5555" selectable>Error: {error}</text>
+        <text fg={colors.error} selectable>Error: {error}</text>
       </box>
     )
   }
@@ -356,13 +357,13 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       minWidth={0}
       border
       borderStyle="rounded"
-      borderColor={programsFocused ? "#7aa2f7" : "#666666"}
+      borderColor={programsFocused ? colors.borderActive : colors.borderDim}
       title="Programs"
       onMouseDown={() => setFocusedPanel("programs")}
     >
       {totalProgramItems === 0 ? (
         <box flexGrow={1} justifyContent="center" alignItems="center">
-          <text fg="#666666">No programs yet.</text>
+          <text fg={colors.textDim}>No programs yet.</text>
         </box>
       ) : (
         <scrollbox flexGrow={1}>
@@ -376,12 +377,12 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
               <box
                 key={`draft-${d.name}`}
                 paddingX={1}
-                backgroundColor={isSelected ? "#333333" : undefined}
+                backgroundColor={isSelected ? colors.surfaceSelected : undefined}
                 onMouseDown={() => { setFocusedPanel("programs"); setSelectedIndex(i) }}
               >
                 <text>
-                  <span fg="#e0af68">{"* "}</span>
-                  <span fg="#e0af68">{label}</span>
+                  <span fg={colors.warning}>{"* "}</span>
+                  <span fg={colors.warning}>{label}</span>
                 </text>
               </box>
             )
@@ -392,17 +393,17 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
               <box
                 key={p.name}
                 paddingX={1}
-                backgroundColor={isSelected ? "#333333" : undefined}
+                backgroundColor={isSelected ? colors.surfaceSelected : undefined}
                 onMouseDown={() => { setFocusedPanel("programs"); setSelectedIndex(i + draftsCount) }}
               >
                 <text>
                   {p.hasActiveRun ? (
-                    <span fg="#7aa2f7">{"● "}</span>
+                    <span fg={colors.primary}>{"● "}</span>
                   ) : (
-                    <span fg="#333333">{"  "}</span>
+                    <span fg={colors.surfaceSelected}>{"  "}</span>
                   )}
-                  <span fg={isSelected ? "#ffffff" : "#ffffff"}>{p.name}</span>
-                  <span fg="#666666">
+                  <span fg={colors.text}>{p.name}</span>
+                  <span fg={colors.textDim}>
                     {" "}
                     {p.totalRuns > 0 ? `${p.totalRuns}r` : ""}
                     {p.lastRunDate ? ` ${relativeTime(p.lastRunDate)}` : ""}
@@ -415,7 +416,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       )}
       {programsFocused && selectedIndex >= draftsCount && programs[selectedIndex - draftsCount]?.hasActiveRun && (
         <box paddingX={1}>
-          <text fg="#666666">Cannot edit/delete while run is active</text>
+          <text fg={colors.textDim}>Cannot edit/delete while run is active</text>
         </box>
       )}
     </box>
@@ -428,7 +429,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       minWidth={0}
       border
       borderStyle="rounded"
-      borderColor={runsFocused ? "#7aa2f7" : "#666666"}
+      borderColor={runsFocused ? colors.borderActive : colors.borderDim}
       title="Runs"
       onMouseDown={() => setFocusedPanel("runs")}
     >
@@ -452,25 +453,25 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       flexDirection="column"
       border
       borderStyle="rounded"
-      borderColor="#ff5555"
-      backgroundColor="#1a1b26"
+      borderColor={colors.borderDanger}
+      backgroundColor={colors.surface}
       padding={1}
       title="Delete Run"
     >
-      <text fg="#ff5555"><strong>Delete this run?</strong></text>
+      <text fg={colors.error}><strong>Delete this run?</strong></text>
       <box height={1} />
-      <text fg="#ffffff">
+      <text fg={colors.text}>
         {confirmDelete.state?.program_slug ?? "?"} / {confirmDelete.run_id}
       </text>
-      <text fg="#666666">
+      <text fg={colors.textDim}>
         {confirmDelete.state?.phase ?? "unknown"} · {confirmDelete.state ? (confirmDelete.state.total_keeps + confirmDelete.state.total_discards + confirmDelete.state.total_crashes) : 0} experiments
       </text>
       <box height={1} />
-      <text fg="#666666">
+      <text fg={colors.textDim}>
         {deleting ? "Deleting..." : "This will remove the run directory, worktree, and branch."}
       </text>
       <box height={1} />
-      <text fg="#888888">Enter to confirm · Esc to cancel</text>
+      <text fg={colors.textMuted}>Enter to confirm · Esc to cancel</text>
     </box>
   ) : null
 
@@ -483,23 +484,23 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       flexDirection="column"
       border
       borderStyle="rounded"
-      borderColor="#ff5555"
-      backgroundColor="#1a1b26"
+      borderColor={colors.borderDanger}
+      backgroundColor={colors.surface}
       padding={1}
       title="Delete Program"
     >
-      <text fg="#ff5555"><strong>Delete this program?</strong></text>
+      <text fg={colors.error}><strong>Delete this program?</strong></text>
       <box height={1} />
-      <text fg="#ffffff">{confirmDeleteProgram.name}</text>
-      <text fg="#666666">
+      <text fg={colors.text}>{confirmDeleteProgram.name}</text>
+      <text fg={colors.textDim}>
         {confirmDeleteProgram.totalRuns} run{confirmDeleteProgram.totalRuns !== 1 ? "s" : ""} will also be deleted
       </text>
       <box height={1} />
-      <text fg="#666666">
+      <text fg={colors.textDim}>
         {deleting ? "Deleting..." : "This will remove all program files, runs, worktrees, and branches."}
       </text>
       <box height={1} />
-      <text fg="#888888">Enter to confirm · Esc to cancel</text>
+      <text fg={colors.textMuted}>Enter to confirm · Esc to cancel</text>
     </box>
   ) : null
 
@@ -510,7 +511,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       minWidth={0}
       border
       borderStyle="rounded"
-      borderColor={queueFocused ? "#7aa2f7" : "#666666"}
+      borderColor={queueFocused ? colors.borderActive : colors.borderDim}
       title={`Queue (${queueEntries.length})`}
       onMouseDown={() => setFocusedPanel("queue")}
     >
@@ -518,12 +519,12 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
         {queueEntries.map((entry, i) => {
           const isSelected = queueFocused && i === selectedQueueIndex
           return (
-            <box key={entry.id} paddingX={1} backgroundColor={isSelected ? "#333333" : undefined} onMouseDown={() => { setFocusedPanel("queue"); setSelectedQueueIndex(i) }}>
+            <box key={entry.id} paddingX={1} backgroundColor={isSelected ? colors.surfaceSelected : undefined} onMouseDown={() => { setFocusedPanel("queue"); setSelectedQueueIndex(i) }}>
               <text>
-                <span fg={i === 0 ? "#7aa2f7" : "#ffffff"}>{i === 0 ? "\u25B6 " : "  "}</span>
-                <span fg="#ffffff">{entry.programSlug}</span>
-                <span fg="#666666">{` ${entry.maxExperiments}exp \u00B7 ${entry.modelConfig.model}`}</span>
-                {entry.retryCount > 0 && <span fg="#ff5555">{` (retry ${entry.retryCount})`}</span>}
+                <span fg={i === 0 ? colors.primary : colors.text}>{i === 0 ? "\u25B6 " : "  "}</span>
+                <span fg={colors.text}>{entry.programSlug}</span>
+                <span fg={colors.textDim}>{` ${entry.maxExperiments}exp \u00B7 ${entry.modelConfig.model}`}</span>
+                {entry.retryCount > 0 && <span fg={colors.error}>{` (retry ${entry.retryCount})`}</span>}
               </text>
             </box>
           )
@@ -541,16 +542,16 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       flexDirection="column"
       border
       borderStyle="rounded"
-      borderColor="#ff5555"
-      backgroundColor="#1a1b26"
+      borderColor={colors.borderDanger}
+      backgroundColor={colors.surface}
       padding={1}
       title="Clear Queue"
     >
-      <text fg="#ff5555"><strong>Clear all queued runs?</strong></text>
+      <text fg={colors.error}><strong>Clear all queued runs?</strong></text>
       <box height={1} />
-      <text fg="#ffffff">{queueEntries.length} run{queueEntries.length !== 1 ? "s" : ""} will be removed from the queue.</text>
+      <text fg={colors.text}>{queueEntries.length} run{queueEntries.length !== 1 ? "s" : ""} will be removed from the queue.</text>
       <box height={1} />
-      <text fg="#888888">Enter to confirm · Esc to cancel</text>
+      <text fg={colors.textMuted}>Enter to confirm · Esc to cancel</text>
     </box>
   ) : null
 

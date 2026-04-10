@@ -1,3 +1,5 @@
+import { colors } from "../lib/theme.ts"
+
 export function AuthErrorScreen({ error }: { error: string }) {
   return (
     <box
@@ -10,20 +12,20 @@ export function AuthErrorScreen({ error }: { error: string }) {
       alignItems="center"
     >
       <text>
-        <span fg="#ff5555"><strong>Authentication required</strong></span>
+        <span fg={colors.error}><strong>Authentication required</strong></span>
       </text>
       <box height={1} />
       <text>AutoAuto needs access to the Anthropic API to run.</text>
       <box height={1} />
       <text>Run one of:</text>
-      <text fg="#7aa2f7">{"  claude login         (recommended)"}</text>
-      <text fg="#7aa2f7">{"  claude setup-token   (API key)"}</text>
+      <text fg={colors.primary}>{"  claude login         (recommended)"}</text>
+      <text fg={colors.primary}>{"  claude setup-token   (API key)"}</text>
       <box height={1} />
       <text>Then restart AutoAuto.</text>
       {error && (
         <>
           <box height={1} />
-          <text fg="#888888" selectable>Error: {error}</text>
+          <text fg={colors.textMuted} selectable>Error: {error}</text>
         </>
       )}
     </box>

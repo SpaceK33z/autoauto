@@ -7,6 +7,7 @@ import { syntaxStyle } from "../lib/syntax-theme.ts"
 import { getProvider, type AgentProviderID, type AgentSession } from "../lib/agent/index.ts"
 import { formatToolEvent } from "../lib/tool-events.ts"
 import { formatShellError } from "../lib/git.ts"
+import { colors } from "../lib/theme.ts"
 
 const SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -26,7 +27,7 @@ function ToolStatusSpinner({ status }: { status: string }) {
       : `${seconds}s`
 
   return (
-    <text fg="#888888" selectable>
+    <text fg={colors.textMuted} selectable>
       {spinner} {status} ({timeStr})
     </text>
   )
@@ -304,14 +305,14 @@ export function Chat({
         title={title}
       >
         {messages.length === 0 && !streamingText ? (
-          <text fg="#888888">
+          <text fg={colors.textMuted}>
             {emptyStateHint ?? "Type a message below and press Enter to start a conversation."}
           </text>
         ) : (
           <box flexDirection="column">
             {messages.map((msg) => (
-              <box key={msg.id} flexDirection="column" backgroundColor={msg.role === "user" ? "#1a1a2e" : undefined}>
-                <text fg={msg.role === "user" ? "#ffffff" : "#9ece6a"}>
+              <box key={msg.id} flexDirection="column" backgroundColor={msg.role === "user" ? colors.surfaceAlt : undefined}>
+                <text fg={msg.role === "user" ? colors.text : colors.success}>
                   <strong>{msg.role === "user" ? "You" : "AutoAuto"}</strong>
                 </text>
                 {msg.role === "assistant" ? (
@@ -325,7 +326,7 @@ export function Chat({
 
             {streamingText && (
               <box flexDirection="column">
-                <text fg="#9ece6a">
+                <text fg={colors.success}>
                   <strong>AutoAuto</strong>
                 </text>
                 <markdown content={streamingText} syntaxStyle={syntaxStyle} streaming />
@@ -334,13 +335,13 @@ export function Chat({
 
             {isStreaming && !streamingText && (
               <box flexDirection="column">
-                <text fg="#9ece6a">
+                <text fg={colors.success}>
                   <strong>AutoAuto</strong>
                 </text>
                 {toolStatus ? (
                   <ToolStatusSpinner key={toolStatus} status={toolStatus} />
                 ) : (
-                  <text fg="#888888">Thinking...</text>
+                  <text fg={colors.textMuted}>Thinking...</text>
                 )}
               </box>
             )}
@@ -349,7 +350,7 @@ export function Chat({
               <ToolStatusSpinner key={toolStatus} status={toolStatus} />
             )}
 
-            {error && <text fg="#ff5555" selectable>Error: {error}</text>}
+            {error && <text fg={colors.error} selectable>Error: {error}</text>}
           </box>
         )}
       </scrollbox>
