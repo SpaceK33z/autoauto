@@ -92,16 +92,24 @@ bun dev
 
 ### Headless CLI
 
-AutoAuto also has a headless CLI for coding agents, CI or just generally scripting:
+AutoAuto has a full headless CLI for coding agents, CI, or scripting. All commands support `--json` for machine-readable output.
 
 ```bash
 autoauto list                        # List programs
-autoauto runs <program>              # List runs for a program
-autoauto run <program>               # Start a run
-autoauto run <program> --max 50      # Run with max experiments
+autoauto show <program>              # Show program details, config, goal
+autoauto start <program>             # Start an experiment run
+autoauto status <program>            # Check run progress
+autoauto results <program>           # View experiment results table
+autoauto logs <program>              # Read experiment agent logs
+autoauto summary <program>           # Show or generate run summary
 autoauto stop <program>              # Stop after current experiment
-autoauto attach <program>            # Attach TUI to a running daemon
+autoauto validate <program>          # Validate measurement stability
+autoauto config                      # Show/update project configuration
+autoauto delete <program> --confirm  # Delete a program or run
+autoauto queue add <program>         # Enqueue a run
 ```
+
+See [CLI Reference](docs/cli.md) for full documentation of all commands and flags.
 
 ## How it works
 
@@ -198,6 +206,7 @@ Supported providers: **Claude** (Agent SDK), **Codex** (CLI), **OpenCode**.
 
 | Doc | Contents |
 |-----|----------|
+| [CLI Reference](docs/cli.md) | Full headless CLI documentation — all commands, flags, JSON output |
 | [Concepts](docs/concepts.md) | How AutoAuto works: programs, runs, experiments, measurement, agents |
 | [Glossary](docs/glossary.md) | Quick definitions for AutoAuto terms and run mechanics |
 | [Measurement Guide](docs/measurement-guide.md) | Writing good measurement scripts, choosing metrics, avoiding pitfalls |

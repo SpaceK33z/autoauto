@@ -1,9 +1,11 @@
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import {
   listPrograms,
   loadProgramConfig,
   getProgramDir,
   getProjectRoot,
+  extractGoal,
   type ProgramConfig,
 } from "./lib/programs.ts"
 import {
@@ -21,9 +23,24 @@ import {
   readAllResults,
   readState,
   getRunStats,
+  deleteRun,
+  deleteProgram,
+  isRunActive,
   type RunState,
 } from "./lib/run.ts"
-import { loadProjectConfig, type ModelSlot, type EffortLevel } from "./lib/config.ts"
+import {
+  loadProjectConfig,
+  saveProjectConfig,
+  formatModelLabel,
+  isEffortConfigurable,
+  getEffortChoicesForSlot,
+  NOTIFICATION_PRESET_IDS,
+  PROVIDER_CHOICES,
+  type ModelSlot,
+  type EffortLevel,
+  type NotificationPreset,
+} from "./lib/config.ts"
+import { generateSummaryReport, saveFinalizeReport } from "./lib/finalize.ts"
 import { streamLogName } from "./lib/daemon-callbacks.ts"
 import { closeProviders, type AgentProviderID } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
@@ -134,8 +151,8 @@ function parsePositiveInt(value: string): number | null {
 }
 
 function parseProvider(value: string | undefined): AgentProviderID | null {
-  if (value === "claude" || value === "opencode" || value === "codex") return value
-  return null
+  if (!value) return null
+  return PROVIDER_CHOICES.includes(value as AgentProviderID) ? (value as AgentProviderID) : null
 }
 
 // --- Resolve common context ---
@@ -227,6 +244,17 @@ async function resolveIdeasBacklog(root: string, flags: Record<string, string | 
 // --- Commands ---
 
 async function cmdList(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto list")
+    out("")
+    out("List all programs with status, last run, and best metric.")
+    out("")
+    out("Flags:")
+    out("  --json    Output as JSON")
+    out("  --cwd     Override working directory")
+    return
+  }
+
   const root = await resolveRoot(args.flags)
   const programs = await listPrograms(root)
   const json = hasFlag(args.flags, "json")
@@ -267,8 +295,7 @@ async function cmdList(args: ParsedArgs) {
     let goal = ""
     try {
       const md = await Bun.file(join(programDir, "program.md")).text()
-      const match = md.match(/## Goal\n+([\s\S]*?)(?:\n##|\n*$)/)
-      if (match) goal = match[1].trim()
+      goal = extractGoal(md)
     } catch {}
 
     let best_metric: number | null = null
@@ -317,6 +344,25 @@ async function cmdList(args: ParsedArgs) {
 }
 
 async function cmdStart(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto start <program-slug>")
+    out("")
+    out("Start an experiment run. Spawns a background daemon that runs experiments.")
+    out("")
+    out("Flags:")
+    out("  --provider <claude|opencode|codex>  Agent provider")
+    out("  --model <name>                      Model name")
+    out("  --effort <low|medium|high|max>      Effort level")
+    out("  --max-experiments <n>               Max experiments to run")
+    out("  --in-place                          Run without worktree isolation")
+    out("  --no-carry-forward                  Don't carry forward from previous runs")
+    out("  --no-ideas-backlog                  Disable ideas backlog")
+    out("  --no-wait                           Don't wait for baseline to complete")
+    out("  --json                              Output as JSON")
+    out("  --cwd                               Override working directory")
+    return
+  }
+
   const slug = args.positional[0]
   if (!slug) die("Usage: autoauto start <program-slug>")
 
@@ -432,6 +478,19 @@ async function cmdStart(args: ParsedArgs) {
 }
 
 async function cmdStatus(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto status <program-slug>")
+    out("")
+    out("Show run status: phase, metrics, keeps/discards, cost, elapsed time.")
+    out("")
+    out("Flags:")
+    out("  --run <id>   Specific run (default: latest)")
+    out("  --all        Show all runs")
+    out("  --json       Output as JSON")
+    out("  --cwd        Override working directory")
+    return
+  }
+
   const slug = args.positional[0]
   if (!slug) die("Usage: autoauto status <program-slug>")
 
@@ -552,6 +611,20 @@ async function cmdStatus(args: ParsedArgs) {
 }
 
 async function cmdResults(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto results <program-slug>")
+    out("")
+    out("Show experiment results table.")
+    out("")
+    out("Flags:")
+    out("  --run <id>       Specific run (default: latest)")
+    out("  --detail <n>     Show detailed log for experiment N (or 'latest')")
+    out("  --limit <n>      Show last N results")
+    out("  --json           Output as JSON")
+    out("  --cwd            Override working directory")
+    return
+  }
+
   const slug = args.positional[0]
   if (!slug) die("Usage: autoauto results <program-slug>")
 
@@ -655,6 +728,19 @@ async function cmdResults(args: ParsedArgs) {
 }
 
 async function cmdStop(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto stop <program-slug>")
+    out("")
+    out("Stop the active run. By default, waits for the current experiment to finish.")
+    out("")
+    out("Flags:")
+    out("  --run <id>   Specific run (default: active run)")
+    out("  --abort      Abort immediately (don't wait for current experiment)")
+    out("  --json       Output as JSON")
+    out("  --cwd        Override working directory")
+    return
+  }
+
   const slug = args.positional[0]
   if (!slug) die("Usage: autoauto stop <program-slug>")
 
@@ -725,6 +811,17 @@ async function cmdStop(args: ParsedArgs) {
 }
 
 async function cmdLimit(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto limit <program-slug> <n>")
+    out("")
+    out("Update the max experiments cap on an active run.")
+    out("")
+    out("Flags:")
+    out("  --json    Output as JSON")
+    out("  --cwd     Override working directory")
+    return
+  }
+
   const slug = args.positional[0]
   const valueStr = args.positional[1]
   if (!slug || valueStr == null) die("Usage: autoauto limit <program-slug> <n>")
@@ -751,6 +848,30 @@ async function cmdLimit(args: ParsedArgs) {
 }
 
 async function cmdQueue(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto queue [list|add|remove|clear]")
+    out("")
+    out("Manage the run queue.")
+    out("")
+    out("Subcommands:")
+    out("  queue [list]        Show pending queue entries")
+    out("  queue add <slug>    Enqueue a run")
+    out("  queue remove <id>   Remove a queue entry")
+    out("  queue clear         Clear all pending entries")
+    out("")
+    out("Flags for 'add':")
+    out("  --provider <claude|opencode|codex>  Agent provider")
+    out("  --model <name>                      Model name")
+    out("  --effort <low|medium|high|max>      Effort level")
+    out("  --max-experiments <n>               Max experiments")
+    out("  --in-place                          Run without worktree isolation")
+    out("")
+    out("Flags:")
+    out("  --json    Output as JSON")
+    out("  --cwd     Override working directory")
+    return
+  }
+
   const sub = args.positional[0]
   const root = await resolveRoot(args.flags)
   const json = hasFlag(args.flags, "json")
@@ -859,15 +980,747 @@ async function cmdQueue(args: ParsedArgs) {
 
   die(`Unknown queue subcommand: "${sub}". Use: list, add, remove, clear`)
 }
+
+async function cmdShow(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto show <program-slug>")
+    out("")
+    out("Show program details: config, goal, measurement script, run count.")
+    out("")
+    out("Flags:")
+    out("  --json    Output as JSON")
+    out("  --cwd     Override working directory")
+    return
+  }
+
+  const slug = args.positional[0]
+  if (!slug) die("Usage: autoauto show <program-slug>")
+
+  const root = await resolveRoot(args.flags)
+  const programDir = getProgramDir(root, slug)
+  const json = hasFlag(args.flags, "json")
+
+  let programConfig: ProgramConfig
+  try {
+    programConfig = await loadProgramConfig(programDir)
+  } catch {
+    die(`Program "${slug}" not found. Run \`autoauto list\` to see available programs.`)
+  }
+
+  const [programMdResult, measureResult, buildResult, runs] = await Promise.all([
+    Bun.file(join(programDir, "program.md")).text().catch(() => ""),
+    Bun.file(join(programDir, "measure.sh")).text()
+      .catch(() => Bun.file(join(programDir, "measure")).text())
+      .catch(() => ""),
+    Bun.file(join(programDir, "build.sh")).text().catch(() => null as string | null),
+    listRuns(programDir),
+  ])
+
+  const programMd = programMdResult
+  const goal = extractGoal(programMd)
+  const measureScript = measureResult
+  const buildScript = buildResult
+
+  if (json) {
+    outJson({
+      slug,
+      config: programConfig,
+      goal,
+      program_md: programMd,
+      measure_script: measureScript,
+      build_script: buildScript,
+      run_count: runs.length,
+    })
+    return
+  }
+
+  out(`Program: ${slug}`)
+  out("")
+  out(`Metric:          ${programConfig.metric_field} (${programConfig.direction} is better)`)
+  out(`Noise threshold: ${programConfig.noise_threshold}`)
+  out(`Repeats:         ${programConfig.repeats}`)
+  out(`Max experiments: ${programConfig.max_experiments}`)
+
+  const gateNames = Object.keys(programConfig.quality_gates)
+  if (gateNames.length > 0) {
+    out(`Quality gates:   ${gateNames.map((g) => {
+      const gate = programConfig.quality_gates[g]
+      const parts: string[] = []
+      if (gate.min != null) parts.push(`min=${gate.min}`)
+      if (gate.max != null) parts.push(`max=${gate.max}`)
+      return `${g} (${parts.join(", ")})`
+    }).join(", ")}`)
+  }
+
+  if (programConfig.measurement_timeout) out(`Measure timeout: ${programConfig.measurement_timeout}ms`)
+  if (programConfig.max_cost_usd) out(`Max cost:        $${programConfig.max_cost_usd}`)
+
+  out(`Runs:            ${runs.length}`)
+
+  if (goal) {
+    out("")
+    out("Goal:")
+    out(goal)
+  }
+
+  if (measureScript) {
+    out("")
+    out("Measure script:")
+    out(measureScript.trimEnd())
+  }
+
+  if (buildScript) {
+    out("")
+    out("Build script:")
+    out(buildScript.trimEnd())
+  }
+}
+
+async function cmdConfig(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto config [get|set] [key] [value]")
+    out("")
+    out("Show or update project configuration.")
+    out("")
+    out("Subcommands:")
+    out("  config                       Show all settings")
+    out("  config get <key>             Get a specific value")
+    out("  config set <key> <value>     Set a specific value")
+    out("")
+    out("Keys:")
+    out("  execution-provider           Agent provider (claude, codex, opencode)")
+    out("  execution-model              Model name (sonnet, opus, or full ID)")
+    out("  execution-effort             Effort level (low, medium, high, max)")
+    out("  support-provider             Support agent provider")
+    out("  support-model                Support model name")
+    out("  support-effort               Support effort level")
+    out("  ideas-backlog                Ideas backlog (true, false)")
+    out("  notification-preset          Notification preset (off, macos-notification, macos-say, terminal-bell, custom)")
+    out("  notification-command         Custom notification command")
+    out("")
+    out("Flags:")
+    out("  --json    Output as JSON")
+    out("  --cwd     Override working directory")
+    return
+  }
+
+  const sub = args.positional[0]
+  const root = await resolveRoot(args.flags)
+  const json = hasFlag(args.flags, "json")
+
+  const config = await loadProjectConfig(root)
+
+  // Show all
+  if (sub == null) {
+    if (json) {
+      outJson(config)
+      return
+    }
+    const execLabel = formatModelLabel(config.executionModel)
+    const supportLabel = formatModelLabel(config.supportModel)
+    out(`Execution:      ${execLabel}`)
+    out(`Support:        ${supportLabel}`)
+    out(`Ideas backlog:  ${config.ideasBacklogEnabled ? "enabled" : "disabled"}`)
+    out(`Notifications:  ${config.notificationPreset}${config.notificationPreset === "custom" && config.notificationCommand ? ` (${config.notificationCommand})` : ""}`)
+    return
+  }
+
+  const CONFIG_KEYS: Record<string, {
+    get: () => string | boolean
+    set: (value: string) => void
+  }> = {
+    "execution-provider": {
+      get: () => config.executionModel.provider,
+      set: (v) => {
+        if (!PROVIDER_CHOICES.includes(v as typeof PROVIDER_CHOICES[number])) {
+          die(`Invalid provider: "${v}". Use: ${PROVIDER_CHOICES.join(", ")}`)
+        }
+        config.executionModel.provider = v as typeof PROVIDER_CHOICES[number]
+      },
+    },
+    "execution-model": {
+      get: () => config.executionModel.model,
+      set: (v) => { config.executionModel.model = v },
+    },
+    "execution-effort": {
+      get: () => config.executionModel.effort,
+      set: (v) => {
+        if (!isEffortConfigurable(config.executionModel)) {
+          die(`Effort is not configurable for provider "${config.executionModel.provider}".`)
+        }
+        const choices = getEffortChoicesForSlot(config.executionModel)
+        if (!choices.includes(v as EffortLevel)) {
+          die(`Invalid effort: "${v}". Use: ${choices.join(", ")}`)
+        }
+        config.executionModel.effort = v as EffortLevel
+      },
+    },
+    "support-provider": {
+      get: () => config.supportModel.provider,
+      set: (v) => {
+        if (!PROVIDER_CHOICES.includes(v as typeof PROVIDER_CHOICES[number])) {
+          die(`Invalid provider: "${v}". Use: ${PROVIDER_CHOICES.join(", ")}`)
+        }
+        config.supportModel.provider = v as typeof PROVIDER_CHOICES[number]
+      },
+    },
+    "support-model": {
+      get: () => config.supportModel.model,
+      set: (v) => { config.supportModel.model = v },
+    },
+    "support-effort": {
+      get: () => config.supportModel.effort,
+      set: (v) => {
+        if (!isEffortConfigurable(config.supportModel)) {
+          die(`Effort is not configurable for provider "${config.supportModel.provider}".`)
+        }
+        const choices = getEffortChoicesForSlot(config.supportModel)
+        if (!choices.includes(v as EffortLevel)) {
+          die(`Invalid effort: "${v}". Use: ${choices.join(", ")}`)
+        }
+        config.supportModel.effort = v as EffortLevel
+      },
+    },
+    "ideas-backlog": {
+      get: () => config.ideasBacklogEnabled,
+      set: (v) => {
+        if (v !== "true" && v !== "false") die(`Invalid value: "${v}". Use: true, false`)
+        config.ideasBacklogEnabled = v === "true"
+      },
+    },
+    "notification-preset": {
+      get: () => config.notificationPreset,
+      set: (v) => {
+        if (!NOTIFICATION_PRESET_IDS.includes(v as NotificationPreset)) {
+          die(`Invalid preset: "${v}". Use: ${NOTIFICATION_PRESET_IDS.join(", ")}`)
+        }
+        config.notificationPreset = v as NotificationPreset
+      },
+    },
+    "notification-command": {
+      get: () => config.notificationCommand ?? "",
+      set: (v) => { config.notificationCommand = v || null },
+    },
+  }
+
+  if (sub === "get") {
+    const key = args.positional[1]
+    if (!key) die("Usage: autoauto config get <key>")
+    const entry = CONFIG_KEYS[key]
+    if (!entry) die(`Unknown config key: "${key}". Keys: ${Object.keys(CONFIG_KEYS).join(", ")}`)
+    const value = entry.get()
+    if (json) {
+      outJson({ key, value })
+    } else {
+      out(String(value))
+    }
+    return
+  }
+
+  if (sub === "set") {
+    const key = args.positional[1]
+    const value = args.positional[2]
+    if (!key || value == null) die("Usage: autoauto config set <key> <value>")
+    const entry = CONFIG_KEYS[key]
+    if (!entry) die(`Unknown config key: "${key}". Keys: ${Object.keys(CONFIG_KEYS).join(", ")}`)
+    entry.set(value)
+    await saveProjectConfig(root, config)
+    if (json) {
+      outJson({ key, value: entry.get() })
+    } else {
+      out(`Set ${key} = ${entry.get()}`)
+    }
+    return
+  }
+
+  die(`Unknown config subcommand: "${sub}". Use: get, set (or no subcommand to show all)`)
+}
+
+async function cmdLogs(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto logs <program-slug>")
+    out("")
+    out("Show experiment stream logs.")
+    out("")
+    out("Flags:")
+    out("  --experiment <n>  Specific experiment number (default: latest)")
+    out("  --run <id>        Specific run (default: latest)")
+    out("  --tail            Show last 50 lines")
+    out("  --lines <n>       Show last N lines")
+    out("  --json            Output as JSON")
+    out("  --cwd             Override working directory")
+    return
+  }
+
+  const slug = args.positional[0]
+  if (!slug) die("Usage: autoauto logs <program-slug>")
+
+  const root = await resolveRoot(args.flags)
+  const programDir = getProgramDir(root, slug)
+  const json = hasFlag(args.flags, "json")
+
+  // Validate program exists
+  try {
+    await loadProgramConfig(programDir)
+  } catch {
+    die(`Program "${slug}" not found.`)
+  }
+
+  const { runDir, runId } = await resolveRunDir(programDir, args.flags)
+  const state = await readState(runDir)
+
+  // Determine experiment number
+  let experimentNumber: number
+  const expFlag = getFlag(args.flags, "experiment")
+  if (expFlag != null) {
+    const parsed = parseInt(expFlag, 10)
+    if (isNaN(parsed) || parsed < 0) die(`Invalid experiment number: "${expFlag}"`)
+    experimentNumber = parsed
+  } else {
+    experimentNumber = state.experiment_number
+  }
+
+  const logFile = join(runDir, streamLogName(experimentNumber))
+  const file = Bun.file(logFile)
+  if (!(await file.exists())) {
+    die(`No log found for experiment #${experimentNumber} in run ${runId}.`)
+  }
+
+  const daemonStatus = await getDaemonStatus(runDir)
+  const isStreaming = daemonStatus.alive && experimentNumber === state.experiment_number
+
+  // Determine how many lines to show
+  const tailLines = hasFlag(args.flags, "tail") ? 50 : null
+  const linesFlagStr = getFlag(args.flags, "lines")
+  if (linesFlagStr != null && parsePositiveInt(linesFlagStr) == null) {
+    die(`Invalid --lines value: "${linesFlagStr}"`)
+  }
+  const requestedLines = tailLines ?? (linesFlagStr != null ? parsePositiveInt(linesFlagStr)! : null)
+
+  let logOutput: string
+  let totalLines: number
+
+  if (requestedLines != null) {
+    // Chunked tail read — avoid loading entire file for last N lines
+    const fileSize = file.size
+    const chunkSize = Math.min(fileSize, requestedLines * 1024)
+    const chunk = await file.slice(-chunkSize).text()
+    const lines = chunk.split("\n")
+    if (json) {
+      const fullContent = chunkSize >= fileSize ? chunk : await file.text()
+      totalLines = fullContent.split("\n").length
+    } else {
+      totalLines = lines.length
+    }
+    logOutput = lines.slice(-requestedLines).join("\n")
+  } else {
+    const fullContent = await file.text()
+    const allLines = fullContent.split("\n")
+    totalLines = allLines.length
+    logOutput = fullContent
+  }
+
+  if (json) {
+    outJson({
+      run_id: runId,
+      experiment_number: experimentNumber,
+      log: logOutput,
+      lines_total: totalLines,
+      is_streaming: isStreaming,
+    })
+    return
+  }
+
+  out(logOutput)
+  if (isStreaming) {
+    out("(in progress...)")
+  }
+}
+
+async function cmdSummary(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto summary <program-slug>")
+    out("")
+    out("Show or generate a run summary report.")
+    out("")
+    out("Flags:")
+    out("  --run <id>       Specific run (default: latest)")
+    out("  --generate       Generate stats summary if missing (completed/crashed runs only)")
+    out("  --json           Output as JSON")
+    out("  --cwd            Override working directory")
+    return
+  }
+
+  const slug = args.positional[0]
+  if (!slug) die("Usage: autoauto summary <program-slug>")
+
+  const root = await resolveRoot(args.flags)
+  const programDir = getProgramDir(root, slug)
+  const json = hasFlag(args.flags, "json")
+  const generate = hasFlag(args.flags, "generate")
+
+  let programConfig: ProgramConfig
+  try {
+    programConfig = await loadProgramConfig(programDir)
+  } catch {
+    die(`Program "${slug}" not found.`)
+  }
+
+  const { runDir, runId } = await resolveRunDir(programDir, args.flags)
+  const summaryPath = join(runDir, "summary.md")
+  const hasSummary = await Bun.file(summaryPath).exists()
+
+  if (hasSummary) {
+    const summaryText = await Bun.file(summaryPath).text()
+    if (json) {
+      const state = await readState(runDir)
+      const stats = getRunStats(state, programConfig.direction)
+      outJson({
+        run_id: runId,
+        has_summary: true,
+        summary_text: summaryText,
+        generated: false,
+        stats: {
+          total_experiments: stats.total_experiments,
+          total_keeps: stats.total_keeps,
+          improvement_pct: stats.improvement_pct,
+        },
+      })
+    } else {
+      out(summaryText)
+    }
+    return
+  }
+
+  if (generate) {
+    const state = await readState(runDir)
+    if (state.phase !== "complete" && state.phase !== "crashed") {
+      die("Can only generate summary for completed or crashed runs.")
+    }
+
+    const results = await readAllResults(runDir)
+    const summaryText = generateSummaryReport(state, results, programConfig, "")
+    await saveFinalizeReport(runDir, summaryText)
+
+    if (json) {
+      const stats = getRunStats(state, programConfig.direction)
+      outJson({
+        run_id: runId,
+        has_summary: true,
+        summary_text: summaryText,
+        generated: true,
+        stats: {
+          total_experiments: stats.total_experiments,
+          total_keeps: stats.total_keeps,
+          improvement_pct: stats.improvement_pct,
+        },
+      })
+    } else {
+      out("Generated stats summary (use TUI for full agent-reviewed finalization).")
+      out("")
+      out(summaryText)
+    }
+    return
+  }
+
+  // No summary and no --generate
+  if (json) {
+    outJson({ run_id: runId, has_summary: false, summary_text: null, generated: false, stats: null })
+  } else {
+    out(`No summary found for run ${runId}.`)
+    out(`Use --generate to create a stats summary.`)
+  }
+}
+
+async function cmdDelete(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto delete <program-slug>")
+    out("")
+    out("Delete a program or a specific run.")
+    out("")
+    out("Flags:")
+    out("  --run <id>       Delete a specific run (default: delete entire program)")
+    out("  --confirm        Confirm deletion (required)")
+    out("  --json           Output as JSON")
+    out("  --cwd            Override working directory")
+    return
+  }
+
+  const slug = args.positional[0]
+  if (!slug) die("Usage: autoauto delete <program-slug>")
+
+  const root = await resolveRoot(args.flags)
+  const programDir = getProgramDir(root, slug)
+  const json = hasFlag(args.flags, "json")
+  const confirm = hasFlag(args.flags, "confirm")
+  const runIdFlag = getFlag(args.flags, "run")
+
+  // Validate program exists
+  try {
+    await loadProgramConfig(programDir)
+  } catch {
+    die(`Program "${slug}" not found.`)
+  }
+
+  if (runIdFlag) {
+    // Delete specific run
+    const runDir = join(programDir, "runs", runIdFlag)
+    let state: RunState
+    try {
+      state = await readState(runDir)
+    } catch {
+      die(`Run "${runIdFlag}" not found.`)
+    }
+
+    if (isRunActive({ run_id: runIdFlag, run_dir: runDir, state })) {
+      const active = await findActiveRun(programDir)
+      if (active?.runId === runIdFlag && active.daemonAlive) {
+        die("Cannot delete an active run. Stop it first with `autoauto stop`.")
+      }
+    }
+
+    if (!confirm) {
+      if (json) {
+        outJson({ action: "dry_run", would_delete: { slug, run_id: runIdFlag } })
+      } else {
+        out(`Would delete run ${runIdFlag} from program "${slug}".`)
+        out(`Add --confirm to delete.`)
+      }
+      return
+    }
+
+    await deleteRun(root, { run_id: runIdFlag, run_dir: runDir, state })
+    if (json) {
+      outJson({ action: "deleted", slug, run_id: runIdFlag })
+    } else {
+      out(`Deleted run ${runIdFlag} from program "${slug}".`)
+    }
+    return
+  }
+
+  // Delete entire program
+  const active = await findActiveRun(programDir)
+  if (active?.daemonAlive) {
+    die("Cannot delete a program with an active run. Stop it first with `autoauto stop`.")
+  }
+
+  const runs = await listRuns(programDir)
+
+  if (!confirm) {
+    if (json) {
+      outJson({
+        action: "dry_run",
+        would_delete: { slug, runs: runs.length, run_ids: runs.map((r) => r.run_id) },
+      })
+    } else {
+      out(`Would delete program "${slug}" with ${runs.length} run${runs.length !== 1 ? "s" : ""}.`)
+      if (runs.length > 0) {
+        out(`Runs: ${runs.map((r) => r.run_id).join(", ")}`)
+      }
+      out(`Add --confirm to delete.`)
+    }
+    return
+  }
+
+  // Clean up queue entries for this program
+  const queue = await readQueue(root)
+  const queueIds = queue.entries.filter((e) => e.programSlug === slug).map((e) => e.id)
+  for (const id of queueIds) {
+    await removeFromQueue(root, id)
+  }
+
+  await deleteProgram(root, slug)
+  if (json) {
+    outJson({ action: "deleted", slug, runs_deleted: runs.length })
+  } else {
+    out(`Deleted program "${slug}" and ${runs.length} run${runs.length !== 1 ? "s" : ""}.`)
+  }
+}
+
+async function cmdValidate(args: ParsedArgs) {
+  if (hasFlag(args.flags, "help")) {
+    out("Usage: autoauto validate <program-slug>")
+    out("")
+    out("Validate measurement script stability. Creates a temporary worktree,")
+    out("runs the measurement multiple times, and reports CV% and assessment.")
+    out("")
+    out("Flags:")
+    out("  --runs <n>   Number of validation runs (default: 5)")
+    out("  --json       Output as JSON")
+    out("  --cwd        Override working directory")
+    return
+  }
+
+  const slug = args.positional[0]
+  if (!slug) die("Usage: autoauto validate <program-slug>")
+
+  const root = await resolveRoot(args.flags)
+  const programDir = getProgramDir(root, slug)
+  const json = hasFlag(args.flags, "json")
+
+  // Validate program exists
+  try {
+    await loadProgramConfig(programDir)
+  } catch {
+    die(`Program "${slug}" not found.`)
+  }
+
+  const runsStr = getFlag(args.flags, "runs") ?? "5"
+  const numRuns = parsePositiveInt(runsStr)
+  if (numRuns == null) die(`Invalid --runs value: "${runsStr}". Must be a positive integer.`)
+
+  let measurePath = join(programDir, "measure.sh")
+  const configPath = join(programDir, "config.json")
+
+  // Check measure script exists (fall back to extensionless "measure")
+  if (!(await Bun.file(measurePath).exists())) {
+    const fallback = join(programDir, "measure")
+    if (!(await Bun.file(fallback).exists())) {
+      die(`Measurement script not found at ${measurePath} or ${fallback}`)
+    }
+    measurePath = fallback
+  }
+
+  const scriptPath = join(dirname(fileURLToPath(import.meta.url)), "lib", "validate-measurement.ts")
+
+  const proc = Bun.spawn(["bun", "run", scriptPath, measurePath, configPath, String(numRuns)], {
+    stdout: "pipe",
+    stderr: "inherit",
+  })
+
+  // Signal handling for clean subprocess termination
+  const cleanup = () => { proc.kill() }
+  process.on("SIGINT", cleanup)
+  process.on("SIGTERM", cleanup)
+
+  let stdout: string
+  try {
+    stdout = await new Response(proc.stdout).text()
+    await proc.exited
+  } finally {
+    process.off("SIGINT", cleanup)
+    process.off("SIGTERM", cleanup)
+  }
+
+  if (proc.exitCode !== 0) {
+    die("Validation subprocess failed.", 2)
+  }
+
+  let result: Record<string, unknown>
+  try {
+    result = JSON.parse(stdout)
+  } catch {
+    die("Failed to parse validation output.")
+  }
+
+  // Handle minimal error payload (top-level catch in validate-measurement.ts)
+  if (
+    typeof result.error === "string" &&
+    (typeof result.build !== "object" || result.build == null)
+  ) {
+    if (json) {
+      outJson(result)
+      return
+    }
+    die(result.error as string, 2)
+  }
+
+  if (json) {
+    outJson(result)
+    return
+  }
+
+  // Human-readable formatting
+  const r = result as {
+    success: boolean
+    total_runs: number
+    valid_runs: number
+    failed_runs: Array<{ run: number; error: string }>
+    validation_errors: Array<{ run: number; errors: string[] }>
+    metric: { field: string; median: number; mean: number; cv_percent: number } | null
+    quality_gates: Record<string, { field: string; median: number; cv_percent: number }>
+    secondary_metrics: Record<string, { field: string; median: number; cv_percent: number }>
+    assessment: string | null
+    recommendations: { noise_threshold: number; repeats: number } | null
+    avg_duration_ms: number
+    recommended_timeout: number | null
+    build: { ran: boolean; success: boolean; duration_ms: number; error?: string }
+  }
+
+  // Build
+  if (r.build.ran) {
+    out(`Build:          ${r.build.success ? "OK" : "FAIL"} (${r.build.duration_ms}ms)`)
+    if (r.build.error) out(`  Error: ${r.build.error}`)
+  }
+
+  out(`Runs:           ${r.valid_runs}/${r.total_runs} valid`)
+
+  if (r.failed_runs.length > 0) {
+    for (const f of r.failed_runs) {
+      out(`  Run ${f.run} failed: ${f.error}`)
+    }
+  }
+
+  if (r.validation_errors.length > 0) {
+    for (const v of r.validation_errors) {
+      out(`  Run ${v.run} validation: ${v.errors.join("; ")}`)
+    }
+  }
+
+  if (r.metric) {
+    out(`Assessment:     ${r.assessment ?? "unknown"} (CV ${r.metric.cv_percent}%)`)
+    out(`Metric:         ${r.metric.field} median=${r.metric.median} mean=${r.metric.mean}`)
+  }
+
+  const gateNames = Object.keys(r.quality_gates)
+  if (gateNames.length > 0) {
+    out("Quality gates:")
+    for (const name of gateNames) {
+      const g = r.quality_gates[name]
+      out(`  ${g.field}: median=${g.median} (CV ${g.cv_percent}%)`)
+    }
+  }
+
+  const secondaryNames = Object.keys(r.secondary_metrics)
+  if (secondaryNames.length > 0) {
+    out("Secondary metrics:")
+    for (const name of secondaryNames) {
+      const s = r.secondary_metrics[name]
+      out(`  ${s.field}: median=${s.median} (CV ${s.cv_percent}%)`)
+    }
+  }
+
+  if (r.recommendations) {
+    out("Recommendations:")
+    out(`  noise_threshold: ${r.recommendations.noise_threshold}`)
+    out(`  repeats: ${r.recommendations.repeats}`)
+  }
+
+  out(`Avg duration:   ${(r.avg_duration_ms / 1000).toFixed(1)}s`)
+  if (r.recommended_timeout) {
+    out(`Rec. timeout:   ${(r.recommended_timeout / 1000).toFixed(0)}s`)
+  }
+
+  if (!r.success) {
+    process.exit(1)
+  }
+}
+
 // --- Main Router ---
 
 const COMMANDS: Record<string, (args: ParsedArgs) => Promise<void>> = {
   list: cmdList,
+  show: cmdShow,
   start: cmdStart,
   status: cmdStatus,
   results: cmdResults,
+  logs: cmdLogs,
+  summary: cmdSummary,
   stop: cmdStop,
   limit: cmdLimit,
+  validate: cmdValidate,
+  delete: cmdDelete,
+  config: cmdConfig,
   queue: cmdQueue,
 }
 
@@ -886,21 +1739,26 @@ export async function run(argv: string[]) {
     out("Usage: autoauto <command> [options]")
     out("")
     out("Commands:")
-    out("  list                         List all programs")
-    out("  start <slug>                 Start an experiment run")
-    out("  status <slug>                Show run status")
-    out("  results <slug>               Show experiment results")
-    out("  stop <slug>                  Stop the active run")
-    out("  limit <slug> <n|none>        Update experiment cap on active run")
-    out("  queue [list]                 Show pending queue entries")
-    out("  queue add <slug>             Enqueue a run")
-    out("  queue remove <id>            Remove a queue entry")
-    out("  queue clear                  Clear all pending entries")
+    out("  list                          List all programs")
+    out("  show <slug>                   Show program details")
+    out("  start <slug>                  Start an experiment run")
+    out("  status <slug>                 Show run status")
+    out("  results <slug>                Show experiment results")
+    out("  logs <slug>                   Show experiment stream logs")
+    out("  summary <slug>                Show or generate run summary")
+    out("  stop <slug>                   Stop the active run")
+    out("  limit <slug> <n>              Update experiment cap on active run")
+    out("  validate <slug>               Validate measurement script")
+    out("  delete <slug>                 Delete a program or run")
+    out("  config                        Show/update project configuration")
+    out("  queue [list|add|remove|clear] Manage run queue")
     out("")
     out("Global flags:")
-    out("  --json                       Output as JSON")
-    out("  --cwd <path>                 Override working directory")
-    out("  --provider <claude|opencode|codex> Agent provider for start")
+    out("  --json                        Output as JSON")
+    out("  --cwd <path>                  Override working directory")
+    out("  --help                        Show command help")
+    out("")
+    out("Run `autoauto <command> --help` for command-specific flags.")
     process.exit(1)
   }
 
