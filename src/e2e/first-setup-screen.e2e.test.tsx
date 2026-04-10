@@ -85,9 +85,8 @@ describe("FirstSetupScreen E2E", () => {
       />,
     )
     await harness.frame()
-    await harness.press("j")
-    await harness.press("j")
-    await harness.press("j")
+    // Navigate to Continue button at row 6
+    for (let i = 0; i < 6; i++) await harness.press("j")
     await harness.enter()
     await harness.waitForText("setup", 3000).catch(() => {})
     await harness.flush(300)
@@ -109,9 +108,8 @@ describe("FirstSetupScreen E2E", () => {
       />,
     )
     await harness.frame()
-    await harness.press("j")
-    await harness.press("j")
-    await harness.press("j")
+    // Navigate to Continue button at row 6
+    for (let i = 0; i < 6; i++) await harness.press("j")
     await harness.enter()
     const frame = await harness.waitForText("Auth failed", 3000)
     expect(frame).toContain("Invalid API key")

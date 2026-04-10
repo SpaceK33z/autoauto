@@ -124,13 +124,15 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       handleStart()
       return
     }
-    if (key.name === "a") {
+    // "a" adds to queue, but not when on text-input fields (0=maxExp, 1=budget)
+    if (key.name === "a" && selected !== 0 && selected !== 1) {
       handleAddToQueue()
       return
     }
 
     // Enter activates the focused field (cycle/toggle/open picker)
     if (key.name === "return") {
+      if (selected === 0 || selected === 1) { handleStart(); return }
       if (selected === 2) { handleCycleProvider(1); return }
       if (selected === 3) { setPickingModel(true); return }
       if (selected === 4) { handleCycleEffort(1); return }

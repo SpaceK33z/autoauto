@@ -72,7 +72,7 @@ describe("SetupScreen — update mode", () => {
       />,
     )
     // Should show loading or the update title while loading context
-    const frame = await harness.frame()
+    const frame = await harness.flush(500)
     expect(frame).toContain("perf-opt")
   })
 })

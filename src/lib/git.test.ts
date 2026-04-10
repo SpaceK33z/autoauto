@@ -11,6 +11,8 @@ describe("isWorkingTreeClean", () => {
   async function setup() {
     cwd = await mkdtemp(join(tmpdir(), "git-test-"))
     await $`git init`.cwd(cwd).quiet()
+    await $`git config user.email "test@test.com"`.cwd(cwd).quiet()
+    await $`git config user.name "Test User"`.cwd(cwd).quiet()
     await $`git commit --allow-empty -m init`.cwd(cwd).quiet()
   }
 
