@@ -140,7 +140,12 @@ AutoAuto uses AI agents at specific points in the workflow. The app controls flo
 | **Experiment Agent** | Make one code change and commit | One-shot (fresh per experiment) |
 | **Finalize Agent** | Review results, assess risk, handle exclusions, package code | Multi-turn chat |
 
-AutoAuto supports multiple agent providers: **Claude** (Agent SDK), **Codex** (CLI), and **OpenCode**. You can configure different models for execution (experiments) vs. support (setup/finalize).
+AutoAuto supports multiple agent providers: **Claude** (Agent SDK), **Codex** (CLI), and **OpenCode**. You configure two model slots during first-time setup:
+
+- **Support slot** — used by Setup, Update, and Finalize agents (conversational work). Defaults to Opus / high effort.
+- **Execution slot** — used by the Experiment agent (autonomous code changes). Defaults to Sonnet / high effort.
+
+This lets you use a more capable model for design and review while using a faster/cheaper model for the high-volume experiment loop.
 
 ## Worktree isolation
 
@@ -157,6 +162,7 @@ An optional in-place mode skips worktree creation for simpler setups.
 The experiment loop runs as a background daemon, detached from the TUI. This means:
 
 - Runs survive terminal close — you can quit the TUI and come back later
+- On macOS, `caffeinate` prevents idle sleep while the daemon is running (auto-exits when the daemon stops)
 - The TUI watches the run directory for updates and renders the dashboard in real time
 - Stop/abort is graceful: `q` stops after the current experiment finishes; `Ctrl+C` aborts immediately
 
@@ -178,6 +184,8 @@ The finalize flow is a multi-turn chat. The agent:
 4. Flags dependency issues if excluding an experiment would affect later ones, and resolves conflicts
 5. Asks where to put the final code: the autoauto run branch, the original branch, or a new branch
 6. Packages the code and confirms completion
+
+On finalization, `finalized_at` and `finalized_branch` are written to `state.json`. The HomeScreen shows finalized runs with a checkmark and the target branch name.
 
 ## Data model
 

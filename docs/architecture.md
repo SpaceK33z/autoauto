@@ -11,7 +11,7 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and pluggable agent p
 `src/index.tsx` — dispatcher: if CLI args are present, imports `src/cli.ts` (headless CLI mode); otherwise imports `src/tui.tsx` (interactive TUI).
 
 - **`src/tui.tsx`** — creates an OpenTUI CLI renderer, registers agent providers, and mounts `<App />`.
-- **`src/cli.ts`** — headless CLI for listing programs/runs, spawning/stopping/attaching daemon runs, and managing state without the TUI.
+- **`src/cli.ts`** — headless CLI for listing programs/runs, spawning/stopping/attaching daemon runs, and managing state without the TUI. Supports `--version`/`-v` flag.
 
 ## Screen navigation
 
@@ -19,7 +19,7 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and pluggable agent p
 
 ### Screens
 
-- **FirstSetupScreen** — first-time setup: provider/model selection with auth verification
+- **FirstSetupScreen** — first-time setup: separate model pickers for conversational (setup/update/finalize) and experiment agents, with auth verification
 - **HomeScreen** — two-panel layout with optional queue bottom panel: programs list + runs table + queue, Tab cycles panels, j/k navigation, `n` to create
 - **SetupScreen** — wraps `Chat` with support model; supports new-program and update mode
 - **PreRunScreen** — pre-run configuration: model/provider/effort/max experiments overrides; `a` to add to queue
@@ -35,12 +35,12 @@ AutoAuto uses an agent provider abstraction (`src/lib/agent/`) that decouples th
 - **`AgentSession`** interface: `AsyncIterable<AgentEvent>` + `pushMessage()` + `endInput()` + `close()`
 - **`AgentEvent`** union: `text_delta`, `tool_use`, `assistant_complete`, `error`, `result`
 
-| Role | System Prompt | Session | File |
-|------|---------------|---------|------|
-| Setup Agent | `getSetupSystemPrompt()` | Long-lived multi-turn | `system-prompts/setup.ts` |
-| Update Agent | `getUpdateSystemPrompt()` | Long-lived multi-turn | `system-prompts/update.ts` |
-| Experiment Agent | `getExperimentSystemPrompt()` | One-shot per iteration | `system-prompts/experiment.ts` |
-| Finalize Agent | `getFinalizeSystemPrompt()` | Long-lived multi-turn | `system-prompts/finalize.ts` |
+| Role | Model Slot | System Prompt | Session | File |
+|------|-----------|---------------|---------|------|
+| Setup Agent | Support | `getSetupSystemPrompt()` | Long-lived multi-turn | `system-prompts/setup.ts` |
+| Update Agent | Support | `getUpdateSystemPrompt()` | Long-lived multi-turn | `system-prompts/update.ts` |
+| Experiment Agent | Execution | `getExperimentSystemPrompt()` | One-shot per iteration | `system-prompts/experiment.ts` |
+| Finalize Agent | Support | `getFinalizeSystemPrompt()` | Long-lived multi-turn | `system-prompts/finalize.ts` |
 
 All agents use `permissionMode: "bypassPermissions"` and tools: Read, Write, Edit, Bash, Glob, Grep.
 
@@ -79,10 +79,11 @@ All agents use `permissionMode: "bypassPermissions"` and tools: Read, Write, Edi
 ### Lifecycle
 
 1. TUI creates worktree, run dir, `run-config.json`, lock file, then spawns detached daemon
-2. Daemon writes `daemon.json` with UUID + starts 10s heartbeat
-3. Crash recovery from `state.json` if resuming
-4. Baseline measurement, then experiment loop via `runExperimentLoop()` with `FileCallbacks`
-5. On complete: final state, unlock measurement, release lock, exit
+2. On macOS, a `caffeinate -i -w <pid>` process is spawned alongside the daemon to prevent idle sleep
+3. Daemon writes `daemon.json` with UUID + starts 10s heartbeat
+4. Crash recovery from `state.json` if resuming
+5. Baseline measurement, then experiment loop via `runExperimentLoop()` with `FileCallbacks`
+6. On complete: final state, unlock measurement, release lock, exit
 
 ### Queue chaining
 
@@ -124,6 +125,8 @@ Three-panel layout in `ExecutionScreen.tsx`:
 - **AgentPanel** — dual-purpose: live streaming or selected experiment detail view
 
 Two modes: spawn (creates worktree + daemon) and attach (connects to existing daemon).
+
+Keyboard shortcuts are phase-appropriate: during a running experiment `q`/`Ctrl+C`/`s`/`i` are available; after completion the shortcuts switch to `f` (finalize), `i` (ideas), and `Escape` (back).
 
 Stop/abort escalation: `q` -> confirmation -> stop-after-current; `Ctrl+C` -> abort; second `Ctrl+C` after 5s -> SIGKILL.
 

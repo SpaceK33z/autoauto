@@ -38,3 +38,7 @@ Quick reference for the core AutoAuto terms.
 | **Budget cap** | Optional `max_cost_usd` limit that stops a run when cumulative agent cost exceeds the threshold. |
 | **Budget exceeded** | Termination reason when a run's cumulative cost hits the budget cap. |
 | **Finalize Agent** | Post-run reviewer that summarizes the run and can group changed files into reviewable branches. |
+| **Finalized run** | A completed run that has been packaged onto a branch. Tracked via `finalized_at` (timestamp) and `finalized_branch` (target branch) in `state.json`. |
+| **Support slot** | Model config used for conversational agents (Setup, Update, Finalize). Defaults to Opus / high effort. |
+| **Execution slot** | Model config used for the Experiment agent. Defaults to Sonnet / high effort. |
+| **caffeinate** | macOS utility spawned alongside the daemon to prevent idle sleep during runs. Auto-exits when the daemon stops. |
