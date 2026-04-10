@@ -219,6 +219,12 @@ export interface ProgramSummary {
   goal: string
 }
 
+/** Extracts the goal section from a program.md file's text content. */
+export function extractGoal(md: string): string {
+  const match = md.match(/## Goal\n+([\s\S]*?)(?:\n##|\n*$)/)
+  return match ? match[1].trim() : ""
+}
+
 /** Loads summaries (slug + goal line from program.md) for all existing programs. */
 export async function loadProgramSummaries(cwd: string): Promise<ProgramSummary[]> {
   const root = await getProjectRoot(cwd)
@@ -233,8 +239,7 @@ export async function loadProgramSummaries(cwd: string): Promise<ProgramSummary[
     entries.map(async (e) => {
       try {
         const md = await Bun.file(join(programsDir, e.name, "program.md")).text()
-        const goalMatch = md.match(/## Goal\n+([\s\S]*?)(?:\n##|\n*$)/)
-        const goal = goalMatch ? goalMatch[1].trim() : "(no goal defined)"
+        const goal = extractGoal(md) || "(no goal defined)"
         return { slug: e.name, goal }
       } catch {
         return { slug: e.name, goal: "(could not read program.md)" }

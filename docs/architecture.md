@@ -11,7 +11,7 @@ Bun + TypeScript TUI app using OpenTUI React for rendering and pluggable agent p
 `src/index.tsx` — dispatcher: if CLI args are present, imports `src/cli.ts` (headless CLI mode); otherwise imports `src/tui.tsx` (interactive TUI).
 
 - **`src/tui.tsx`** — creates an OpenTUI CLI renderer, registers agent providers, and mounts `<App />`.
-- **`src/cli.ts`** — headless CLI for listing programs/runs, spawning/stopping/attaching daemon runs, and managing state without the TUI. Supports `--version`/`-v` flag.
+- **`src/cli.ts`** — headless CLI for full programmatic control: program inspection (`show`), run lifecycle (`start`/`status`/`results`/`logs`/`summary`/`stop`), measurement validation (`validate`), configuration management (`config`), deletion (`delete`), and queue management (`queue`). All commands support `--json` for machine-readable output and `--help` for per-command usage. Supports `--version`/`-v` flag.
 
 ## Screen navigation
 
