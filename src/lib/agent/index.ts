@@ -7,6 +7,7 @@ export type {
   AgentProvider,
   AgentProviderID,
   AgentModelOption,
+  ErrorKind,
 } from "./types.ts"
 
 import type { AgentProvider, AgentProviderID } from "./types.ts"

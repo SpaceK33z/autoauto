@@ -23,7 +23,7 @@ export type RunPhase =
   | "finalizing"
 
 /** Termination reason for a completed run */
-export type TerminationReason = "aborted" | "max_experiments" | "stopped" | "stagnation" | "budget_exceeded"
+export type TerminationReason = "aborted" | "max_experiments" | "stopped" | "stagnation" | "budget_exceeded" | "quota_exhausted"
 
 /** Persisted run state — the checkpoint file */
 export interface RunState {

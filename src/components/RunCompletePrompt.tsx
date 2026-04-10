@@ -71,6 +71,7 @@ export function RunCompletePrompt({
     : terminationReason === "max_experiments" ? `Reached max experiments (${state.experiment_number})`
     : terminationReason === "stagnation" ? "Stopped — no improvements (stagnation)"
     : terminationReason === "budget_exceeded" ? `Budget exceeded ($${(state.total_cost_usd ?? 0).toFixed(2)})`
+    : terminationReason === "quota_exhausted" ? "Provider quota exhausted"
     : "Run complete"
 
   const improvementStr = stats.improvement_pct !== 0

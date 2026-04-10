@@ -21,6 +21,7 @@ import type {
   AgentSessionConfig,
   AuthResult,
 } from "./types.ts"
+import { buildAgentErrorEvent } from "./error-classifier.ts"
 
 const CODEX_DEFAULT_MODEL = "default"
 const PLATFORM_PACKAGE_BY_TARGET: Record<string, string> = {
@@ -225,7 +226,7 @@ class CodexSession implements AgentSession {
     this.run().catch((err: unknown) => {
       if (!this.closed) {
         const error = err instanceof Error ? err.message : String(err)
-        this.events.push({ type: "error", error, retriable: false })
+        this.events.push(buildAgentErrorEvent(error))
         this.events.push({ type: "result", success: false, error })
       }
       this.events.end()
@@ -262,7 +263,7 @@ class CodexSession implements AgentSession {
 
       if (this.config.maxTurns != null && this.turnCount >= this.config.maxTurns) {
         const error = `Codex session exceeded maxTurns (${this.config.maxTurns})`
-        this.events.push({ type: "error", error, retriable: false })
+        this.events.push(buildAgentErrorEvent(error))
         this.events.push({ type: "result", success: false, error })
         break
       }
@@ -293,7 +294,7 @@ class CodexSession implements AgentSession {
     } catch (err: unknown) {
       if (!this.closed && !this.abortController.signal.aborted) {
         const error = err instanceof Error ? err.message : String(err)
-        this.events.push({ type: "error", error, retriable: false })
+        this.events.push(buildAgentErrorEvent(error))
         this.events.push({ type: "result", success: false, error })
       }
     }
@@ -320,11 +321,11 @@ class CodexSession implements AgentSession {
         })
         break
       case "turn.failed":
-        this.events.push({ type: "error", error: event.error.message, retriable: false })
+        this.events.push(buildAgentErrorEvent(event.error.message))
         this.events.push({ type: "result", success: false, error: event.error.message })
         break
       case "error":
-        this.events.push({ type: "error", error: event.message, retriable: false })
+        this.events.push(buildAgentErrorEvent(event.message))
         this.events.push({ type: "result", success: false, error: event.message })
         break
     }
@@ -349,7 +350,7 @@ class CodexSession implements AgentSession {
     }
 
     if (item.type === "error") {
-      this.events.push({ type: "error", error: item.message, retriable: false })
+      this.events.push(buildAgentErrorEvent(item.message))
       return
     }
 

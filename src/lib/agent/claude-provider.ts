@@ -18,6 +18,7 @@ import type {
   AuthResult,
   AgentModelOption,
 } from "./types.ts"
+import { buildAgentErrorEvent } from "./error-classifier.ts"
 
 // --- SDK message helpers (formerly in sdk-helpers.ts) ---
 
@@ -200,11 +201,7 @@ class ClaudeSession implements AgentSession {
       }
     } catch (err: unknown) {
       if (!this.abortController.signal.aborted) {
-        yield {
-          type: "error",
-          error: err instanceof Error ? err.message : String(err),
-          retriable: false,
-        }
+        yield buildAgentErrorEvent(err instanceof Error ? err.message : String(err))
       }
     }
   }

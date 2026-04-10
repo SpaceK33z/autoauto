@@ -8,6 +8,7 @@ import type {
   AgentSessionConfig,
   AuthResult,
 } from "./types.ts"
+import { buildAgentErrorEvent } from "./error-classifier.ts"
 import { combineAgentCosts } from "./cost.ts"
 import { createPushStream } from "../push-stream.ts"
 
@@ -150,16 +151,9 @@ class OpenCodeSession implements AgentSession {
 
     this.run().catch((err: unknown) => {
       if (!this.closed) {
-        this.events.push({
-          type: "error",
-          error: err instanceof Error ? err.message : String(err),
-          retriable: false,
-        })
-        this.events.push({
-          type: "result",
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        })
+        const error = err instanceof Error ? err.message : String(err)
+        this.events.push(buildAgentErrorEvent(error))
+        this.events.push({ type: "result", success: false, error })
       }
       this.events.end()
     })
@@ -239,7 +233,7 @@ class OpenCodeSession implements AgentSession {
 
         if (result.error) {
           const error = JSON.stringify(result.error)
-          this.events.push({ type: "error", error, retriable: false })
+          this.events.push(buildAgentErrorEvent(error))
           this.events.push({ type: "result", success: false, error })
           continue
         }
@@ -347,11 +341,9 @@ class OpenCodeSession implements AgentSession {
       }
 
       if (event.type === "session.error") {
-        this.events.push({
-          type: "error",
-          error: JSON.stringify(properties.error ?? "OpenCode session error"),
-          retriable: false,
-        })
+        this.events.push(buildAgentErrorEvent(
+          JSON.stringify(properties.error ?? "OpenCode session error"),
+        ))
       }
     }
   }

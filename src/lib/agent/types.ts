@@ -1,10 +1,14 @@
+import type { ErrorKind } from "./error-classifier.ts"
+
 /** Normalized event types emitted by all agent providers. */
 export type AgentEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_use"; tool: string; input?: Record<string, unknown> }
   | { type: "assistant_complete"; text: string }
-  | { type: "error"; error: string; retriable: boolean }
+  | { type: "error"; error: string; retriable: boolean; errorKind?: ErrorKind }
   | { type: "result"; success: boolean; error?: string; cost?: AgentCost }
+
+export type { ErrorKind } from "./error-classifier.ts"
 
 /** Cost and usage data from a completed agent session. */
 export interface AgentCost {

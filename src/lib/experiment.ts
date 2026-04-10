@@ -12,7 +12,8 @@ import {
   formatShellError,
   type DiffStats,
 } from "./git.ts"
-import { getProvider, type AgentCost } from "./agent/index.ts"
+import { getProvider, type AgentCost, type ErrorKind } from "./agent/index.ts"
+import { classifyAgentError } from "./agent/error-classifier.ts"
 import { formatToolEvent } from "./tool-events.ts"
 import {
   parseExperimentNotes,
@@ -56,7 +57,7 @@ export type ExperimentCost = AgentCost
 export type ExperimentOutcome =
   | { type: "committed"; sha: string; description: string; files_changed: string[]; diff_stats: DiffStats; cost?: ExperimentCost; notes?: ExperimentNotes }
   | { type: "no_commit"; cost?: ExperimentCost; notes?: ExperimentNotes }
-  | { type: "agent_error"; error: string; cost?: ExperimentCost; notes?: ExperimentNotes }
+  | { type: "agent_error"; error: string; errorKind?: ErrorKind; cost?: ExperimentCost; notes?: ExperimentNotes }
 
 /** Result of checking whether locked files were modified */
 export interface LockViolation {
@@ -221,6 +222,8 @@ ${lines.join("\n")}
       terminationNote = "\nThe most recent previous run ended at its experiment budget. There may be unexplored productive directions."
     } else if (packet.previous_termination === "budget_exceeded") {
       terminationNote = "\nThe most recent previous run ended because its cost budget was exceeded. There may be unexplored productive directions."
+    } else if (packet.previous_termination === "quota_exhausted") {
+      terminationNote = "\nThe most recent previous run ended because the provider's quota was exhausted. There may be unexplored productive directions."
     }
     previousRunSection += `
 ## Previous Runs
@@ -356,11 +359,12 @@ async function runExperimentAgentRaw(
           assistantText += `\n${event.text}`
           break
         case "error":
-          return { outcome: { type: "agent_error", error: event.error, cost }, assistantText }
+          return { outcome: { type: "agent_error", error: event.error, errorKind: event.errorKind, cost }, assistantText }
         case "result":
           cost = event.cost
           if (!event.success) {
-            return { outcome: { type: "agent_error", error: event.error ?? "unknown", cost }, assistantText }
+            const errorMsg = event.error ?? "unknown"
+            return { outcome: { type: "agent_error", error: errorMsg, errorKind: classifyAgentError(errorMsg), cost }, assistantText }
           }
           break
       }
@@ -369,8 +373,9 @@ async function runExperimentAgentRaw(
     if (signal?.aborted) {
       return { outcome: { type: "agent_error", error: "aborted", cost }, assistantText }
     }
+    const errorMsg = formatShellError(err)
     return {
-      outcome: { type: "agent_error", error: formatShellError(err), cost },
+      outcome: { type: "agent_error", error: errorMsg, errorKind: classifyAgentError(errorMsg), cost },
       assistantText,
     }
   }

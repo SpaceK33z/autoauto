@@ -523,7 +523,9 @@ async function cmdStatus(args: ParsedArgs) {
             ? `stagnation (${state.total_discards} consecutive discards)`
             : state.termination_reason === "budget_exceeded"
               ? `budget exceeded ($${(state.total_cost_usd ?? 0).toFixed(2)})`
-              : state.termination_reason === "stopped"
+              : state.termination_reason === "quota_exhausted"
+                ? "provider quota exhausted"
+                : state.termination_reason === "stopped"
                 ? "stopped by user"
                 : state.phase === "crashed"
                   ? "crashed"

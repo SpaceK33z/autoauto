@@ -423,6 +423,13 @@ export async function runExperimentLoop(
     }
   }
 
+  let terminalError = false
+  const recentErrorTimestamps: number[] = []
+  const RAPID_FAILURE_COUNT = 3
+  /** If this many experiments all fail within this total window, treat as terminal. */
+  const RAPID_FAILURE_WINDOW_MS = 30_000
+  const RATE_LIMIT_PAUSE_MS = 60_000
+
   // Re-read from run-config.json each iteration to support mid-run TUI changes
   let effectiveMaxExperiments = options.maxExperiments
   let effectiveMaxCostUsd = options.maxCostUsd
@@ -564,6 +571,80 @@ export async function runExperimentLoop(
       }
       await writeState(runDir, state)
       break
+    }
+
+    // --- Terminal error detection (quota exhausted or auth failure) → immediate stop ---
+    if (outcome.type === "agent_error" && (outcome.errorKind === "quota_exhausted" || outcome.errorKind === "auth_error")) {
+      const measurementViolations = await getMeasurementViolations(measurementSnapshot)
+      if (measurementViolations.length > 0) await restoreMeasurementSnapshot(measurementSnapshot)
+      await resetAndVerify(cwd, startSha, `${outcome.errorKind} cleanup`)
+
+      const label = outcome.errorKind === "quota_exhausted" ? "quota exhausted" : "auth error"
+      const crashResult: ExperimentResult = {
+        experiment_number: experimentNumber,
+        commit: startSha.slice(0, 7),
+        metric_value: 0,
+        secondary_values: "",
+        status: "crash",
+        description: `${label}: ${outcome.error}`,
+        measurement_duration_ms: 0,
+      }
+      await appendResult(runDir, crashResult)
+      await recordIdeasBacklog(ideasBacklogEnabled, runDir, crashResult, outcome.notes)
+      callbacks.onExperimentEnd(crashResult)
+      callbacks.onError(`Provider ${label}: ${outcome.error}`)
+
+      state = {
+        ...state,
+        total_crashes: state.total_crashes + 1,
+        candidate_sha: null,
+        phase: "stopping",
+        updated_at: now(),
+      }
+      await writeState(runDir, state)
+      callbacks.onPhaseChange("stopping", `provider ${label}`)
+      terminalError = true
+      break
+    }
+
+    // --- Rate limit → pause before retrying (fall through to normal error handling after) ---
+    if (outcome.type === "agent_error" && outcome.errorKind === "rate_limited") {
+      const pauseSec = RATE_LIMIT_PAUSE_MS / 1000
+      callbacks.onError(`Rate limited by provider — pausing ${pauseSec}s before next experiment. Error: ${outcome.error}`)
+      callbacks.onPhaseChange("idle", `rate limited — waiting ${pauseSec}s`)
+      for (let i = 0; i < pauseSec; i++) {
+        if (options.signal?.aborted) break
+        await Bun.sleep(1000)
+      }
+    }
+
+    // --- Rapid-failure backstop: catch unrecognized terminal errors ---
+    if (outcome.type === "agent_error") {
+      const ts = Date.now()
+      recentErrorTimestamps.push(ts)
+      while (recentErrorTimestamps.length > 0 && ts - recentErrorTimestamps[0] > RAPID_FAILURE_WINDOW_MS) {
+        recentErrorTimestamps.shift()
+      }
+      if (recentErrorTimestamps.length >= RAPID_FAILURE_COUNT) {
+        callbacks.onError(`${RAPID_FAILURE_COUNT} experiments failed within ${RAPID_FAILURE_WINDOW_MS / 1000}s — possible unrecognized quota or auth error. Stopping run.`)
+
+        const measurementViolations = await getMeasurementViolations(measurementSnapshot)
+        if (measurementViolations.length > 0) await restoreMeasurementSnapshot(measurementSnapshot)
+        await resetAndVerify(cwd, startSha, "rapid failure cleanup")
+
+        state = {
+          ...state,
+          candidate_sha: null,
+          phase: "stopping",
+          updated_at: now(),
+        }
+        await writeState(runDir, state)
+        callbacks.onPhaseChange("stopping", "rapid consecutive failures detected")
+        terminalError = true
+        break
+      }
+    } else {
+      recentErrorTimestamps.length = 0
     }
 
     // --- Handle no-commit or error (no code change) ---
@@ -708,13 +789,15 @@ export async function runExperimentLoop(
   const finalCost = state.total_cost_usd ?? 0
   const reason: TerminationReason = options.signal?.aborted
     ? "aborted"
-    : consecutiveDiscards >= maxConsecutiveDiscards
-      ? "stagnation"
-      : effectiveMaxCostUsd != null && finalCost >= effectiveMaxCostUsd
-        ? "budget_exceeded"
-        : state.experiment_number >= effectiveMaxExperiments
-          ? "max_experiments"
-          : "stopped"
+    : terminalError
+      ? "quota_exhausted"
+      : consecutiveDiscards >= maxConsecutiveDiscards
+        ? "stagnation"
+        : effectiveMaxCostUsd != null && finalCost >= effectiveMaxCostUsd
+          ? "budget_exceeded"
+          : state.experiment_number >= effectiveMaxExperiments
+            ? "max_experiments"
+            : "stopped"
 
   const finalState: RunState = {
     ...state,

@@ -48,7 +48,11 @@ export function createFileCallbacks(runDir: string): LoopCallbacks {
       w.write(`\n[time:${Date.now()}]\n[tool] ${status}\n`)
       w.flush()
     },
-    onError: () => {},
+    onError: (error: string) => {
+      const w = getWriter(currentExperiment)
+      w.write(`\n[time:${Date.now()}]\n[error] ${error}\n`)
+      w.flush()
+    },
     onExperimentCost: () => {},
     onRebaseline: () => {},
     onLoopComplete: () => {
