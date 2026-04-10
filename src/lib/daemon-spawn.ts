@@ -111,11 +111,16 @@ export async function spawnDaemon(
     // Prevent macOS from sleeping while the daemon is running.
     // caffeinate -i -w <pid> prevents idle sleep and auto-exits when the daemon dies.
     if (process.platform === "darwin") {
-      const caff = spawn("caffeinate", ["-i", "-w", String(pid)], {
-        detached: true,
-        stdio: "ignore",
-      })
-      caff.unref()
+      try {
+        const caff = spawn("caffeinate", ["-i", "-w", String(pid)], {
+          detached: true,
+          stdio: "ignore",
+        })
+        caff.on("error", () => {}) // ignore spawn failures (e.g. sandboxed environments)
+        caff.unref()
+      } catch {
+        // caffeinate not available — not critical, continue without sleep prevention
+      }
     }
 
     // 5. Write initial daemon.json. The daemon waits for this stub, then adds heartbeat_at.
