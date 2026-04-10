@@ -38,11 +38,13 @@ import { AgentPanel } from "../components/AgentPanel.tsx"
 import { Chat } from "../components/Chat.tsx"
 import { DirtyTreePrompt } from "../components/DirtyTreePrompt.tsx"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
-import { formatCell, truncateStreamText } from "../lib/format.ts"
+import { truncateStreamText } from "../lib/format.ts"
 
 type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error" | "dirty"
 
 const FINALIZE_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+const BORDER_ACTIVE = "#7aa2f7"
+const BORDER_DIM = "#666666"
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError"
@@ -114,28 +116,9 @@ function IdeasPanel({ text }: { text: string }) {
   )
 }
 
-function Divider({ width, label }: { width: number; label?: string }) {
-  const innerWidth = Math.max(width - 2, 0)
-  if (label) {
-    const labelStr = `─ ${label} `
-    const rest = "─".repeat(Math.max(innerWidth - labelStr.length, 0))
-    return (
-      <box height={1} flexShrink={0}>
-        <text width={innerWidth} fg="#666666">{formatCell(`${labelStr}${rest}`, innerWidth)}</text>
-      </box>
-    )
-  }
-  return (
-    <box height={1} flexShrink={0}>
-      <text width={innerWidth} fg="#666666">{formatCell("─".repeat(innerWidth), innerWidth)}</text>
-    </box>
-  )
-}
-
 export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, keepSimplifications, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
-  const inlineWidth = Math.max(termWidth - 4, 0)
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
   const [runState, setRunState] = useState<RunState | null>(null)
   const [currentPhaseLabel, setCurrentPhaseLabel] = useState(attachRunId ? "Connecting..." : "Starting daemon...")
@@ -153,7 +136,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
   const [runDir, setRunDir] = useState<string | null>(null)
   const [finalizeResult, setFinalizeResult] = useState<FinalizeResult | null>(null)
-  const [tableFocused, setTableFocused] = useState(false)
+  type FocusPanel = "results" | "agent" | "ideas"
+  const [focusedPanel, setFocusedPanel] = useState<FocusPanel>("agent")
   const [selectedResult, setSelectedResult] = useState<ExperimentResult | null>(null)
   const [showStopConfirm, setShowStopConfirm] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -632,20 +616,24 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       return
     }
 
-    // During execution: Tab to toggle table focus
+    // During execution: Tab to cycle panel focus
     if ((phase === "starting" || phase === "running") && key.name === "tab") {
-      setTableFocused(f => !f)
+      setFocusedPanel(p => {
+        if (p === "results") return "agent"
+        if (p === "agent") return ideasVisible ? "ideas" : "results"
+        return "results" // ideas → results
+      })
       return
     }
 
-    // Escape: deselect first, then unfocus table, then detach (go back while daemon continues)
+    // Escape: deselect first, then unfocus panel, then detach (go back while daemon continues)
     if (key.name === "escape") {
       if (selectedResult) {
         setSelectedResult(null)
         return
       }
-      if (tableFocused) {
-        setTableFocused(false)
+      if (focusedPanel !== "agent") {
+        setFocusedPanel("agent")
         return
       }
       // Detach from daemon — it keeps running in background
@@ -703,57 +691,48 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0}>
       {(phase === "starting" || phase === "running") && (
-        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`${programSlug}`}>
-          <StatsHeader
-            experimentNumber={experimentNumber}
-            maxExperiments={displayMaxExperiments}
-            width={termWidth}
-            modelLabel={headerModelLabel}
-            totalKeeps={runState?.total_keeps ?? 0}
-            totalDiscards={runState?.total_discards ?? 0}
-            totalCrashes={runState?.total_crashes ?? 0}
-            currentBaseline={runState?.current_baseline ?? 0}
-            originalBaseline={runState?.original_baseline ?? 0}
-            bestMetric={runState?.best_metric ?? 0}
-            direction={programConfig?.direction ?? "lower"}
-            metricField={programConfig?.metric_field ?? "metric"}
-            totalCostUsd={totalCostUsd}
-            maxCostUsd={maxCostUsd}
-            metricHistory={metricHistory}
-            currentPhaseLabel={currentPhaseLabel}
-            improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
-            isRunning
-          />
+        <box flexDirection="column" flexGrow={1}>
+          <box flexDirection="column" flexShrink={0} border borderStyle="rounded" borderColor={BORDER_DIM} title={programSlug}>
+            <StatsHeader
+              experimentNumber={experimentNumber}
+              maxExperiments={displayMaxExperiments}
+              width={termWidth}
+              modelLabel={headerModelLabel}
+              totalKeeps={runState?.total_keeps ?? 0}
+              totalDiscards={runState?.total_discards ?? 0}
+              totalCrashes={runState?.total_crashes ?? 0}
+              currentBaseline={runState?.current_baseline ?? 0}
+              originalBaseline={runState?.original_baseline ?? 0}
+              bestMetric={runState?.best_metric ?? 0}
+              direction={programConfig?.direction ?? "lower"}
+              metricField={programConfig?.metric_field ?? "metric"}
+              totalCostUsd={totalCostUsd}
+              maxCostUsd={maxCostUsd}
+              metricHistory={metricHistory}
+              currentPhaseLabel={currentPhaseLabel}
+              improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
+              isRunning
+            />
+          </box>
 
           {compact ? (
-            <>
-              <box paddingX={1}>
-                <text width={inlineWidth}>
-                  {tableFocused ? (
-                    <>
-                      <span fg="#7aa2f7"><strong>[ Results ]</strong></span>
-                      {"  "}
-                      <span fg="#666666">Agent</span>
-                    </>
-                  ) : (
-                    <>
-                      <span fg="#666666">Results</span>
-                      {"  "}
-                      <span fg="#7aa2f7"><strong>[ {selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} ]</strong></span>
-                    </>
-                  )}
-                  {"  "}
-                  <span fg="#666666">Tab ⇄</span>
-                </text>
-              </box>
-              {tableFocused ? (
+            <box
+              flexDirection="column"
+              flexGrow={1}
+              border
+              borderStyle="rounded"
+              borderColor={BORDER_ACTIVE}
+              title={focusedPanel === "results" ? "Results" : (selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent")}
+              onMouseDown={() => setFocusedPanel(p => p === "results" ? "agent" : "results")}
+            >
+              {focusedPanel === "results" ? (
                 <ResultsTable
                   results={results}
                   metricField={programConfig?.metric_field ?? "metric"}
                   secondaryMetrics={secondaryMetricsConfig}
                   width={termWidth}
                   experimentNumber={experimentNumber}
-                  focused={tableFocused}
+                  focused={focusedPanel === "results"}
                   selectedResult={selectedResult}
                   onSelect={setSelectedResult}
                 />
@@ -765,54 +744,45 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   selectedResult={selectedResult}
                   phaseLabel={currentPhaseLabel}
                   experimentNumber={experimentNumber}
-
                   secondaryMetrics={secondaryMetricsConfig}
                 />
               )}
-            </>
+            </box>
           ) : (
             <>
-              <Divider width={termWidth} label="Results" />
+              <box
+                flexDirection="column"
+                flexGrow={1}
+                border
+                borderStyle="rounded"
+                borderColor={focusedPanel === "results" ? BORDER_ACTIVE : BORDER_DIM}
+                title="Results"
+                onMouseDown={() => setFocusedPanel("results")}
+              >
+                <ResultsTable
+                  results={results}
+                  metricField={programConfig?.metric_field ?? "metric"}
+                  secondaryMetrics={secondaryMetricsConfig}
+                  width={termWidth}
+                  experimentNumber={experimentNumber}
+                  focused={focusedPanel === "results"}
+                  selectedResult={selectedResult}
+                  onSelect={setSelectedResult}
+                />
+              </box>
 
-              <ResultsTable
-                results={results}
-                metricField={programConfig?.metric_field ?? "metric"}
-                secondaryMetrics={secondaryMetricsConfig}
-                width={termWidth}
-                experimentNumber={experimentNumber}
-                focused={tableFocused}
-                selectedResult={selectedResult}
-                onSelect={setSelectedResult}
-              />
-
-              {ideasVisible ? (
-                <>
-                  <box flexDirection="row">
-                    <box flexGrow={3}>
-                      <Divider width={Math.ceil(termWidth * 0.6)} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
-                    </box>
-                    <box flexGrow={2}>
-                      <Divider width={Math.floor(termWidth * 0.4)} label="Ideas" />
-                    </box>
-                  </box>
-                  <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
-                    <box flexDirection="column" flexGrow={3} minHeight={0} minWidth={0}>
-                      <AgentPanel
-                        streamingText={agentStreamText}
-                        toolStatus={toolStatus}
-                        isRunning={phase === "running"}
-                        selectedResult={selectedResult}
-                        secondaryMetrics={secondaryMetricsConfig}
-                      />
-                    </box>
-                    <box flexDirection="column" flexGrow={2} minHeight={0} minWidth={0}>
-                      <IdeasPanel text={ideasText} />
-                    </box>
-                  </box>
-                </>
-              ) : (
-                <>
-                  <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
+              <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
+                <box
+                  flexDirection="column"
+                  flexGrow={ideasVisible ? 3 : 1}
+                  minHeight={0}
+                  minWidth={0}
+                  border
+                  borderStyle="rounded"
+                  borderColor={focusedPanel === "agent" ? BORDER_ACTIVE : BORDER_DIM}
+                  title={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"}
+                  onMouseDown={() => setFocusedPanel("agent")}
+                >
                   <AgentPanel
                     streamingText={agentStreamText}
                     toolStatus={toolStatus}
@@ -820,8 +790,23 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                     selectedResult={selectedResult}
                     secondaryMetrics={secondaryMetricsConfig}
                   />
-                </>
-              )}
+                </box>
+                {ideasVisible && (
+                  <box
+                    flexDirection="column"
+                    flexGrow={2}
+                    minHeight={0}
+                    minWidth={0}
+                    border
+                    borderStyle="rounded"
+                    borderColor={focusedPanel === "ideas" ? BORDER_ACTIVE : BORDER_DIM}
+                    title="Ideas"
+                    onMouseDown={() => setFocusedPanel("ideas")}
+                  >
+                    <IdeasPanel text={ideasText} />
+                  </box>
+                )}
+              </box>
             </>
           )}
 
@@ -858,66 +843,77 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       )}
 
       {phase === "complete" && runState && readOnly && (
-        <box flexDirection="column" flexGrow={1} border borderStyle="rounded" title={`${programSlug}`}>
-          <StatsHeader
-            experimentNumber={experimentNumber}
-            maxExperiments={displayMaxExperiments}
-            width={termWidth}
-            modelLabel={headerModelLabel}
-            totalKeeps={runState.total_keeps}
-            totalDiscards={runState.total_discards}
-            totalCrashes={runState.total_crashes}
-            currentBaseline={runState.current_baseline}
-            originalBaseline={runState.original_baseline}
-            bestMetric={runState.best_metric}
-            direction={programConfig?.direction ?? "lower"}
-            metricField={programConfig?.metric_field ?? "metric"}
-            totalCostUsd={totalCostUsd}
-            maxCostUsd={maxCostUsd}
-            metricHistory={metricHistory}
-            currentPhaseLabel="Complete"
-            improvementPct={programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
-          />
-          <Divider width={termWidth} label="Results" />
-          <ResultsTable
-            results={results}
-            metricField={programConfig?.metric_field ?? "metric"}
-            secondaryMetrics={secondaryMetricsConfig}
-            width={termWidth}
-            experimentNumber={experimentNumber}
-            focused={tableFocused}
-            selectedResult={selectedResult}
-            onSelect={setSelectedResult}
-          />
+        <box flexDirection="column" flexGrow={1}>
+          <box flexDirection="column" flexShrink={0} border borderStyle="rounded" borderColor={BORDER_DIM} title={programSlug}>
+            <StatsHeader
+              experimentNumber={experimentNumber}
+              maxExperiments={displayMaxExperiments}
+              width={termWidth}
+              modelLabel={headerModelLabel}
+              totalKeeps={runState.total_keeps}
+              totalDiscards={runState.total_discards}
+              totalCrashes={runState.total_crashes}
+              currentBaseline={runState.current_baseline}
+              originalBaseline={runState.original_baseline}
+              bestMetric={runState.best_metric}
+              direction={programConfig?.direction ?? "lower"}
+              metricField={programConfig?.metric_field ?? "metric"}
+              totalCostUsd={totalCostUsd}
+              maxCostUsd={maxCostUsd}
+              metricHistory={metricHistory}
+              currentPhaseLabel="Complete"
+              improvementPct={programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
+            />
+          </box>
+          <box
+            flexDirection="column"
+            flexGrow={1}
+            border
+            borderStyle="rounded"
+            borderColor={focusedPanel === "results" ? BORDER_ACTIVE : BORDER_DIM}
+            title="Results"
+            onMouseDown={() => setFocusedPanel("results")}
+          >
+            <ResultsTable
+              results={results}
+              metricField={programConfig?.metric_field ?? "metric"}
+              secondaryMetrics={secondaryMetricsConfig}
+              width={termWidth}
+              experimentNumber={experimentNumber}
+              focused={focusedPanel === "results"}
+              selectedResult={selectedResult}
+              onSelect={setSelectedResult}
+            />
+          </box>
           {summaryText ? (
-            <>
-              <Divider width={termWidth} label="Summary" />
+            <box
+              flexDirection="column"
+              flexGrow={1}
+              border
+              borderStyle="rounded"
+              borderColor={focusedPanel === "agent" ? BORDER_ACTIVE : BORDER_DIM}
+              title="Summary"
+              onMouseDown={() => setFocusedPanel("agent")}
+            >
               <scrollbox flexGrow={1} focused>
                 <box paddingX={1} flexDirection="column">
                   <markdown content={summaryText} syntaxStyle={syntaxStyle} />
                 </box>
               </scrollbox>
-            </>
+            </box>
           ) : (
-            <>
-              <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
-              {ideasVisible ? (
-                <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
-                  <box flexDirection="column" flexGrow={3} minHeight={0} minWidth={0}>
-                    <AgentPanel
-                      streamingText={agentStreamText}
-                      toolStatus={toolStatus}
-                      isRunning={false}
-                      selectedResult={selectedResult}
-                      secondaryMetrics={secondaryMetricsConfig}
-                    />
-                  </box>
-                  <box flexDirection="column" flexGrow={2} minHeight={0} minWidth={0}>
-                    <Divider width={Math.floor(termWidth * 0.38)} label="Ideas" />
-                    <IdeasPanel text={ideasText} />
-                  </box>
-                </box>
-              ) : (
+            <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
+              <box
+                flexDirection="column"
+                flexGrow={ideasVisible ? 3 : 1}
+                minHeight={0}
+                minWidth={0}
+                border
+                borderStyle="rounded"
+                borderColor={focusedPanel === "agent" ? BORDER_ACTIVE : BORDER_DIM}
+                title={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"}
+                onMouseDown={() => setFocusedPanel("agent")}
+              >
                 <AgentPanel
                   streamingText={agentStreamText}
                   toolStatus={toolStatus}
@@ -925,8 +921,23 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   selectedResult={selectedResult}
                   secondaryMetrics={secondaryMetricsConfig}
                 />
+              </box>
+              {ideasVisible && (
+                <box
+                  flexDirection="column"
+                  flexGrow={2}
+                  minHeight={0}
+                  minWidth={0}
+                  border
+                  borderStyle="rounded"
+                  borderColor={focusedPanel === "ideas" ? BORDER_ACTIVE : BORDER_DIM}
+                  title="Ideas"
+                  onMouseDown={() => setFocusedPanel("ideas")}
+                >
+                  <IdeasPanel text={ideasText} />
+                </box>
               )}
-            </>
+            </box>
           )}
           <box paddingX={1}>
             <text fg="#888888">
