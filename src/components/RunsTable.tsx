@@ -13,8 +13,11 @@ export interface RunsTableProps {
   selectedIndex?: number
 }
 
+const FINALIZED_COLOR = "#73daca" // teal
+
 function phaseColor(state: RunState | null): string {
   if (!state) return "#666666"
+  if (state.phase === "complete" && state.finalized_at) return FINALIZED_COLOR
   switch (state.phase) {
     case "agent_running":
     case "measuring":
@@ -139,20 +142,25 @@ const RunRow = memo(function RunRow({
   if (!state) return null
 
   const dotColor = phaseColor(state)
+  const dotChar = state.finalized_at ? "✓ " : "● "
   const totalExp = state.total_keeps + state.total_discards + state.total_crashes
   const gains = formatGains(state, config)
+  const gainsText = state.finalized_branch
+    ? `${gains.text} → ${state.finalized_branch}`
+    : gains.text
+  const gainsColor = state.finalized_at ? FINALIZED_COLOR : gains.color
   const slug = state.program_slug
 
   return (
     <box paddingX={1} backgroundColor={selected ? "#333333" : undefined}>
       <text selectable>
-        <span fg={dotColor}>{formatCell("● ", widths.status)}</span>
+        <span fg={dotColor}>{formatCell(dotChar, widths.status)}</span>
         <span fg="#ffffff">{formatCell(slug, widths.program)}</span>
         <span fg="#ffffff">{formatCell(String(totalExp), widths.exp)}</span>
         <span fg="#ffffff">{formatCell(formatModelEffort(state), widths.model)}</span>
         <span fg="#ffffff">{formatCell(formatTokens(state.total_tokens), widths.tokens)}</span>
         <span fg="#ffffff">{formatCell(formatDuration(state.started_at, state.updated_at, state.phase), widths.time)}</span>
-        <span fg={gains.color}>{formatCell(gains.text, widths.gains)}</span>
+        <span fg={gainsColor}>{formatCell(gainsText, widths.gains)}</span>
       </text>
     </box>
   )

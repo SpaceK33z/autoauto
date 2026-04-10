@@ -68,6 +68,17 @@ export interface RunState {
   error_phase?: RunPhase | null
   /** Whether this run was started manually or from the queue */
   source?: "manual" | "queue"
+  /** ISO timestamp of when finalization completed */
+  finalized_at?: string
+  /** Branch name where finalized changes were packaged */
+  finalized_branch?: string
+}
+
+/** Backfill finalized_at for legacy runs that have a summary but predate the field. */
+export function backfillFinalizedAt(state: RunState, hasSummary: boolean): void {
+  if (hasSummary && state.phase === "complete" && !state.finalized_at) {
+    state.finalized_at = state.updated_at
+  }
 }
 
 /** A single row in results.tsv */
@@ -319,6 +330,10 @@ export async function listRuns(programDir: string): Promise<RunInfo[]> {
       let state: RunState | null = null
       try {
         state = await readState(runDir)
+        if (state && !state.finalized_at) {
+          const hasSummary = await Bun.file(join(runDir, "summary.md")).exists()
+          backfillFinalizedAt(state, hasSummary)
+        }
       } catch {
         // state.json missing or corrupt
       }

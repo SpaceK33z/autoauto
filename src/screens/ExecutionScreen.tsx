@@ -4,7 +4,7 @@ import type { Screen, ProgramConfig } from "../lib/programs.ts"
 import { getProgramDir } from "../lib/programs.ts"
 import { formatModelLabel, type ModelSlot } from "../lib/config.ts"
 import type { RunState, ExperimentResult, TerminationReason } from "../lib/run.ts"
-import { getRunStats } from "../lib/run.ts"
+import { getRunStats, writeState } from "../lib/run.ts"
 import { removeWorktree } from "../lib/worktree.ts"
 import {
   buildFinalizeContext,
@@ -153,6 +153,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const maxExpTextRef = useRef(maxExpText)
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [ideasText, setIdeasText] = useState("")
+  const [summaryText, setSummaryText] = useState("")
   const [showIdeas, setShowIdeas] = useState(true)
 
   // Verification state
@@ -212,6 +213,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 setExperimentNumber(reconstructed.state.experiment_number)
                 setAgentStreamText(reconstructed.streamText)
                 setIdeasText(reconstructed.ideasText)
+                setSummaryText(reconstructed.summaryText)
                 setTerminationReason(reconstructed.state.termination_reason ?? null)
                 if (currentMax != null) {
                   const text = String(currentMax)
@@ -249,6 +251,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             setExperimentNumber(reconstructed.state.experiment_number)
             setAgentStreamText(reconstructed.streamText)
             setIdeasText(reconstructed.ideasText)
+            setSummaryText(reconstructed.summaryText)
             setPhase("running")
             // Sync maxExpText from run-config for settings panel
             const currentMax = await getMaxExperiments(activeRunDir)
@@ -433,6 +436,14 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     try {
       const summary = generateSummaryReport(runState, results, programConfig, lastAssistant.content)
       await saveFinalizeReport(runDir, summary)
+
+      // Persist finalization metadata to state.json
+      await writeState(runDir, {
+        ...runState,
+        finalized_at: new Date().toISOString(),
+        finalized_branch: branch,
+      })
+
       await restoreInPlaceBranch()
       setFinalizeResult({ summary, branch })
       setPhase("finalize_complete")
@@ -547,9 +558,9 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     if (phase === "complete" && readOnly) {
       if (key.name === "escape") {
         navigate("home")
-      } else if (key.name === "i") {
+      } else if (key.name === "i" && !runState?.finalized_at) {
         setShowIdeas(v => !v)
-      } else if (key.name === "f") {
+      } else if (key.name === "f" && !runState?.finalized_at) {
         handleFinalize()
       }
       return
@@ -860,10 +871,35 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             selectedResult={selectedResult}
             onSelect={setSelectedResult}
           />
-          <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
-          {ideasVisible ? (
-            <box flexDirection="row" flexGrow={1}>
-              <box flexDirection="column" flexGrow={3}>
+          {summaryText ? (
+            <>
+              <Divider width={termWidth} label="Summary" />
+              <scrollbox flexGrow={1} focused>
+                <box paddingX={1} flexDirection="column">
+                  <markdown content={summaryText} syntaxStyle={syntaxStyle} />
+                </box>
+              </scrollbox>
+            </>
+          ) : (
+            <>
+              <Divider width={termWidth} label={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"} />
+              {ideasVisible ? (
+                <box flexDirection="row" flexGrow={1}>
+                  <box flexDirection="column" flexGrow={3}>
+                    <AgentPanel
+                      streamingText={agentStreamText}
+                      toolStatus={toolStatus}
+                      isRunning={false}
+                      selectedResult={selectedResult}
+                      secondaryMetrics={secondaryMetricsConfig}
+                    />
+                  </box>
+                  <box flexDirection="column" flexGrow={2}>
+                    <Divider width={Math.floor(termWidth * 0.38)} label="Ideas" />
+                    <IdeasPanel text={ideasText} />
+                  </box>
+                </box>
+              ) : (
                 <AgentPanel
                   streamingText={agentStreamText}
                   toolStatus={toolStatus}
@@ -871,23 +907,15 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   selectedResult={selectedResult}
                   secondaryMetrics={secondaryMetricsConfig}
                 />
-              </box>
-              <box flexDirection="column" flexGrow={2}>
-                <Divider width={Math.floor(termWidth * 0.38)} label="Ideas" />
-                <IdeasPanel text={ideasText} />
-              </box>
-            </box>
-          ) : (
-            <AgentPanel
-              streamingText={agentStreamText}
-              toolStatus={toolStatus}
-              isRunning={false}
-              selectedResult={selectedResult}
-              secondaryMetrics={secondaryMetricsConfig}
-            />
+              )}
+            </>
           )}
           <box paddingX={1}>
-            <text fg="#888888">Esc back · f finalize{ideasText.length > 0 ? " · i toggle ideas" : ""}</text>
+            <text fg="#888888">
+              {summaryText
+                ? "Esc back"
+                : `Esc back · f finalize${ideasText.length > 0 ? " · i toggle ideas" : ""}`}
+            </text>
           </box>
         </box>
       )}

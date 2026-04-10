@@ -1,7 +1,7 @@
 import { join } from "node:path"
 import { streamLogName } from "./daemon-callbacks.ts"
 import type { RunState, ExperimentResult } from "./run.ts"
-import { readAllResults, readState, getMetricHistory } from "./run.ts"
+import { readAllResults, readState, getMetricHistory, backfillFinalizedAt } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
 import { loadProgramConfig } from "./programs.ts"
 import {
@@ -74,16 +74,20 @@ export async function reconstructState(runDir: string, programDir: string): Prom
   programConfig: ProgramConfig
   streamText: string
   ideasText: string
+  summaryText: string
 }> {
   const [state, results, programConfig] = await Promise.all([
     readState(runDir),
     readAllResults(runDir),
     loadProgramConfig(programDir),
   ])
-  const [streamText, ideasText] = await Promise.all([
+  const [streamText, ideasText, summaryText] = await Promise.all([
     readStreamTail(runDir, state.experiment_number),
     Bun.file(join(runDir, "ideas.md")).text().catch(() => ""),
+    Bun.file(join(runDir, "summary.md")).text().catch(() => ""),
   ])
+
+  backfillFinalizedAt(state, Boolean(summaryText))
 
   return {
     state,
@@ -92,6 +96,7 @@ export async function reconstructState(runDir: string, programDir: string): Prom
     programConfig,
     streamText,
     ideasText,
+    summaryText,
   }
 }
 
