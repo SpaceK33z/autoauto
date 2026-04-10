@@ -37,6 +37,7 @@ jobs:
           - target: bun-darwin-x64
             os: macos-latest
             artifact: autoauto-darwin-x64
+            cross_platform: darwin-x64
           - target: bun-linux-x64
             os: ubuntu-latest
             artifact: autoauto-linux-x64
@@ -47,6 +48,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      - name: Install cross-platform native deps
+        if: matrix.cross_platform
+        run: |
+          OPENTUI_VERSION=$(bun -e "console.log(require('@opentui/core/package.json').version)")
+          npm install --no-save --force @opentui/core-${{ matrix.cross_platform }}@$OPENTUI_VERSION
       - run: bun build --compile --target=${{ matrix.target }} src/index.tsx --outfile dist/${{ matrix.artifact }}
       - uses: actions/upload-artifact@v4
         with:
