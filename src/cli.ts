@@ -1525,7 +1525,9 @@ async function cmdDelete(args: ParsedArgs) {
   // Clean up queue entries for this program
   const queue = await readQueue(root)
   const queueIds = queue.entries.filter((e) => e.programSlug === slug).map((e) => e.id)
-  await Promise.all(queueIds.map((id) => removeFromQueue(root, id)))
+  for (const id of queueIds) {
+    await removeFromQueue(root, id)
+  }
 
   await deleteProgram(root, slug)
   if (json) {
@@ -1605,6 +1607,18 @@ async function cmdValidate(args: ParsedArgs) {
     result = JSON.parse(stdout)
   } catch {
     die("Failed to parse validation output.")
+  }
+
+  // Handle minimal error payload (top-level catch in validate-measurement.ts)
+  if (
+    typeof result.error === "string" &&
+    (typeof result.build !== "object" || result.build == null)
+  ) {
+    if (json) {
+      outJson(result)
+      return
+    }
+    die(result.error as string, 2)
   }
 
   if (json) {
