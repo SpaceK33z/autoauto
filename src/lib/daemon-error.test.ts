@@ -142,8 +142,8 @@ describe("daemon startup failure", () => {
       expect(state.error).toContain("Baseline measurement failed")
       expect(state.error_phase).toBe("baseline")
 
-      await releaseLock(programDir)
     } finally {
+      await releaseLock(programDir).catch(() => {})
       await rm(cwd, { recursive: true, force: true })
     }
   }, 20_000)
@@ -182,8 +182,8 @@ describe("daemon startup failure", () => {
       const status = await getDaemonStatus(result.runDir)
       expect(status.alive).toBe(false)
 
-      await releaseLock(programDir)
     } finally {
+      await releaseLock(programDir).catch(() => {})
       await rm(cwd, { recursive: true, force: true })
     }
   }, 15_000)
@@ -223,8 +223,8 @@ describe("daemon startup failure", () => {
       // The daemon writes "Daemon fatal error: ..." for unhandled exceptions
       expect(logTail).toContain("Daemon fatal error")
 
-      await releaseLock(programDir)
     } finally {
+      await releaseLock(programDir).catch(() => {})
       await rm(cwd, { recursive: true, force: true })
     }
   }, 20_000)
