@@ -24,6 +24,11 @@ describe("format helpers", () => {
     ])).toEqual([2, 3])
   })
 
+  test("sanitizes inline control sequences before truncating", () => {
+    expect(formatCell("foo\tbar\nbaz", 11)).toBe("foo bar baz")
+    expect(formatCell("\u001B[31mred\u001B[0m", 3)).toBe("red")
+  })
+
   test("does not grow columns when min exceeds ideal", () => {
     expect(allocateColumnWidths(0, [
       { ideal: 1, min: 4 },
