@@ -6,6 +6,7 @@ import {
   type SDKAssistantMessage,
   type SDKPartialAssistantMessage,
   type SDKResultMessage,
+  type SDKRateLimitInfo,
   type Query,
 } from "@anthropic-ai/claude-agent-sdk"
 import { createPushStream } from "../push-stream.ts"
@@ -17,6 +18,7 @@ import type {
   AgentCost,
   AuthResult,
   AgentModelOption,
+  QuotaInfo,
 } from "./types.ts"
 import { buildAgentErrorEvent } from "./error-classifier.ts"
 
@@ -84,6 +86,17 @@ function processToolUseEvent(
   }
 
   return { pending, result: null }
+}
+
+function toQuotaInfo(info: SDKRateLimitInfo): QuotaInfo {
+  return {
+    status: info.status,
+    utilization: info.utilization,
+    resetsAt: info.resetsAt,
+    rateLimitType: info.rateLimitType,
+    isUsingOverage: info.isUsingOverage,
+    updatedAt: Date.now(),
+  }
 }
 
 function extractCost(message: SDKResultMessage): AgentCost {
@@ -196,6 +209,9 @@ class ClaudeSession implements AgentSession {
             ? undefined
             : resultMsg.errors.join(", ") || resultMsg.subtype
           yield { type: "result", success, error, cost }
+        } else if (message.type === "rate_limit_event") {
+          const rlEvent = message as unknown as { rate_limit_info: SDKRateLimitInfo }
+          yield { type: "quota_update", quota: toQuotaInfo(rlEvent.rate_limit_info) }
         }
         // Skip "user" and "system" message types
       }

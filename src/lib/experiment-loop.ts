@@ -2,6 +2,7 @@ import { chmod } from "node:fs/promises"
 import { join, relative } from "node:path"
 import type { RunState, ExperimentResult, TerminationReason, PreviousRunContext } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
+import type { QuotaInfo } from "./agent/types.ts"
 import { type ModelSlot, formatModelLabel } from "./config.ts"
 import {
   readState,
@@ -55,6 +56,7 @@ export interface LoopCallbacks {
   onAgentToolUse: (status: string) => void
   onError: (error: string) => void
   onExperimentCost?: (cost: ExperimentCost) => void
+  onQuotaUpdate?: (quota: QuotaInfo) => void
   onRebaseline?: (oldBaseline: number, newBaseline: number, reason: string) => void
   onLoopComplete?: (state: RunState, reason: TerminationReason) => void
 }
@@ -568,6 +570,7 @@ export async function runExperimentLoop(
       (status) => callbacks.onAgentToolUse(status),
       options.signal,
       maxTurns,
+      (quota) => callbacks.onQuotaUpdate?.(quota),
     )
 
     // Log cost data if available + accumulate tokens on run state

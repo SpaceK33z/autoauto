@@ -5,6 +5,7 @@ import type {
   AgentEvent,
   AgentModelOption,
   AuthResult,
+  QuotaInfo,
 } from "./types.ts"
 
 /**
@@ -21,6 +22,7 @@ export class MockProvider implements AgentProvider {
       { provider: "claude", model: "sonnet", label: "Sonnet", isDefault: true },
       { provider: "claude", model: "opus", label: "Opus" },
     ],
+    private quotaResult: QuotaInfo | null = null,
   ) {}
 
   createSession(_config: AgentSessionConfig): AgentSession {
@@ -35,6 +37,10 @@ export class MockProvider implements AgentProvider {
 
   async checkAuth(): Promise<AuthResult> {
     return this.authResult
+  }
+
+  async checkQuota(): Promise<QuotaInfo | null> {
+    return this.quotaResult
   }
 
   async listModels(): Promise<AgentModelOption[]> {
