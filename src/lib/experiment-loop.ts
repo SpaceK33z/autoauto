@@ -2,7 +2,7 @@ import { chmod } from "node:fs/promises"
 import { join, relative } from "node:path"
 import type { RunState, ExperimentResult, TerminationReason, PreviousRunContext } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
-import type { ModelSlot } from "./config.ts"
+import { type ModelSlot, formatModelLabel } from "./config.ts"
 import {
   readState,
   writeState,
@@ -31,7 +31,7 @@ import {
   type ExperimentCost,
 } from "./experiment.ts"
 import { appendIdeasBacklog, type ExperimentNotes } from "./ideas-backlog.ts"
-import { readRunConfig } from "./daemon-lifecycle.ts"
+import { readRunConfig, writeRunConfig, setActiveModelInRunConfig } from "./daemon-lifecycle.ts"
 import { getExperimentSystemPrompt } from "./system-prompts/index.ts"
 
 /** Re-measure baseline after this many consecutive discards to check for environment drift. */
@@ -74,6 +74,8 @@ export interface LoopOptions {
   baselineDiagnostics?: string
   /** Maximum cost in USD before stopping the run. Checked at iteration boundary. */
   maxCostUsd?: number
+  /** Fallback model — auto-switch when primary hits quota or persistent rate limits. */
+  fallbackModel?: ModelSlot
 }
 
 // --- Helpers ---
@@ -136,6 +138,23 @@ async function resetAndVerify(cwd: string, startSha: string, errorContext: strin
   if (!(await isWorkingTreeClean(cwd))) {
     throw new Error(`Working tree still dirty after ${errorContext}; stopping to avoid contaminating the next experiment.`)
   }
+}
+
+/** Persist the active model to run-config (daemon resume) and run state (TUI header). */
+async function persistModelSwitch(
+  model: ModelSlot,
+  runDir: string,
+  state: RunState,
+  runConfig: import("./daemon-lifecycle.ts").RunConfig | null,
+  callbacks: LoopCallbacks,
+): Promise<RunState> {
+  if (runConfig) {
+    await writeRunConfig(runDir, setActiveModelInRunConfig(runConfig, model))
+  }
+  const newState: RunState = { ...state, provider: model.provider, model: model.model, effort: model.effort }
+  await writeState(runDir, newState)
+  callbacks.onStateUpdate(newState)
+  return newState
 }
 
 async function recordIdeasBacklog(
@@ -430,6 +449,26 @@ export async function runExperimentLoop(
   const RAPID_FAILURE_WINDOW_MS = 30_000
   const RATE_LIMIT_PAUSE_MS = 60_000
 
+  // --- Fallback model state ---
+  let activeModel = modelConfig
+  let usingFallback = false
+  let consecutiveRateLimits = 0
+  const RATE_LIMIT_FALLBACK_THRESHOLD = 3
+  const fallbackSlot = options.fallbackModel ?? null
+
+  // Restore active model from run-config if daemon is resuming after a fallback switch
+  {
+    const initialRunConfig = await readRunConfig(runDir)
+    if (initialRunConfig?.active_provider && initialRunConfig.active_model && initialRunConfig.active_effort) {
+      activeModel = {
+        provider: initialRunConfig.active_provider,
+        model: initialRunConfig.active_model,
+        effort: initialRunConfig.active_effort as ModelSlot["effort"],
+      }
+      usingFallback = true
+    }
+  }
+
   // Re-read from run-config.json each iteration to support mid-run TUI changes
   let effectiveMaxExperiments = options.maxExperiments
   let effectiveMaxCostUsd = options.maxCostUsd
@@ -523,7 +562,7 @@ export async function runExperimentLoop(
       cwd,
       systemPrompt,
       userPrompt,
-      modelConfig,
+      activeModel,
       startSha,
       (text) => callbacks.onAgentStream(text),
       (status) => callbacks.onAgentToolUse(status),
@@ -573,53 +612,92 @@ export async function runExperimentLoop(
       break
     }
 
-    // --- Terminal error detection (quota exhausted or auth failure) → immediate stop ---
-    if (outcome.type === "agent_error" && (outcome.errorKind === "quota_exhausted" || outcome.errorKind === "auth_error")) {
+    // --- Auth error → always stop immediately (no fallback) ---
+    if (outcome.type === "agent_error" && outcome.errorKind === "auth_error") {
       const measurementViolations = await getMeasurementViolations(measurementSnapshot)
       if (measurementViolations.length > 0) await restoreMeasurementSnapshot(measurementSnapshot)
-      await resetAndVerify(cwd, startSha, `${outcome.errorKind} cleanup`)
+      await resetAndVerify(cwd, startSha, "auth_error cleanup")
 
-      const label = outcome.errorKind === "quota_exhausted" ? "quota exhausted" : "auth error"
-      const crashResult: ExperimentResult = {
-        experiment_number: experimentNumber,
-        commit: startSha.slice(0, 7),
-        metric_value: 0,
-        secondary_values: "",
-        status: "crash",
-        description: `${label}: ${outcome.error}`,
-        measurement_duration_ms: 0,
-      }
-      await appendResult(runDir, crashResult)
-      await recordIdeasBacklog(ideasBacklogEnabled, runDir, crashResult, outcome.notes)
-      callbacks.onExperimentEnd(crashResult)
-      callbacks.onError(`Provider ${label}: ${outcome.error}`)
-
+      // Auth errors are infrastructure failures, not experiment failures — no crash row.
+      // Roll back experiment number so the next attempt (if any) retries the same slot.
       state = {
         ...state,
-        total_crashes: state.total_crashes + 1,
+        experiment_number: state.experiment_number - 1,
         candidate_sha: null,
         phase: "stopping",
         updated_at: now(),
       }
       await writeState(runDir, state)
-      callbacks.onPhaseChange("stopping", `provider ${label}`)
+      callbacks.onError(`Provider auth error: ${outcome.error}`)
+      callbacks.onPhaseChange("stopping", "provider auth error")
       terminalError = true
       break
     }
 
-    // --- Rate limit → pause before retrying (fall through to normal error handling after) ---
+    // --- Quota exhausted → try fallback, else stop ---
+    if (outcome.type === "agent_error" && outcome.errorKind === "quota_exhausted") {
+      const measurementViolations = await getMeasurementViolations(measurementSnapshot)
+      if (measurementViolations.length > 0) await restoreMeasurementSnapshot(measurementSnapshot)
+      await resetAndVerify(cwd, startSha, "quota_exhausted cleanup")
+
+      // Roll back experiment number — infrastructure event, not an experiment
+      state = { ...state, experiment_number: state.experiment_number - 1, candidate_sha: null, updated_at: now() }
+
+      if (fallbackSlot && !usingFallback) {
+        activeModel = fallbackSlot
+        usingFallback = true
+        consecutiveRateLimits = 0
+        state = await persistModelSwitch(activeModel, runDir, state, runConfig, callbacks)
+        callbacks.onError(`Quota exhausted on ${formatModelLabel(modelConfig)} — switching to ${formatModelLabel(activeModel)}`)
+        callbacks.onPhaseChange("idle", `switched to fallback: ${formatModelLabel(activeModel)}`)
+        continue
+      }
+
+      // No fallback available or already on fallback — stop
+      state = { ...state, phase: "stopping" }
+      await writeState(runDir, state)
+      callbacks.onError(`Provider quota exhausted: ${outcome.error}`)
+      callbacks.onPhaseChange("stopping", "provider quota exhausted")
+      terminalError = true
+      break
+    }
+
+    // --- Rate limit → count consecutive hits, switch to fallback after threshold, else pause and retry ---
     if (outcome.type === "agent_error" && outcome.errorKind === "rate_limited") {
+      const measurementViolations = await getMeasurementViolations(measurementSnapshot)
+      if (measurementViolations.length > 0) await restoreMeasurementSnapshot(measurementSnapshot)
+      await resetAndVerify(cwd, startSha, "rate_limited cleanup")
+
+      // Roll back experiment number — infrastructure event, not an experiment
+      state = { ...state, experiment_number: state.experiment_number - 1, candidate_sha: null, updated_at: now() }
+      await writeState(runDir, state)
+
+      consecutiveRateLimits++
+
+      if (consecutiveRateLimits >= RATE_LIMIT_FALLBACK_THRESHOLD && fallbackSlot && !usingFallback) {
+        activeModel = fallbackSlot
+        usingFallback = true
+        consecutiveRateLimits = 0
+        state = await persistModelSwitch(activeModel, runDir, state, runConfig, callbacks)
+        callbacks.onError(`${RATE_LIMIT_FALLBACK_THRESHOLD} consecutive rate limits on ${formatModelLabel(modelConfig)} — switching to ${formatModelLabel(activeModel)}`)
+        callbacks.onPhaseChange("idle", `switched to fallback: ${formatModelLabel(activeModel)}`)
+        continue
+      }
+
+      // Pause and retry with same model
       const pauseSec = RATE_LIMIT_PAUSE_MS / 1000
-      callbacks.onError(`Rate limited by provider — pausing ${pauseSec}s before next experiment. Error: ${outcome.error}`)
+      callbacks.onError(`Rate limited by provider — pausing ${pauseSec}s before retry. Error: ${outcome.error}`)
       callbacks.onPhaseChange("idle", `rate limited — waiting ${pauseSec}s`)
       for (let i = 0; i < pauseSec; i++) {
         if (options.signal?.aborted) break
         await Bun.sleep(1000)
       }
+      continue
     }
 
-    // --- Rapid-failure backstop: catch unrecognized terminal errors ---
+    // --- Rapid-failure backstop: catch unrecognized terminal errors (generic only) ---
     if (outcome.type === "agent_error") {
+      consecutiveRateLimits = 0 // reset on non-rate-limit error
       const ts = Date.now()
       recentErrorTimestamps.push(ts)
       while (recentErrorTimestamps.length > 0 && ts - recentErrorTimestamps[0] > RAPID_FAILURE_WINDOW_MS) {
@@ -644,6 +722,7 @@ export async function runExperimentLoop(
         break
       }
     } else {
+      consecutiveRateLimits = 0
       recentErrorTimestamps.length = 0
     }
 

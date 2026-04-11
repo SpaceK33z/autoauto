@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/react"
 import type { Screen } from "../lib/programs.ts"
 import {
   type ProjectConfig,
+  type ModelSlot,
   cycleChoice,
   formatEffortSlot,
   formatModelSlot,
@@ -11,6 +12,7 @@ import {
   isEffortConfigurable,
   mergeSelectedModelSlot,
   saveProjectConfig,
+  DEFAULT_CONFIG,
   NOTIFICATION_PRESETS,
   NOTIFICATION_PRESET_IDS,
   PROVIDER_CHOICES,
@@ -32,10 +34,12 @@ interface SettingsScreenProps {
 // Row layout:
 // 0: exec provider   1: exec model   2: exec effort
 // 3: support provider 4: support model 5: support effort
-// 6: ideas backlog
-// 7: notification preset
-// 8: notification command (only when preset === "custom")
-// 9: test notification (only when preset !== "off")
+// 6: fallback enabled (toggle)
+// 7: fallback provider  8: fallback model  9: fallback effort  (only when fallback enabled)
+// N: ideas backlog
+// N+1: notification preset
+// N+2: notification command (only when preset === "custom")
+// N+3: test notification (only when preset !== "off")
 function makeTestState(): RunState {
   return {
     run_id: "20260408-120000",
@@ -61,22 +65,38 @@ function makeTestState(): RunState {
   }
 }
 
-function slotKeyForRow(row: number): "executionModel" | "supportModel" {
-  return row < 3 ? "executionModel" : "supportModel"
+function slotKeyForRow(row: number, fallbackEnabled: boolean): "executionModel" | "supportModel" | "executionFallbackModel" {
+  if (row < 3) return "executionModel"
+  if (row < 6) return "supportModel"
+  if (fallbackEnabled && row >= 7 && row <= 9) return "executionFallbackModel"
+  return "executionModel" // shouldn't reach here for effort rows
 }
 
 export function SettingsScreen({ cwd, navigate, config, onConfigChange }: SettingsScreenProps) {
   const [selected, setSelected] = useState(0)
-  const [pickingSlot, setPickingSlot] = useState<"executionModel" | "supportModel" | null>(null)
+  const [pickingSlot, setPickingSlot] = useState<"executionModel" | "supportModel" | "executionFallbackModel" | null>(null)
   const [editingCommand, setEditingCommand] = useState(false)
   const [inputKey, setInputKey] = useState(0)
   const [testStatus, setTestStatus] = useState<string | null>(null)
   const testTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const fallbackEnabled = config.executionFallbackModel != null
+  const fallbackRows = fallbackEnabled ? 3 : 0 // provider/model/effort when enabled
   const preset = config.notificationPreset
   const isCustom = preset === "custom"
   const notifyEnabled = preset !== "off"
-  const rowCount = notifyEnabled ? (isCustom ? 10 : 9) : 8
+  // 6 base (exec+support) + 1 fallback toggle + fallbackRows + 1 ideas + 1 preset + optional command + optional test
+  const rowCount = 6 + 1 + fallbackRows + 1 + 1 + (notifyEnabled ? (isCustom ? 2 : 1) : 0)
+
+  // Dynamic row indices (shift everything after fallback section)
+  const ROW_FALLBACK_TOGGLE = 6
+  const ROW_FALLBACK_PROVIDER = 7
+  const ROW_FALLBACK_MODEL = 8
+  const ROW_FALLBACK_EFFORT = 9
+  const ROW_IDEAS = 6 + 1 + fallbackRows
+  const ROW_PRESET = ROW_IDEAS + 1
+  const ROW_COMMAND = ROW_PRESET + 1 // only when custom
+  const ROW_TEST = notifyEnabled ? rowCount - 1 : -1
 
   useEffect(() => {
     return () => {
@@ -94,11 +114,12 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
     saveProjectConfig(cwd, next)
   }
 
-  function cycleProvider(slotKey: "executionModel" | "supportModel", direction: -1 | 1) {
+  function cycleProvider(slotKey: "executionModel" | "supportModel" | "executionFallbackModel", direction: -1 | 1) {
     updateConfig((prev) => {
-      const slot = prev[slotKey]
+      const slot = slotKey === "executionFallbackModel"
+        ? (prev.executionFallbackModel ?? DEFAULT_CONFIG.executionModel)
+        : prev[slotKey]
       const nextProvider = cycleChoice(PROVIDER_CHOICES, slot.provider, direction)
-      // Reset model to a sensible default when switching provider
       const defaultModel = nextProvider === "claude" ? "sonnet" : "default"
       const effort = nextProvider === "opencode" ? slot.effort : slot.effort
       return { ...prev, [slotKey]: { provider: nextProvider, model: defaultModel, effort } }
@@ -132,29 +153,40 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
     // Provider rows
     if (selected === 0) return cycleProvider("executionModel", direction)
     if (selected === 3) return cycleProvider("supportModel", direction)
+    if (fallbackEnabled && selected === ROW_FALLBACK_PROVIDER) return cycleProvider("executionFallbackModel", direction)
 
     // Model rows — open picker
-    if (selected === 1 || selected === 4) {
-      setPickingSlot(selected === 1 ? "executionModel" : "supportModel")
+    if (selected === 1) { setPickingSlot("executionModel"); return }
+    if (selected === 4) { setPickingSlot("supportModel"); return }
+    if (fallbackEnabled && selected === ROW_FALLBACK_MODEL) { setPickingSlot("executionFallbackModel"); return }
+
+    // Fallback toggle
+    if (selected === ROW_FALLBACK_TOGGLE) {
+      updateConfig((prev) => ({
+        ...prev,
+        executionFallbackModel: prev.executionFallbackModel != null ? null : { ...DEFAULT_CONFIG.executionModel },
+      }))
       return
     }
 
     // Ideas backlog
-    if (selected === 6) {
+    if (selected === ROW_IDEAS) {
       updateConfig((prev) => ({ ...prev, ideasBacklogEnabled: !prev.ideasBacklogEnabled }))
       return
     }
 
     // Notification preset
-    if (selected === 7) {
+    if (selected === ROW_PRESET) {
       cyclePreset(direction)
       return
     }
 
-    // Effort rows
-    const slotKey = slotKeyForRow(selected)
+    // Effort rows (exec: 2, support: 5, fallback: 9)
+    const slotKey = slotKeyForRow(selected, fallbackEnabled)
     updateConfig((prev) => {
-      const slot = { ...prev[slotKey] }
+      const slot = slotKey === "executionFallbackModel"
+        ? { ...(prev.executionFallbackModel ?? DEFAULT_CONFIG.executionModel) }
+        : { ...prev[slotKey] }
       if (!isEffortConfigurable(slot)) return prev
       const validEfforts = getEffortChoicesForSlot(slot)
       slot.effort = cycleChoice(validEfforts, slot.effort, direction)
@@ -174,10 +206,14 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
     if (key.name === "return") {
       if (selected === 1 || selected === 4) {
         setPickingSlot(selected === 1 ? "executionModel" : "supportModel")
-      } else if (selected === 8 && isCustom) {
+      } else if (fallbackEnabled && selected === ROW_FALLBACK_MODEL) {
+        setPickingSlot("executionFallbackModel")
+      } else if (selected === ROW_FALLBACK_TOGGLE) {
+        cycleValue(1)
+      } else if (isCustom && selected === ROW_COMMAND) {
         setEditingCommand(true)
         setInputKey((k) => k + 1)
-      } else if (notifyEnabled && selected === rowCount - 1) {
+      } else if (notifyEnabled && selected === ROW_TEST) {
         fireTestNotification()
       }
     }
@@ -185,12 +221,18 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
 
   const execSlot = config.executionModel
   const supportSlot = config.supportModel
+  const fallbackSlot = config.executionFallbackModel ?? DEFAULT_CONFIG.executionModel
   const execEffort = formatEffortSlot(execSlot)
   const supportEffort = formatEffortSlot(supportSlot)
+  const fallbackEffort = formatEffortSlot(fallbackSlot)
 
   if (pickingSlot) {
-    const slot = config[pickingSlot]
-    const title = pickingSlot === "executionModel" ? "Execution Model" : "Support Model"
+    const slot: ModelSlot = pickingSlot === "executionFallbackModel"
+      ? (config.executionFallbackModel ?? DEFAULT_CONFIG.executionModel)
+      : config[pickingSlot]
+    const title = pickingSlot === "executionModel" ? "Execution Model"
+      : pickingSlot === "supportModel" ? "Support Model"
+      : "Fallback Model"
     return (
       <ModelPicker
         cwd={cwd}
@@ -198,10 +240,12 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
         providerId={slot.provider}
         onCancel={() => setPickingSlot(null)}
         onSelect={(newSlot) => {
-          updateConfig((prev) => ({
-            ...prev,
-            [pickingSlot]: mergeSelectedModelSlot(prev[pickingSlot], newSlot),
-          }))
+          updateConfig((prev) => {
+            const prevSlot: ModelSlot = pickingSlot === "executionFallbackModel"
+              ? (prev.executionFallbackModel ?? DEFAULT_CONFIG.executionModel)
+              : prev[pickingSlot]
+            return { ...prev, [pickingSlot]: mergeSelectedModelSlot(prevSlot, newSlot) }
+          })
           setPickingSlot(null)
         }}
       />
@@ -260,6 +304,39 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       />
       <box height={1} />
       <box flexDirection="row">
+        <text><strong>{"  Execution Fallback "}</strong></text>
+        <text fg={colors.textMuted}>{"(auto-switch on quota/rate limits)"}</text>
+      </box>
+      <CycleField
+        label="Fallback Model"
+        value={fallbackEnabled ? "On" : "Off"}
+        description={fallbackEnabled
+          ? "Auto-switch to fallback when primary model hits limits"
+          : "Run stops when primary model hits quota or persistent rate limits"}
+        isFocused={selected === ROW_FALLBACK_TOGGLE}
+      />
+      {fallbackEnabled && (
+        <>
+          <CycleField
+            label="Provider"
+            value={PROVIDER_LABELS[fallbackSlot.provider]}
+            isFocused={selected === ROW_FALLBACK_PROVIDER}
+          />
+          <CycleField
+            label="Model"
+            value={formatModelSlot(fallbackSlot)}
+            isFocused={selected === ROW_FALLBACK_MODEL}
+          />
+          <CycleField
+            label="Effort"
+            value={fallbackEffort.label}
+            description={fallbackEffort.description}
+            isFocused={selected === ROW_FALLBACK_EFFORT}
+          />
+        </>
+      )}
+      <box height={1} />
+      <box flexDirection="row">
         <text><strong>{"  Experiment Memory "}</strong></text>
         <text fg={colors.textMuted}>{"(ideas backlog)"}</text>
       </box>
@@ -269,7 +346,7 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
         description={config.ideasBacklogEnabled
           ? "Capture why experiments worked or failed and what to try next"
           : "Use results.tsv-based experiment memory only"}
-        isFocused={selected === 6}
+        isFocused={selected === ROW_IDEAS}
       />
       <box height={1} />
       <box flexDirection="row">
@@ -279,13 +356,13 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
       <CycleField
         label="Preset"
         value={NOTIFICATION_PRESETS.find((p) => p.id === preset)?.label ?? "Off"}
-        isFocused={selected === 7}
+        isFocused={selected === ROW_PRESET}
       />
       {notifyEnabled && (
         <>
           {isCustom && (
             <box flexDirection="column">
-              {editingCommand && selected === 8 ? (
+              {editingCommand && selected === ROW_COMMAND ? (
                 <box border borderStyle="rounded" height={3}>
                   <input
                     key={inputKey}
@@ -297,27 +374,27 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
                 </box>
               ) : (
                 <text>
-                  {selected === 8 ? (
+                  {selected === ROW_COMMAND ? (
                     <span fg={colors.primary}><strong>{`  Command: ${config.notificationCommand ?? ""}`}</strong></span>
                   ) : (
                     `  Command: ${config.notificationCommand ?? ""}`
                   )}
                 </text>
               )}
-              {selected === 8 && !editingCommand && (
+              {selected === ROW_COMMAND && !editingCommand && (
                 <text fg={colors.textMuted}>{"  Enter to edit \u2022 Variables: {{program}} {{run_id}} {{status}} {{experiments}} {{keeps}} {{best_metric}} {{improvement_pct}} {{duration}}"}</text>
               )}
             </box>
           )}
           <box flexDirection="column">
             <text>
-              {selected === rowCount - 1 ? (
+              {selected === ROW_TEST ? (
                 <span fg={colors.primary}><strong>{`  Test Notification${testStatus ? ` \u2014 ${testStatus}` : ""}`}</strong></span>
               ) : (
                 `  Test Notification${testStatus ? ` \u2014 ${testStatus}` : ""}`
               )}
             </text>
-            {selected === rowCount - 1 && (
+            {selected === ROW_TEST && (
               <text fg={colors.textMuted}>{"  Press Enter to send a test notification with sample data"}</text>
             )}
           </box>

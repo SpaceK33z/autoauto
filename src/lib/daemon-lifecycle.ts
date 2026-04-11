@@ -29,6 +29,14 @@ export interface RunConfig {
   carry_forward?: boolean
   keep_simplifications?: boolean
   source?: "manual" | "queue"
+  /** Fallback model — used when the primary hits quota or persistent rate limits. */
+  fallback_provider?: AgentProviderID
+  fallback_model?: string
+  fallback_effort?: string
+  /** Active model override — set when fallback activates, survives daemon restart. */
+  active_provider?: AgentProviderID
+  active_model?: string
+  active_effort?: string
 }
 
 export interface ControlAction {
@@ -130,6 +138,27 @@ export function runConfigToModelSlot(config: RunConfig): ModelSlot {
     model: config.model,
     effort: config.effort as ModelSlot["effort"],
   }
+}
+
+/** Constructs a ModelSlot from individual fields, or null if any are missing. */
+function slotFromFields(provider?: AgentProviderID, model?: string, effort?: string): ModelSlot | null {
+  if (!provider || !model || !effort) return null
+  return { provider, model, effort: effort as ModelSlot["effort"] }
+}
+
+/** Returns the fallback model slot if configured, or null. */
+export function runConfigToFallbackSlot(config: RunConfig): ModelSlot | null {
+  return slotFromFields(config.fallback_provider, config.fallback_model, config.fallback_effort)
+}
+
+/** Returns the active model (fallback override if set, else primary). */
+export function runConfigToActiveSlot(config: RunConfig): ModelSlot {
+  return slotFromFields(config.active_provider, config.active_model, config.active_effort) ?? runConfigToModelSlot(config)
+}
+
+/** Returns a RunConfig with active model fields set to the given slot. */
+export function setActiveModelInRunConfig(config: RunConfig, model: ModelSlot): RunConfig {
+  return { ...config, active_provider: model.provider, active_model: model.model, active_effort: model.effort }
 }
 
 // --- Locking ---

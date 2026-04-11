@@ -4,6 +4,7 @@ import type { ModelSlot } from "./config.ts"
 import { AUTOAUTO_DIR, getProgramDir } from "./programs.ts"
 import { readLock } from "./daemon-lifecycle.ts"
 import { spawnDaemon } from "./daemon-spawn.ts"
+import { loadProjectConfig } from "./config.ts"
 
 // --- Types ---
 
@@ -183,10 +184,14 @@ export function programHasQueueEntries(queue: QueueFile, programSlug: string): b
 /** Pop the next viable entry from the queue and spawn a daemon for it.
  *  Skips entries that have exceeded MAX_RETRIES.
  *  Returns lastError when entries were skipped/failed so callers can notify. */
+export type SpawnDaemonFn = typeof spawnDaemon
+
 export async function startNextFromQueue(
   cwd: string,
   ideasBacklogEnabled: boolean,
+  spawnFn: SpawnDaemonFn = spawnDaemon,
 ): Promise<{ started: true; entry: QueueEntry; runId: string } | { started: false; lastError?: string }> {
+  const projConfig = await loadProjectConfig(cwd)
   let lastError: string | undefined
   while (true) {
     const entry = await popQueue(cwd)
@@ -199,7 +204,7 @@ export async function startNextFromQueue(
     }
 
     try {
-      const { runId } = await spawnDaemon(
+      const { runId } = await spawnFn(
         cwd,
         entry.programSlug,
         entry.modelConfig,
@@ -209,6 +214,8 @@ export async function startNextFromQueue(
         true, // carryForward
         "queue",
         entry.maxCostUsd,
+        undefined, // keepSimplifications
+        projConfig.executionFallbackModel,
       )
       return { started: true, entry, runId }
     } catch (err) {
