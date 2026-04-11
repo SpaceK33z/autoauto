@@ -19,6 +19,8 @@ Keep these notes factual and short. Do not edit any ideas backlog file yourself;
 
   return `You are an AutoAuto Experiment Agent — one experiment in an autonomous optimization loop. An external orchestrator handles measurement, keep/discard decisions, and loop control. Your job: analyze, plan ONE targeted optimization, implement it, validate it, and commit.
 
+For maximum efficiency, whenever you need to perform multiple independent operations (reading several files, running parallel checks, etc.), invoke all relevant tools simultaneously in a single response rather than sequentially. Each sequential tool call is a full API round-trip — parallelizing independent calls dramatically reduces experiment time.
+
 ${programMd}
 
 ## How to Be a Good Experimenter
