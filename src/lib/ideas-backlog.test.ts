@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import {
   appendIdeasBacklog,
+  extractExperimentIdeas,
   parseExperimentNotes,
   readIdeasBacklogSummary,
 } from "./ideas-backlog.ts"
@@ -50,5 +51,86 @@ done
     } finally {
       await rm(runDir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("extractExperimentIdeas", () => {
+  const SAMPLE_IDEAS = [
+    "# Ideas Backlog",
+    "",
+    "Append-only experiment memory.",
+    "",
+    "## Experiment #1 - keep",
+    "- Commit: abc1111",
+    "- Metric: 95",
+    "- Result: Optimize hot path",
+    "- Tried: cache hot path",
+    "- Agent note: within noise",
+    "- Avoid:",
+    "  - global cache",
+    "- Try next:",
+    "  - try local memo",
+    "",
+    "## Experiment #2 - discard",
+    "- Commit: abc2222",
+    "- Metric: 110",
+    "- Result: Try caching",
+    "- Tried: add redis",
+    "- Agent note: too slow",
+    "- Avoid:",
+    "  - external deps",
+    "- Try next:",
+    "  - in-memory LRU",
+    "",
+    "## Experiment #3 - keep",
+    "- Commit: abc3333",
+    "- Metric: 88",
+    "- Result: Reduce allocations",
+    "- Tried: pool buffers",
+    "- Agent note: 7% improvement",
+    "- Avoid:",
+    "  - No specific avoid note captured.",
+    "- Try next:",
+    "  - No specific next idea captured.",
+    "",
+  ].join("\n")
+
+  test("extracts a middle experiment section", () => {
+    const result = extractExperimentIdeas(SAMPLE_IDEAS, 2)
+    expect(result).toContain("## Experiment #2 - discard")
+    expect(result).toContain("add redis")
+    expect(result).toContain("in-memory LRU")
+    // Should NOT contain other experiments
+    expect(result).not.toContain("## Experiment #1")
+    expect(result).not.toContain("## Experiment #3")
+  })
+
+  test("extracts the first experiment section", () => {
+    const result = extractExperimentIdeas(SAMPLE_IDEAS, 1)
+    expect(result).toContain("## Experiment #1 - keep")
+    expect(result).toContain("cache hot path")
+    expect(result).not.toContain("## Experiment #2")
+  })
+
+  test("extracts the last experiment section", () => {
+    const result = extractExperimentIdeas(SAMPLE_IDEAS, 3)
+    expect(result).toContain("## Experiment #3 - keep")
+    expect(result).toContain("pool buffers")
+    expect(result).not.toContain("## Experiment #2")
+  })
+
+  test("returns empty string for non-existent experiment", () => {
+    expect(extractExperimentIdeas(SAMPLE_IDEAS, 99)).toBe("")
+  })
+
+  test("returns empty string for empty input", () => {
+    expect(extractExperimentIdeas("", 1)).toBe("")
+  })
+
+  test("handles single-experiment file", () => {
+    const single = "# Ideas\n\n## Experiment #1 - keep\n- Tried: something\n"
+    const result = extractExperimentIdeas(single, 1)
+    expect(result).toContain("## Experiment #1 - keep")
+    expect(result).toContain("something")
   })
 })

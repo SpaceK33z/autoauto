@@ -122,7 +122,7 @@ function IdeasPanel({ text }: { text: string }) {
   )
 }
 
-function BottomPanels({ narrowWidth, ideasVisible, ideasText, activeBottomTab, focusedPanel, selectedResult, agentStreamText, toolStatus, isRunning, secondaryMetrics, setFocusedPanel }: {
+function BottomPanels({ narrowWidth, ideasVisible, ideasText, activeBottomTab, focusedPanel, selectedResult, agentStreamText, toolStatus, isRunning, secondaryMetrics, setFocusedPanel, setActiveBottomTab }: {
   narrowWidth: boolean
   ideasVisible: boolean
   ideasText: string
@@ -134,8 +134,10 @@ function BottomPanels({ narrowWidth, ideasVisible, ideasText, activeBottomTab, f
   isRunning: boolean
   secondaryMetrics: Record<string, import("../lib/programs.ts").SecondaryMetric> | undefined
   setFocusedPanel: (panel: "results" | "agent" | "ideas") => void
+  setActiveBottomTab: (tab: "agent" | "ideas") => void
 }) {
   if (narrowWidth && ideasVisible) {
+    const agentLabel = selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"
     return (
       <box
         flexDirection="column"
@@ -145,11 +147,19 @@ function BottomPanels({ narrowWidth, ideasVisible, ideasText, activeBottomTab, f
         border
         borderStyle="rounded"
         borderColor={focusedPanel === activeBottomTab ? BORDER_ACTIVE : BORDER_DIM}
-        title={activeBottomTab === "agent"
-          ? (selectedResult ? `[Experiment #${selectedResult.experiment_number}] Ideas` : "[Agent] Ideas")
-          : (selectedResult ? `Experiment #${selectedResult.experiment_number} [Ideas]` : "Agent [Ideas]")}
         onMouseDown={() => setFocusedPanel(activeBottomTab)}
       >
+        <box flexDirection="row" flexShrink={0} paddingX={1}>
+          <text
+            fg={activeBottomTab === "agent" ? colors.text : colors.textMuted}
+            onMouseDown={() => { setActiveBottomTab("agent"); setFocusedPanel("agent") }}
+          >{activeBottomTab === "agent" ? <strong>{agentLabel}</strong> : agentLabel}</text>
+          <text fg={colors.textDim}> │ </text>
+          <text
+            fg={activeBottomTab === "ideas" ? colors.text : colors.textMuted}
+            onMouseDown={() => { setActiveBottomTab("ideas"); setFocusedPanel("ideas") }}
+          >{activeBottomTab === "ideas" ? <strong>Ideas</strong> : "Ideas"}</text>
+        </box>
         {activeBottomTab === "agent" ? (
           <AgentPanel
             streamingText={agentStreamText}
@@ -902,6 +912,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 isRunning={phase === "running"}
                 secondaryMetrics={secondaryMetricsConfig}
                 setFocusedPanel={setFocusedPanel}
+                setActiveBottomTab={setActiveBottomTab}
               />
             </>
           )}
@@ -1011,6 +1022,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               isRunning={false}
               secondaryMetrics={secondaryMetricsConfig}
               setFocusedPanel={setFocusedPanel}
+              setActiveBottomTab={setActiveBottomTab}
             />
           )}
           <box paddingX={1} flexShrink={0}>
