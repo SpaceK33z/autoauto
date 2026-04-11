@@ -118,3 +118,57 @@ describe("HomeScreen — queue panel", () => {
     expect(frame).toContain("Queue (2)")
   })
 })
+
+describe("HomeScreen — queue deletion cleans up started run", () => {
+  afterEach(async () => {
+    const { rm } = await import("node:fs/promises")
+    await rm(
+      `${fixture.cwd}/.autoauto/programs/bench-test/runs/run-from-queue`,
+      { recursive: true, force: true },
+    ).catch(() => {})
+  })
+
+  test("deleting queue entry should not leave an in-progress run visible", async () => {
+    // Simulate the race condition that occurs in normal usage:
+    // 1. User adds item to queue from PreRunScreen
+    // 2. HomeScreen mounts, loads data (shows queue entry)
+    // 3. onResumeQueue fires, pops queue entry and spawns daemon
+    // 4. Daemon creates a run with active state
+    // 5. UI still shows stale queue entry (not refreshed after onResumeQueue)
+    // 6. User presses 'd' to delete what they think is a pending queue entry
+    //
+    // Set up state as it appears in step 5: queue entry exists in queue.json
+    // AND an active run has been created by the daemon.
+    await fixture.createQueueEntries([
+      { programSlug: "bench-test", maxExperiments: 5 },
+    ])
+    await fixture.createRun("bench-test", {
+      run_id: "run-from-queue",
+      phase: "agent_running",
+    })
+
+    harness = await renderHome()
+    const initialFrame = await harness.waitForText("Queue (1)")
+
+    // Verify setup: active run indicator should be present
+    expect(initialFrame).toContain("●")
+
+    // Navigate to queue panel: Tab (programs→runs), Tab (runs→queue)
+    await harness.tab()
+    await harness.tab()
+    // Delete the queue entry
+    await harness.press("d")
+
+    // Wait for data to reload (queue panel should disappear)
+    let frame = ""
+    for (let i = 0; i < 50; i++) {
+      frame = await harness.flush(100)
+      if (!frame.includes("Queue (")) break
+    }
+    expect(frame).not.toContain("Queue (")
+
+    // After deleting the queue entry, the program should NOT show as active
+    // and no run should appear as in-progress in the runs list
+    expect(frame).not.toContain("●")
+  })
+})

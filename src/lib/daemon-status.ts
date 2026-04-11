@@ -1,15 +1,18 @@
 import { join } from "node:path"
+import { rm } from "node:fs/promises"
+import { $ } from "bun"
 import { streamLogName } from "./daemon-callbacks.ts"
 import type { RunState, ExperimentResult } from "./run.ts"
-import { readAllResults, readState, getMetricHistory, backfillFinalizedAt } from "./run.ts"
+import { readAllResults, readState, getMetricHistory, backfillFinalizedAt, listRuns, isRunActive } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
-import { loadProgramConfig } from "./programs.ts"
+import { loadProgramConfig, getProgramDir } from "./programs.ts"
 import {
   readDaemonJson,
   readRunConfig,
   writeRunConfig,
   writeControl,
   readLock,
+  releaseLock,
   type DaemonJson,
 } from "./daemon-lifecycle.ts"
 
@@ -237,4 +240,34 @@ export async function findActiveRun(programDir: string): Promise<{
     runDir,
     daemonAlive: status.alive,
   }
+}
+
+/**
+ * Abort and delete all active runs for a program.
+ * Used when a queue entry is deleted to clean up any run that was
+ * auto-started from the queue before the user could cancel it.
+ */
+export async function abortAndDeleteActiveRuns(
+  projectRoot: string,
+  programSlug: string,
+): Promise<void> {
+  const programDir = getProgramDir(projectRoot, programSlug)
+  const runs = await listRuns(programDir)
+  const activeRuns = runs.filter(isRunActive)
+
+  for (const run of activeRuns) {
+    await forceKillDaemon(run.run_dir)
+
+    const state = run.state
+    if (state?.worktree_path && !state?.in_place) {
+      await $`git worktree remove --force ${state.worktree_path}`.cwd(projectRoot).nothrow().quiet()
+    }
+    if (state?.branch_name) {
+      await $`git branch -D ${state.branch_name}`.cwd(projectRoot).nothrow().quiet()
+    }
+
+    await rm(run.run_dir, { recursive: true, force: true })
+  }
+
+  await releaseLock(programDir)
 }
