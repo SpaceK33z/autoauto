@@ -1,5 +1,6 @@
 import { join } from "node:path"
 import type { LoopCallbacks } from "./experiment-loop.ts"
+import type { QuotaInfo } from "./agent/types.ts"
 
 /** Format experiment number as zero-padded 3-digit string: 1 → "001" */
 export function streamLogName(experimentNumber: number): string {
@@ -16,6 +17,8 @@ export function streamLogName(experimentNumber: number): string {
 export function createFileCallbacks(runDir: string): LoopCallbacks {
   let currentExperiment = 0
   let writer: ReturnType<ReturnType<typeof Bun.file>["writer"]> | null = null
+  let lastQuotaStatus: string | undefined
+  let lastQuotaUtilization: number | undefined
 
   function getWriter(experimentNumber: number) {
     if (experimentNumber !== currentExperiment || !writer) {
@@ -54,6 +57,15 @@ export function createFileCallbacks(runDir: string): LoopCallbacks {
       w.flush()
     },
     onExperimentCost: () => {},
+    onQuotaUpdate: (quota: QuotaInfo) => {
+      // Deduplicate: skip write if status and utilization haven't meaningfully changed
+      const nullTransition = (quota.utilization == null) !== (lastQuotaUtilization == null)
+      const utilizationDelta = Math.abs((quota.utilization ?? 0) - (lastQuotaUtilization ?? 0))
+      if (quota.status === lastQuotaStatus && !nullTransition && utilizationDelta < 0.05) return
+      lastQuotaStatus = quota.status
+      lastQuotaUtilization = quota.utilization
+      Bun.write(join(runDir, "quota.json"), JSON.stringify(quota))
+    },
     onRebaseline: () => {},
     onLoopComplete: () => {
       writer?.end()

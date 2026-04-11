@@ -2,6 +2,7 @@ import { watch, statSync, readFileSync, type FSWatcher } from "node:fs"
 import { join } from "node:path"
 import { streamLogName } from "./daemon-callbacks.ts"
 import type { RunState, ExperimentResult } from "./run.ts"
+import type { QuotaInfo } from "./agent/types.ts"
 import { readAllResults, readState, getMetricHistory } from "./run.ts"
 import { getDaemonStatus } from "./daemon-status.ts"
 
@@ -12,6 +13,7 @@ export interface WatchCallbacks {
   onStreamReset?: () => void
   onToolStatus?: (status: string | null) => void
   onIdeasChange?: (text: string) => void
+  onQuotaChange?: (quota: QuotaInfo) => void
   onDaemonDied: () => void
 }
 
@@ -78,6 +80,9 @@ export function watchRunDir(
         } else if (file === "ideas.md" && callbacks.onIdeasChange) {
           const text = await Bun.file(join(runDir, "ideas.md")).text()
           callbacks.onIdeasChange(text)
+        } else if (file === "quota.json" && callbacks.onQuotaChange) {
+          const data = await Bun.file(join(runDir, "quota.json")).json() as QuotaInfo
+          callbacks.onQuotaChange(data)
         } else if (file === "daemon.json") {
           // Heartbeat check handled by backup timer
         }

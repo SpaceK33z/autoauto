@@ -40,6 +40,7 @@ import { Chat } from "../components/Chat.tsx"
 import { DirtyTreePrompt } from "../components/DirtyTreePrompt.tsx"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
 import { truncateStreamText } from "../lib/format.ts"
+import type { QuotaInfo } from "../lib/agent/types.ts"
 
 type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error" | "dirty"
 
@@ -150,6 +151,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [maxExpText, setMaxExpText] = useState(String(maxExperiments))
   const maxExpTextRef = useRef(maxExpText)
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [quotaInfo, setQuotaInfo] = useState<QuotaInfo | undefined>()
   const [ideasText, setIdeasText] = useState("")
   const [summaryText, setSummaryText] = useState("")
   const [showIdeas, setShowIdeas] = useState(true)
@@ -174,6 +176,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const abortTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const stoppingRef = useRef(false)
+  const lastProviderRef = useRef<string | undefined>(undefined)
   stoppingRef.current = stopping // ref for use inside effect closures
   const parsedMaxExperiments = Number.parseInt(maxExpText, 10)
   const displayMaxExperiments = Number.isFinite(parsedMaxExperiments) && parsedMaxExperiments > 0
@@ -286,6 +289,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           const watcher = watchRunDir(activeRunDir, {
             onStateChange: (state) => {
               if (cancelled) return
+              // Clear quota data when provider switches (fallback model activated)
+              if (lastProviderRef.current && lastProviderRef.current !== state.provider) {
+                setQuotaInfo(undefined)
+              }
+              lastProviderRef.current = state.provider
               setRunState(state)
               setExperimentNumber(state.experiment_number)
               setTotalCostUsd(state.total_cost_usd ?? 0)
@@ -324,6 +332,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             onIdeasChange: (text) => {
               if (cancelled) return
               setIdeasText(text)
+            },
+            onQuotaChange: (quota) => {
+              if (cancelled) return
+              setQuotaInfo(quota)
             },
             onDaemonDied: () => {
               if (cancelled) return
@@ -726,6 +738,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               currentPhaseLabel={currentPhaseLabel}
               improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
               isRunning
+              quotaInfo={quotaInfo}
             />
           </box>
 
@@ -877,6 +890,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               metricHistory={metricHistory}
               currentPhaseLabel="Complete"
               improvementPct={programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
+              quotaInfo={quotaInfo}
             />
           </box>
           <box

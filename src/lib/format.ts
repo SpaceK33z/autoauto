@@ -68,6 +68,29 @@ export function formatCell(str: string, width: number): string {
   return padRight(truncate(sanitizeInlineText(str), width), width)
 }
 
+function formatDurationMs(deltaMs: number, suffix = ""): string {
+  const totalMinutes = Math.floor(deltaMs / 60_000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours >= 24) return `${Math.floor(hours / 24)}d ${hours % 24}h${suffix}`
+  if (hours > 0) return `${hours}h ${minutes}m${suffix}`
+  return `${totalMinutes}m${suffix}`
+}
+
+/** Format a future timestamp as a human-readable "resets in" duration. */
+export function formatResetsIn(resetsAt: number): string {
+  const deltaMs = resetsAt - Date.now()
+  if (deltaMs <= 0) return "now"
+  return formatDurationMs(deltaMs)
+}
+
+/** Format elapsed time since a past timestamp as "Xm ago", "Xh Ym ago". */
+export function formatElapsed(timestamp: number): string {
+  const deltaMs = Date.now() - timestamp
+  if (deltaMs < 60_000) return "just now"
+  return formatDurationMs(deltaMs, " ago")
+}
+
 export function truncateStreamText(prev: string, text: string): string {
   const next = prev + text
   return next.length > 8000 ? next.slice(-6000) : next

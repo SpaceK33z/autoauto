@@ -1,5 +1,15 @@
 import type { ErrorKind } from "./error-classifier.ts"
 
+/** Rate limit / quota information from the provider. */
+export interface QuotaInfo {
+  status: "allowed" | "allowed_warning" | "rejected"
+  utilization?: number // 0-1
+  resetsAt?: number // Unix timestamp (ms)
+  rateLimitType?: string // e.g. 'five_hour', 'seven_day'
+  isUsingOverage?: boolean
+  updatedAt: number // Date.now() when captured
+}
+
 /** Normalized event types emitted by all agent providers. */
 export type AgentEvent =
   | { type: "text_delta"; text: string }
@@ -7,6 +17,7 @@ export type AgentEvent =
   | { type: "assistant_complete"; text: string }
   | { type: "error"; error: string; retriable: boolean; errorKind?: ErrorKind }
   | { type: "result"; success: boolean; error?: string; cost?: AgentCost }
+  | { type: "quota_update"; quota: QuotaInfo }
 
 export type { ErrorKind } from "./error-classifier.ts"
 
@@ -72,6 +83,8 @@ export interface AgentProvider {
   runOnce(prompt: string, config: AgentSessionConfig): AgentSession
   /** Verify authentication with the provider. */
   checkAuth(): Promise<AuthResult>
+  /** Check current quota/rate-limit status without running an experiment. */
+  checkQuota?(): Promise<QuotaInfo | null>
   /** List models available through this provider. */
   listModels?(cwd?: string, forceRefresh?: boolean): Promise<AgentModelOption[]>
   /** Return the provider's configured default model, if available. */

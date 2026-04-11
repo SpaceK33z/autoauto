@@ -7,6 +7,8 @@ import {
   loadProgramConfig,
 } from "../lib/programs.ts"
 import { readAllResults, getAvgMeasurementDuration, listRuns } from "../lib/run.ts"
+import type { QuotaInfo } from "../lib/agent/types.ts"
+import { formatResetsIn, formatElapsed } from "../lib/format.ts"
 import {
   type ModelSlot,
   cycleChoice,
@@ -41,6 +43,28 @@ interface PreRunScreenProps {
   programHasQueueEntries?: boolean
 }
 
+function QuotaWarning({ quota }: { quota: QuotaInfo }) {
+  const isExhausted = quota.status === "rejected"
+  const color = isExhausted ? colors.error : colors.warning
+  const message = isExhausted
+    ? "\u26A0 Quota exhausted \u2014 this run will likely fail."
+    : `  \u26A0 Quota at ${quota.utilization != null ? `${Math.round(quota.utilization * 100)}%` : "high usage"} \u2014 may run out during this run.`
+  const advice = isExhausted
+    ? "    Configure a fallback model in Settings, or wait for quota to reset."
+    : "    Consider configuring a fallback model in Settings."
+
+  return (
+    <box flexDirection="column">
+      <text fg={color}>{message}</text>
+      {quota.resetsAt && (
+        <text fg={color}>{`    Resets in ${formatResetsIn(quota.resetsAt)}`}</text>
+      )}
+      <text fg={color}>{advice}</text>
+      <text fg={colors.textDim}>{`    (last checked ${formatElapsed(quota.updatedAt)})`}</text>
+    </box>
+  )
+}
+
 // 0=maxExperiments, 1=maxCostUsd, 2=provider, 3=model, 4=effort, 5=runMode, 6=keepSimplifications, 7=carryForward (if previous runs exist)
 const BASE_FIELD_COUNT = 7
 
@@ -56,6 +80,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const [pickingModel, setPickingModel] = useState(false)
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
   const [avgDurationMs, setAvgDurationMs] = useState<number | null>(null)
+  const [cachedQuota, setCachedQuota] = useState<QuotaInfo | null>(null)
   const fieldCount = hasPreviousRuns ? BASE_FIELD_COUNT + 1 : BASE_FIELD_COUNT
 
   useEffect(() => {
@@ -77,6 +102,14 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
         setAvgDurationMs(getAvgMeasurementDuration(results))
       } catch {
         setHasPreviousRuns(false)
+      }
+      // Load cached quota from latest run (any status, not just completed)
+      const latestAny = runs[0] ?? null
+      if (latestAny) {
+        try {
+          const quota = await Bun.file(`${latestAny.run_dir}/quota.json`).json() as QuotaInfo
+          setCachedQuota(quota)
+        } catch { /* no cached quota */ }
       }
     })
   }, [cwd, programSlug])
@@ -277,6 +310,10 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
             </text>
           )}
         </box>
+      )}
+
+      {cachedQuota && modelSlot.provider === "claude" && (cachedQuota.status === "rejected" || cachedQuota.status === "allowed_warning") && (
+        <QuotaWarning quota={cachedQuota} />
       )}
 
       <box flexGrow={1} />

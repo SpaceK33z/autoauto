@@ -12,7 +12,7 @@ import {
   formatShellError,
   type DiffStats,
 } from "./git.ts"
-import { getProvider, type AgentCost, type ErrorKind } from "./agent/index.ts"
+import { getProvider, type AgentCost, type ErrorKind, type QuotaInfo } from "./agent/index.ts"
 import { classifyAgentError } from "./agent/error-classifier.ts"
 import { formatToolEvent } from "./tool-events.ts"
 import {
@@ -310,8 +310,9 @@ export async function runExperimentAgent(
   onToolStatus?: (status: string) => void,
   signal?: AbortSignal,
   maxTurns?: number,
+  onQuotaUpdate?: (quota: QuotaInfo) => void,
 ): Promise<ExperimentOutcome> {
-  const raw = await runExperimentAgentRaw(cwd, systemPrompt, userPrompt, modelConfig, startSha, onStreamText, onToolStatus, signal, maxTurns)
+  const raw = await runExperimentAgentRaw(cwd, systemPrompt, userPrompt, modelConfig, startSha, onStreamText, onToolStatus, signal, maxTurns, onQuotaUpdate)
   return { ...raw.outcome, notes: parseExperimentNotes(raw.assistantText) }
 }
 
@@ -325,6 +326,7 @@ async function runExperimentAgentRaw(
   onToolStatus?: (status: string) => void,
   signal?: AbortSignal,
   maxTurns?: number,
+  onQuotaUpdate?: (quota: QuotaInfo) => void,
 ): Promise<{ outcome: ExperimentOutcome; assistantText: string }> {
   if (signal?.aborted) {
     return { outcome: { type: "agent_error", error: "aborted before start" }, assistantText: "" }
@@ -366,6 +368,9 @@ async function runExperimentAgentRaw(
             const errorMsg = event.error ?? "unknown"
             return { outcome: { type: "agent_error", error: errorMsg, errorKind: classifyAgentError(errorMsg), cost }, assistantText }
           }
+          break
+        case "quota_update":
+          onQuotaUpdate?.(event.quota)
           break
       }
     }
