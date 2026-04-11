@@ -44,6 +44,8 @@ export const NOTIFICATION_PRESET_IDS = NOTIFICATION_PRESETS.map((p) => p.id)
 export interface ProjectConfig {
   executionModel: ModelSlot
   supportModel: ModelSlot
+  /** Optional fallback model when the execution model hits quota or persistent rate limits. */
+  executionFallbackModel?: ModelSlot | null
   ideasBacklogEnabled: boolean
   notificationPreset: NotificationPreset
   notificationCommand: string | null // only used when preset is "custom"
@@ -169,12 +171,13 @@ export async function loadProjectConfig(cwd: string): Promise<ProjectConfig> {
   const configPath = join(root, AUTOAUTO_DIR, CONFIG_FILE)
   try {
     const parsed = await Bun.file(configPath).json() as Record<string, unknown>
-    const { executionModel, supportModel, ...rest } = parsed as Partial<ProjectConfig>
+    const { executionModel, supportModel, executionFallbackModel, ...rest } = parsed as Partial<ProjectConfig>
     return {
       ...DEFAULT_CONFIG,
       ...rest,
       executionModel: normalizeModelSlot(executionModel),
       supportModel: normalizeModelSlot(supportModel),
+      executionFallbackModel: executionFallbackModel ? normalizeModelSlot(executionFallbackModel) : executionFallbackModel,
     }
   } catch {
     return { ...DEFAULT_CONFIG }

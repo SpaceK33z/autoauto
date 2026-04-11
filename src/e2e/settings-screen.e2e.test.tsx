@@ -70,7 +70,8 @@ describe("SettingsScreen E2E", () => {
   test("toggles ideas backlog", async () => {
     harness = await renderTui(<SettingsWrapper cwd={fixture.cwd} />)
     await harness.frame()
-    for (let i = 0; i < 6; i++) await harness.press("j")
+    // Row 7: ideas backlog (0-2: exec, 3-5: support, 6: fallback toggle, 7: ideas)
+    for (let i = 0; i < 7; i++) await harness.press("j")
     let frame = await harness.frame()
     expect(frame).toContain("Ideas Backlog")
     expect(frame).toContain("On")
@@ -92,7 +93,8 @@ describe("SettingsScreen E2E", () => {
   test("cycles notification preset and shows test row", async () => {
     harness = await renderTui(<SettingsWrapper cwd={fixture.cwd} />)
     await harness.frame()
-    for (let i = 0; i < 7; i++) await harness.press("j")
+    // Row 8: notification preset (0-2: exec, 3-5: support, 6: fallback toggle, 7: ideas, 8: preset)
+    for (let i = 0; i < 8; i++) await harness.press("j")
     await harness.press("l")
     const frame = await harness.flush()
     expect(frame).toContain("macOS Notification")
