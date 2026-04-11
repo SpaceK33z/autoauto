@@ -59,11 +59,8 @@ export function App() {
   }, [screen, projectRoot, selectedProgram])
 
   useKeyboard((key) => {
-    if (key.name === "escape") {
-      if (screen === "home") {
-        renderer.destroy()
-      }
-      // execution screen handles its own Escape
+    if (key.name === "q" && screen === "home") {
+      renderer.destroy()
     }
 
     // Dev-only: Ctrl+D dumps a debug snapshot to /tmp
@@ -92,7 +89,7 @@ export function App() {
 
   const footerText =
     screen === "home"
-      ? " n: new/resume | e: edit | d: delete | f: finalize | s: settings | Tab: cycle | Enter: run | Esc: quit"
+      ? " n: new/resume | e: edit | d: delete | f: finalize | s: settings | Tab: cycle | Enter: run | q: quit"
       : screen === "settings"
           ? " ↑↓: navigate | ←→: change/open | Enter: open model picker | Escape: back"
           : screen === "first-setup"
