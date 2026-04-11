@@ -213,12 +213,19 @@ tmux capture-pane -t autoauto -p                         # Read the screen
 tmux kill-session -t autoauto                            # Clean up
 ```
 
-## Wiki
+## Knowledge Base
 
-A curated knowledge base about autoresearch is available via the `qmd` MCP server. Use it to look up concepts, patterns, case studies, and prior art when making design decisions. Query examples:
+A curated knowledge base about autoresearch is available via the `qmd` MCP server. Use it to look up concepts, patterns, case studies, and prior art when making design decisions:
 
-- `qmd query "how to detect metric gaming"` — semantic search across all wiki pages
+- `qmd query "how to detect metric gaming"` — semantic search across all pages
 - `qmd search "ratchet mechanism"` — keyword search
+
+For deeper reading, the full knowledge base is at `knowledge-base/` (symlinked to an Obsidian vault, gitignored). Read pages directly when `qmd` results aren't enough:
+
+- `knowledge-base/wiki/` — generated markdown pages (concepts, entities, patterns, case-studies, sources)
+- `knowledge-base/wiki/index.md` — content catalog organized by category
+- `knowledge-base/raw/articles/` — immutable raw source documents
+- `knowledge-base/AGENTS.md` — schema and operating procedures for wiki maintenance
 
 If the index is stale after wiki edits, run `qmd update && qmd embed` to re-index.
 
