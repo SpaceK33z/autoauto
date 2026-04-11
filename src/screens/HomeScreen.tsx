@@ -366,9 +366,9 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       border
       borderStyle="rounded"
       borderColor={programsFocused ? colors.borderActive : colors.borderDim}
-      title="Programs"
       onMouseDown={() => setFocusedPanel("programs")}
     >
+      <text paddingX={1} fg={colors.text}><strong>Programs</strong></text>
       {totalProgramItems === 0 ? (
         <box flexGrow={1} justifyContent="center" alignItems="center">
           <text fg={colors.textDim}>No programs yet.</text>
@@ -461,9 +461,9 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       border
       borderStyle="rounded"
       borderColor={runsFocused ? colors.borderActive : colors.borderDim}
-      title="Runs"
       onMouseDown={() => setFocusedPanel("runs")}
     >
+      <text paddingX={1} fg={colors.text}><strong>Runs</strong></text>
       <RunsTable
         runs={data?.allRuns ?? []}
         programConfigs={data?.programConfigs ?? {}}
@@ -547,9 +547,9 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       border
       borderStyle="rounded"
       borderColor={queueFocused ? colors.borderActive : colors.borderDim}
-      title={`Queue (${queueEntries.length})`}
       onMouseDown={() => setFocusedPanel("queue")}
     >
+      <text paddingX={1} fg={colors.text}><strong>Queue ({queueEntries.length})</strong></text>
       <scrollbox flexGrow={1}>
         {queueEntries.map((entry, i) => {
           const isSelected = queueFocused && i === selectedQueueIndex
