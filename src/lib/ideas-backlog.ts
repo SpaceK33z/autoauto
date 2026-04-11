@@ -21,6 +21,10 @@ function cleanText(value: unknown): string | undefined {
 }
 
 function cleanList(value: unknown): string[] | undefined {
+  if (typeof value === "string") {
+    const cleaned = cleanText(value)
+    return cleaned ? [cleaned] : undefined
+  }
   if (!Array.isArray(value)) return undefined
   const items = value
     .map(cleanText)
@@ -93,6 +97,16 @@ export async function appendIdeasBacklog(
   if (result.experiment_number === 0) return
   await ensureHeader(runDir)
   await appendFile(join(runDir, BACKLOG_FILE), formatEntry(result, notes))
+}
+
+/** Extract the ideas section for a single experiment number from the full ideas markdown. */
+export function extractExperimentIdeas(fullText: string, experimentNumber: number): string {
+  const heading = `## Experiment #${experimentNumber} `
+  const start = fullText.indexOf(heading)
+  if (start < 0) return ""
+  const nextHeading = fullText.indexOf("\n## ", start + heading.length)
+  const section = nextHeading >= 0 ? fullText.slice(start, nextHeading) : fullText.slice(start)
+  return section.trim()
 }
 
 export async function readIdeasBacklogSummary(runDir: string, maxChars = 4000): Promise<string> {
