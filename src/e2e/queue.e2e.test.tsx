@@ -17,6 +17,7 @@ import {
   popQueue,
   readQueue,
   removeFromQueue,
+  startNextFromQueue,
   writeQueue,
   type NewQueueEntry,
 } from "../lib/queue.ts"
@@ -294,30 +295,20 @@ describe("queue — concurrent locking", () => {
 })
 
 describe("queue — startNextFromQueue", () => {
-  // Mock spawnDaemon so we don't spawn real processes
+  // Mock spawnDaemon so we don't spawn real processes — passed via spawnFn parameter
   const spawnDaemonMock = mock(() =>
     Promise.resolve({ runId: "mock-run-id", runDir: "/tmp/mock-run", worktreePath: null, pid: 12345 }),
-  )
+  ) as any
 
   beforeEach(async () => {
     await clearQueue(fixture.cwd)
     spawnDaemonMock.mockClear()
   })
 
-  afterEach(async () => {
-    mock.restore()
-  })
-
   test("starts daemon with correct config from queue entry", async () => {
-    mock.module("../lib/daemon-spawn.ts", () => ({
-      spawnDaemon: spawnDaemonMock,
-    }))
-    // Re-import to pick up the mock
-    const { startNextFromQueue: startNext } = await import("../lib/queue.ts")
-
     await appendToQueue(fixture.cwd, makeEntry({ programSlug: "bench", maxExperiments: 15 }))
 
-    const result = await startNext(fixture.cwd, true)
+    const result = await startNextFromQueue(fixture.cwd, true, spawnDaemonMock)
     expect(result.started).toBe(true)
     if (result.started) {
       expect(result.entry.programSlug).toBe("bench")
@@ -339,22 +330,12 @@ describe("queue — startNextFromQueue", () => {
   })
 
   test("returns started=false when queue is empty", async () => {
-    mock.module("../lib/daemon-spawn.ts", () => ({
-      spawnDaemon: spawnDaemonMock,
-    }))
-    const { startNextFromQueue: startNext } = await import("../lib/queue.ts")
-
-    const result = await startNext(fixture.cwd, true)
+    const result = await startNextFromQueue(fixture.cwd, true, spawnDaemonMock)
     expect(result.started).toBe(false)
     expect(spawnDaemonMock).not.toHaveBeenCalled()
   })
 
   test("skips entries that exceeded MAX_RETRIES and processes next", async () => {
-    mock.module("../lib/daemon-spawn.ts", () => ({
-      spawnDaemon: spawnDaemonMock,
-    }))
-    const { startNextFromQueue: startNext, readQueue: readQ } = await import("../lib/queue.ts")
-
     // Write queue with a failed entry (retryCount >= 2) followed by a good one
     await writeQueue(fixture.cwd, {
       nextId: 3,
@@ -382,7 +363,7 @@ describe("queue — startNextFromQueue", () => {
       ],
     })
 
-    const result = await startNext(fixture.cwd, true)
+    const result = await startNextFromQueue(fixture.cwd, true, spawnDaemonMock)
     expect(result.started).toBe(true)
     if (result.started) {
       expect(result.entry.id).toBe(2)
@@ -390,16 +371,12 @@ describe("queue — startNextFromQueue", () => {
     }
 
     // Failed entry should be discarded, good one started
-    const queue = await readQ(fixture.cwd)
+    const queue = await readQueue(fixture.cwd)
     expect(queue.entries).toHaveLength(0)
   })
 
   test("re-inserts entry with incremented retryCount on spawn failure", async () => {
-    const failingSpawn = mock(() => Promise.reject(new Error("spawn failed")))
-    mock.module("../lib/daemon-spawn.ts", () => ({
-      spawnDaemon: failingSpawn,
-    }))
-    const { startNextFromQueue: startNext } = await import("../lib/queue.ts")
+    const failingSpawn = mock(() => Promise.reject(new Error("spawn failed"))) as any
 
     // Add two entries — first will fail to spawn, second should be tried next
     await appendToQueue(fixture.cwd, makeEntry({ programSlug: "bench", maxExperiments: 10 }))
@@ -412,7 +389,7 @@ describe("queue — startNextFromQueue", () => {
     // then pops first again (retryCount=2) → skipped,
     // then pops second again (retryCount=2) → skipped,
     // queue empty → returns started=false
-    const result = await startNext(fixture.cwd, true)
+    const result = await startNextFromQueue(fixture.cwd, true, failingSpawn)
     expect(result.started).toBe(false)
     expect(result.lastError).toBeTruthy()
 
@@ -426,15 +403,11 @@ describe("queue — startNextFromQueue", () => {
     const trackingSpawn = mock((_root: string, slug: string) => {
       startedEntries.push(slug)
       return Promise.resolve({ runId: `run-${slug}`, runDir: "/tmp/mock", worktreePath: null, pid: 1 })
-    })
-    mock.module("../lib/daemon-spawn.ts", () => ({
-      spawnDaemon: trackingSpawn,
-    }))
-    const { startNextFromQueue: startNext } = await import("../lib/queue.ts")
+    }) as any
 
     await appendToQueue(fixture.cwd, makeEntry({ programSlug: "bench" }))
 
-    const result = await startNext(fixture.cwd, true)
+    const result = await startNextFromQueue(fixture.cwd, true, trackingSpawn)
     expect(result.started).toBe(true)
     // startNextFromQueue starts one entry and returns — it doesn't drain the queue
     expect(startedEntries).toEqual(["bench"])
