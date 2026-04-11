@@ -122,6 +122,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
   const [deleting, setDeleting] = useState(false)
   const onResumeQueueRef = useRef(onResumeQueue)
   onResumeQueueRef.current = onResumeQueue
+  const lastClickRef = useRef<{ panel: Panel; index: number; time: number } | null>(null)
 
   useEffect(() => {
     loadHomeData(cwd)
@@ -385,7 +386,18 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
                 key={`draft-${d.name}`}
                 paddingX={1}
                 backgroundColor={isSelected ? colors.surfaceSelected : undefined}
-                onMouseDown={() => { setFocusedPanel("programs"); setSelectedIndex(i) }}
+                onMouseDown={() => {
+                  const now = Date.now()
+                  const last = lastClickRef.current
+                  setFocusedPanel("programs")
+                  setSelectedIndex(i)
+                  if (last && last.panel === "programs" && last.index === i && now - last.time < 400) {
+                    onResumeDraft(d.name, d.draft)
+                    lastClickRef.current = null
+                  } else {
+                    lastClickRef.current = { panel: "programs", index: i, time: now }
+                  }
+                }}
               >
                 <text>
                   <span fg={colors.warning}>{"* "}</span>
@@ -401,7 +413,19 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
                 key={p.name}
                 paddingX={1}
                 backgroundColor={isSelected ? colors.surfaceSelected : undefined}
-                onMouseDown={() => { setFocusedPanel("programs"); setSelectedIndex(i + draftsCount) }}
+                onMouseDown={() => {
+                  const now = Date.now()
+                  const last = lastClickRef.current
+                  const itemIndex = i + draftsCount
+                  setFocusedPanel("programs")
+                  setSelectedIndex(itemIndex)
+                  if (last && last.panel === "programs" && last.index === itemIndex && now - last.time < 400) {
+                    onSelectProgram(p.name)
+                    lastClickRef.current = null
+                  } else {
+                    lastClickRef.current = { panel: "programs", index: itemIndex, time: now }
+                  }
+                }}
               >
                 <text>
                   {p.hasActiveRun ? (
@@ -447,6 +471,10 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
         focused={runsFocused}
         selectedIndex={selectedRunIndex}
         onSelectIndex={(i) => { setFocusedPanel("runs"); setSelectedRunIndex(i) }}
+        onActivateIndex={(i) => {
+          const run = selectableRuns[i]
+          if (run) onSelectRun(run)
+        }}
       />
     </box>
   )
