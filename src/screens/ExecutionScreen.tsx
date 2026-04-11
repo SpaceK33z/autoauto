@@ -75,6 +75,8 @@ interface ExecutionScreenProps {
   onUpdateProgram?: (programSlug: string) => void
   /** If true, automatically start finalize when the run is loaded as complete */
   autoFinalize?: boolean
+  /** Fallback model for auto-switching on quota/rate-limit exhaustion. */
+  fallbackModel?: ModelSlot | null
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -119,7 +121,7 @@ function IdeasPanel({ text }: { text: string }) {
   )
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, keepSimplifications, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, keepSimplifications, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram, fallbackModel }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
@@ -264,7 +266,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           }
         } else {
           // Spawn mode: create worktree, spawn daemon
-          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward, "manual", maxCostUsd, keepSimplifications)
+          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward, "manual", maxCostUsd, keepSimplifications, fallbackModel)
           if (cancelled) return
 
           activeRunDir = result.runDir
@@ -374,7 +376,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       cancelled = true
       watcherRef.current?.stop()
     }
-  }, [cwd, programSlug, modelConfig, maxExperiments, maxCostUsd, useWorktree, carryForward, keepSimplifications, attachRunId, ideasBacklogEnabled, retryCount])
+  }, [cwd, programSlug, modelConfig, maxExperiments, maxCostUsd, useWorktree, carryForward, keepSimplifications, attachRunId, ideasBacklogEnabled, retryCount, fallbackModel])
 
   const cleanupRunEnvironment = useCallback(async () => {
     if (runState?.in_place) {

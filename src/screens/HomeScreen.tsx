@@ -13,6 +13,7 @@ import { RunsTable } from "../components/RunsTable.tsx"
 import { formatShellError } from "../lib/git.ts"
 import { listDrafts, deleteDraft, type DraftSession, type DraftEntry } from "../lib/drafts.ts"
 import { readQueue, removeFromQueue, clearQueue, type QueueFile } from "../lib/queue.ts"
+import { abortAndDeleteActiveRuns } from "../lib/daemon-status.ts"
 import { colors } from "../lib/theme.ts"
 
 interface HomeScreenProps {
@@ -315,13 +316,19 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       } else if (key.name === "d") {
         const entry = queueEntries[selectedQueueIndex]
         if (entry) {
-          removeFromQueue(cwd, entry.id).then(() => {
-            loadHomeData(cwd).then((newData) => {
-              setData(newData)
-              const newLen = newData.queue.entries.length
-              setSelectedQueueIndex((i) => Math.min(i, Math.max(0, newLen - 1)))
-              if (newLen === 0) setFocusedPanel("programs")
-            })
+          const programSlug = entry.programSlug
+          removeFromQueue(cwd, entry.id).then(async () => {
+            // If no queue entries remain for this program, also abort any
+            // active run that was auto-started from the queue
+            const updatedQueue = await readQueue(cwd)
+            if (!updatedQueue.entries.some(e => e.programSlug === programSlug)) {
+              await abortAndDeleteActiveRuns(cwd, programSlug)
+            }
+            const newData = await loadHomeData(cwd)
+            setData(newData)
+            const newLen = newData.queue.entries.length
+            setSelectedQueueIndex((i) => Math.min(i, Math.max(0, newLen - 1)))
+            if (newLen === 0) setFocusedPanel("programs")
           }).catch(() => {})
         }
       } else if (key.name === "c") {

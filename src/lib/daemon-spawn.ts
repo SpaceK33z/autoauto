@@ -42,6 +42,7 @@ export async function spawnDaemon(
   source: "manual" | "queue" = "manual",
   maxCostUsd?: number,
   keepSimplifications?: boolean,
+  fallbackModel?: ModelSlot | null,
 ): Promise<{ runId: string; runDir: string; worktreePath: string | null; pid: number }> {
   // 1. Check working tree
   if (!(await isWorkingTreeClean(mainRoot))) {
@@ -75,6 +76,12 @@ export async function spawnDaemon(
 
     // 3. Init run dir in main root + write run-config.json
     const runDir = await initRunDir(programDir, runId)
+    // Drop fallback if identical to primary — it would be a no-op
+    const distinctFallback = fallbackModel &&
+      (fallbackModel.provider !== modelConfig.provider ||
+       fallbackModel.model !== modelConfig.model ||
+       fallbackModel.effort !== modelConfig.effort)
+      ? fallbackModel : undefined
     const runConfig: RunConfig = {
       provider: modelConfig.provider,
       model: modelConfig.model,
@@ -86,6 +93,9 @@ export async function spawnDaemon(
       carry_forward: carryForward,
       keep_simplifications: keepSimplifications,
       source,
+      fallback_provider: distinctFallback?.provider,
+      fallback_model: distinctFallback?.model,
+      fallback_effort: distinctFallback?.effort,
     }
     await writeRunConfig(runDir, runConfig)
 

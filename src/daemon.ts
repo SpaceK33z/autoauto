@@ -25,7 +25,8 @@ import {
   writeDaemonJson,
   startHeartbeat,
   readRunConfig,
-  runConfigToModelSlot,
+  runConfigToFallbackSlot,
+  runConfigToActiveSlot,
   readControl,
   releaseLock,
   recoverFromCrash,
@@ -79,7 +80,8 @@ async function main() {
 
   // 2. Read per-run config
   const runConfig = await readRunConfig(runDir)
-  const modelConfig = runConfig ? runConfigToModelSlot(runConfig) : { provider: "claude" as const, model: "sonnet", effort: "high" as const }
+  const modelConfig = runConfig ? runConfigToActiveSlot(runConfig) : { provider: "claude" as const, model: "sonnet", effort: "high" as const }
+  const fallbackModel = runConfig ? runConfigToFallbackSlot(runConfig) : null
   if (!runConfig?.max_experiments) throw new Error("run-config.json must specify max_experiments")
   const maxExperiments = runConfig.max_experiments
   const maxCostUsd = runConfig?.max_cost_usd
@@ -170,6 +172,20 @@ async function main() {
       const baseline = await runMeasurementSeries(measureShPath, worktreePath, config, abortController.signal, buildShPath)
 
       if (!baseline.success) {
+        // If aborted by user, treat as a clean abort — not a crash
+        if (abortController.signal.aborted) {
+          const abortedState: RunState = {
+            ...baselineState,
+            phase: "complete",
+            termination_reason: "aborted",
+            updated_at: new Date().toISOString(),
+          }
+          await writeState(runDir, abortedState)
+          await unlockMeasurement(programDir)
+          await releaseLock(programDir)
+          return
+        }
+
         const errorState: RunState = {
           ...baselineState,
           phase: "crashed",
@@ -238,6 +254,7 @@ async function main() {
           ideasBacklogEnabled,
           carryForward,
           baselineDiagnostics: baseline.diagnostics,
+          fallbackModel: fallbackModel ?? undefined,
         },
       )
     } else {
@@ -258,6 +275,7 @@ async function main() {
           stopRequested: () => stopRequested,
           ideasBacklogEnabled,
           carryForward,
+          fallbackModel: fallbackModel ?? undefined,
         },
       )
     }
