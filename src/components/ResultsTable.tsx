@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useMemo, useRef } from "react"
+import { memo, useState, useEffect, useMemo } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { ExperimentResult, ExperimentStatus } from "../lib/run.ts"
 import { parseSecondaryValues } from "../lib/run.ts"
@@ -14,7 +14,7 @@ interface ResultsTableProps {
   experimentNumber?: number
   focused?: boolean
   selectedResult?: ExperimentResult | null
-  onSelect?: (result: ExperimentResult) => void
+  onSelect?: (result: ExperimentResult | null) => void
   onHighlight?: (index: number) => void
 }
 
@@ -107,7 +107,6 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
   const columnWidths = useMemo(() => allocateColumnWidths(innerWidth, columnSpecs), [innerWidth, columnSpecs])
 
   const [highlightIndex, setHighlightIndex] = useState(0)
-  const lastClickRef = useRef<{ index: number; time: number } | null>(null)
 
   // Reset highlight to latest row when table gains focus
   useEffect(() => {
@@ -124,7 +123,8 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
     } else if (key.name === "down" || key.name === "j") {
       setHighlightIndex(i => Math.min(experiments.length - 1, i + 1))
     } else if (key.name === "enter") {
-      onSelect?.(experiments[highlightIndex])
+      const row = experiments[highlightIndex]
+      onSelect?.(selectedResult?.experiment_number === row.experiment_number ? null : row)
     }
   })
 
@@ -170,16 +170,9 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
               highlighted={focused && i === safeHighlight}
               selected={selectedResult?.experiment_number === r.experiment_number}
               onMouseDown={(onHighlight || onSelect) ? () => {
-                const now = Date.now()
-                const last = lastClickRef.current
                 setHighlightIndex(i)
                 onHighlight?.(i)
-                if (last && last.index === i && now - last.time < 400 && onSelect) {
-                  onSelect(r)
-                  lastClickRef.current = null
-                } else {
-                  lastClickRef.current = { index: i, time: now }
-                }
+                onSelect?.(selectedResult?.experiment_number === r.experiment_number ? null : r)
               } : undefined}
             />
           ))
