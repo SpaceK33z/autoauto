@@ -27,6 +27,8 @@ export interface TuiHarness {
   type: (text: string) => Promise<void>
   /** Press arrow key: "up" | "down" | "left" | "right" */
   arrow: (dir: "up" | "down" | "left" | "right") => Promise<void>
+  /** Click at a specific (x, y) position and render */
+  click: (x: number, y: number) => Promise<void>
   /** Wait for a frame containing the given text (with timeout) */
   waitForText: (text: string, timeoutMs?: number) => Promise<string>
   /** Destroy the renderer (call in afterEach) */
@@ -114,6 +116,13 @@ export async function renderTui(
     })
   }
 
+  async function click(x: number, y: number): Promise<void> {
+    await act(async () => {
+      await setup.mockMouse.click(x, y)
+      await setup.renderOnce()
+    })
+  }
+
   async function waitForText(text: string, timeoutMs = 5000): Promise<string> {
     const start = Date.now()
     while (Date.now() - start < timeoutMs) {
@@ -137,5 +146,5 @@ export async function renderTui(
     })
   }
 
-  return { frame, flush, press, enter, escape, tab, backspace, type, arrow, waitForText, destroy }
+  return { frame, flush, press, enter, escape, tab, backspace, type, arrow, click, waitForText, destroy }
 }

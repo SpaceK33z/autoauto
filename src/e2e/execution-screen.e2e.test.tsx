@@ -1,3 +1,4 @@
+import { join } from "node:path"
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { renderTui, type TuiHarness } from "./helpers.ts"
 import { ExecutionScreen } from "../screens/ExecutionScreen.tsx"
@@ -141,5 +142,165 @@ describe("ExecutionScreen E2E — attach to completed run", () => {
     expect(resultsLine).not.toContain("disc")
     expect(headerLine).not.toContain("baseline")
     expect(headerLine).not.toContain("best")
+  })
+})
+
+describe("ExecutionScreen E2E — narrow tab click switching", () => {
+  let ideasFixture: TestFixture
+  let ideasHarness: TuiHarness | null = null
+
+  beforeAll(async () => {
+    registerMockProviders()
+    ideasFixture = await createTestFixture()
+
+    await ideasFixture.createProgram("perf-opt", {
+      metric_field: "latency_ms",
+      direction: "lower",
+      max_experiments: 10,
+    })
+    const runDir = await ideasFixture.createRun("perf-opt", {
+      run_id: "20260401-100000",
+      phase: "complete",
+      experiment_number: 3,
+      best_metric: 85,
+      best_experiment: 2,
+      total_keeps: 2,
+      total_discards: 1,
+      total_crashes: 0,
+      termination_reason: "max_experiments",
+      results: RESULTS.slice(0, 3),
+    })
+    // Write ideas.md so the Ideas panel is visible
+    await Bun.write(join(runDir, "ideas.md"), "# Ideas\n\n- Try caching\n- Reduce allocations\n")
+  })
+
+  afterEach(async () => {
+    await ideasHarness?.destroy()
+    ideasHarness = null
+    resetProjectRoot()
+  })
+
+  afterAll(async () => {
+    await ideasFixture.cleanup()
+  })
+
+  function renderNarrowWithIdeas() {
+    return renderTui(
+      <ExecutionScreen
+        cwd={ideasFixture.cwd}
+        programSlug="perf-opt"
+        modelConfig={MODEL}
+        supportModelConfig={MODEL}
+        ideasBacklogEnabled={true}
+        navigate={() => {}}
+        maxExperiments={10}
+        attachRunId="20260401-100000"
+        readOnly
+      />,
+      { width: 60, height: 30 },
+    )
+  }
+
+  /** Find the line index and text containing the tab title pattern */
+  function findTitleRow(frame: string): { lineIndex: number; line: string } | null {
+    const lines = frame.split("\n")
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes("Agent") && lines[i].includes("Ideas") && (lines[i].includes("[") || lines[i].includes("]"))) {
+        return { lineIndex: i, line: lines[i] }
+      }
+    }
+    return null
+  }
+
+  test("clicking Ideas label in title switches to Ideas tab", async () => {
+    ideasHarness = await renderNarrowWithIdeas()
+    const frame = await ideasHarness.waitForText("[Agent] Ideas", 5000)
+
+    // Default tab is agent: title shows "[Agent] Ideas"
+    const titleRow = findTitleRow(frame)
+    expect(titleRow).not.toBeNull()
+
+    // Click on the "Ideas" text. Title is "[Agent] Ideas" starting at offset 2 from box edge.
+    // "[Agent]" = 7 chars, " " = 1 char → Ideas starts at offset 10 from box x.
+    // The box is inside the layout — find x position of "Ideas" in the title row.
+    const ideasOffset = titleRow!.line.indexOf("Ideas")
+    expect(ideasOffset).toBeGreaterThan(-1)
+    await ideasHarness.click(ideasOffset, titleRow!.lineIndex)
+
+    const afterClick = await ideasHarness.frame()
+    expect(afterClick).toContain("Agent [Ideas]")
+  })
+
+  test("clicking Agent label in title switches back to Agent tab", async () => {
+    ideasHarness = await renderNarrowWithIdeas()
+    await ideasHarness.waitForText("[Agent] Ideas", 5000)
+
+    // Switch to Ideas first via keyboard
+    await ideasHarness.press("]")
+    const switched = await ideasHarness.frame()
+    expect(switched).toContain("Agent [Ideas]")
+
+    // Now click on "Agent" text to switch back
+    const titleRow = findTitleRow(switched)
+    expect(titleRow).not.toBeNull()
+    const agentOffset = titleRow!.line.indexOf("Agent")
+    expect(agentOffset).toBeGreaterThan(-1)
+    await ideasHarness.click(agentOffset, titleRow!.lineIndex)
+
+    const afterClick = await ideasHarness.frame()
+    expect(afterClick).toContain("[Agent] Ideas")
+  })
+
+  test("clicking at the boundary between Agent and Ideas labels", async () => {
+    ideasHarness = await renderNarrowWithIdeas()
+    const frame = await ideasHarness.waitForText("[Agent] Ideas", 5000)
+    const titleRow = findTitleRow(frame)
+    expect(titleRow).not.toBeNull()
+
+    // Title is "[Agent] Ideas". Find exact positions in the rendered line.
+    const agentStart = titleRow!.line.indexOf("[Agent]")
+    const ideasStart = titleRow!.line.indexOf("Ideas")
+    expect(agentStart).toBeGreaterThan(-1)
+    expect(ideasStart).toBeGreaterThan(-1)
+
+    // Click on the last character of "[Agent]" (the ']') — should still select Agent
+    const lastAgentChar = agentStart + "[Agent]".length - 1
+    await ideasHarness.click(lastAgentChar, titleRow!.lineIndex)
+    let afterClick = await ideasHarness.frame()
+    expect(afterClick).toContain("[Agent] Ideas")
+
+    // Click on the space between "]" and "Ideas" — should select Agent (falls in agent region)
+    await ideasHarness.click(lastAgentChar + 1, titleRow!.lineIndex)
+    afterClick = await ideasHarness.frame()
+    expect(afterClick).toContain("[Agent] Ideas")
+
+    // Click on the first character of "Ideas" — should switch to Ideas
+    await ideasHarness.click(ideasStart, titleRow!.lineIndex)
+    afterClick = await ideasHarness.frame()
+    expect(afterClick).toContain("Agent [Ideas]")
+
+    // Now title is "Agent [Ideas]" — verify boundary in this state too
+    const newTitleRow = findTitleRow(afterClick)
+    expect(newTitleRow).not.toBeNull()
+    const newAgentStart = newTitleRow!.line.indexOf("Agent")
+    const newIdeasBracket = newTitleRow!.line.indexOf("[Ideas]")
+    expect(newAgentStart).toBeGreaterThan(-1)
+    expect(newIdeasBracket).toBeGreaterThan(-1)
+
+    // Click on the last char of "Agent" — should switch back to Agent
+    const lastNewAgentChar = newAgentStart + "Agent".length - 1
+    await ideasHarness.click(lastNewAgentChar, newTitleRow!.lineIndex)
+    afterClick = await ideasHarness.frame()
+    expect(afterClick).toContain("[Agent] Ideas")
+
+    // Switch to ideas again, then click on "[" of "[Ideas]" — should select Ideas
+    await ideasHarness.press("]")
+    afterClick = await ideasHarness.frame()
+    expect(afterClick).toContain("Agent [Ideas]")
+    const finalTitleRow = findTitleRow(afterClick)!
+    const bracketPos = finalTitleRow.line.indexOf("[Ideas]")
+    await ideasHarness.click(bracketPos, finalTitleRow.lineIndex)
+    afterClick = await ideasHarness.frame()
+    expect(afterClick).toContain("Agent [Ideas]")
   })
 })

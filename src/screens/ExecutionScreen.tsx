@@ -114,10 +114,12 @@ function getRunModelConfig(state: RunState | null, fallback: ModelSlot): ModelSl
 }
 
 function IdeasPanel({ text }: { text: string }) {
+  // Strip the top-level "# Ideas Backlog" heading — the panel title already conveys this
+  const content = text.replace(/^# [^\n]*\n/, "")
   return (
     <scrollbox flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom">
       <box paddingX={1} flexDirection="column">
-        <markdown content={text} syntaxStyle={syntaxStyle} conceal />
+        <markdown content={content} syntaxStyle={syntaxStyle} conceal />
       </box>
     </scrollbox>
   )
@@ -139,6 +141,10 @@ function BottomPanels({ narrowWidth, ideasVisible, ideasText, activeBottomTab, f
 }) {
   if (narrowWidth && ideasVisible) {
     const agentLabel = selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"
+    // Title is rendered at offset 2 from box left edge. Active tab has brackets: "[Agent] Ideas" or "Agent [Ideas]"
+    // Agent region spans the agent label + brackets (when active), Ideas region starts after the separating space
+    const agentPartLen = agentLabel.length + (activeBottomTab === "agent" ? 2 : 0) // +2 for [] when active
+    const titleIdeasStart = 2 + agentPartLen + 1 // offset + agent part + space separator
     return (
       <box
         flexDirection="column"
@@ -148,19 +154,24 @@ function BottomPanels({ narrowWidth, ideasVisible, ideasText, activeBottomTab, f
         border
         borderStyle="rounded"
         borderColor={focusedPanel === activeBottomTab ? BORDER_ACTIVE : BORDER_DIM}
-        onMouseDown={() => setFocusedPanel(activeBottomTab)}
+        title={activeBottomTab === "agent"
+          ? (selectedResult ? `[Experiment #${selectedResult.experiment_number}] Ideas` : "[Agent] Ideas")
+          : (selectedResult ? `Experiment #${selectedResult.experiment_number} [Ideas]` : "Agent [Ideas]")}
+        onMouseDown={function (event) {
+          const relY = event.y - this.y
+          const relX = event.x - this.x
+          if (relY === 0) {
+            // Click on the title bar — detect which tab label was hit
+            if (relX >= 2 && relX < titleIdeasStart) {
+              setActiveBottomTab("agent"); setFocusedPanel("agent")
+            } else if (relX >= titleIdeasStart) {
+              setActiveBottomTab("ideas"); setFocusedPanel("ideas")
+            }
+          } else {
+            setFocusedPanel(activeBottomTab)
+          }
+        }}
       >
-        <box flexDirection="row" flexShrink={0} paddingX={1}>
-          <text
-            fg={activeBottomTab === "agent" ? colors.text : colors.textMuted}
-            onMouseDown={() => { setActiveBottomTab("agent"); setFocusedPanel("agent") }}
-          >{activeBottomTab === "agent" ? <strong>{agentLabel}</strong> : agentLabel}</text>
-          <text fg={colors.textDim}> │ </text>
-          <text
-            fg={activeBottomTab === "ideas" ? colors.text : colors.textMuted}
-            onMouseDown={() => { setActiveBottomTab("ideas"); setFocusedPanel("ideas") }}
-          >{activeBottomTab === "ideas" ? <strong>Ideas</strong> : "Ideas"}</text>
-        </box>
         {activeBottomTab === "agent" ? (
           <AgentPanel
             streamingText={agentStreamText}
