@@ -93,6 +93,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       setKeepSimplifications(config.keep_simplifications !== false)
     })
     listRuns(programDir).then(async (runs) => {
+      setCachedQuota(null)
       const completedRuns = runs.filter((r) => r.state?.phase === "complete")
       setHasPreviousRuns(completedRuns.length > 0)
       // Load cached quota from latest run (any status, not just completed)
