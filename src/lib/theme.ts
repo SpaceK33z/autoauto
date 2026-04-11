@@ -28,6 +28,6 @@ export const colors = {
 
   // Borders
   borderActive: "#7aa2f7",
-  borderDim: "#666666",
+  borderDim: "#aaaaaa",
   borderDanger: "#ff5555",
 } as const
