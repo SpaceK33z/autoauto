@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react"
 import type { ExperimentResult } from "../lib/run.ts"
 import { parseSecondaryValues } from "../lib/run.ts"
 import type { SecondaryMetric } from "../lib/programs.ts"
+import { parseExperimentNotes, type ExperimentNotes } from "../lib/ideas-backlog.ts"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
 import { statusColor } from "./ResultsTable.tsx"
 import { colors } from "../lib/theme.ts"
@@ -63,6 +64,38 @@ function ExperimentDetail({ result, secondaryMetrics }: {
         <text><strong fg={colors.text}>Description:</strong></text>
         <text fg={colors.text} selectable>{result.description}</text>
       </box>
+    </box>
+  )
+}
+
+/** Strip <autoauto_notes> blocks from display text and extract parsed notes if complete. */
+function extractNotes(text: string): { cleaned: string; notes: ExperimentNotes | undefined } {
+  if (!text.includes("<autoauto_notes>")) return { cleaned: text, notes: undefined }
+  const notes = parseExperimentNotes(text)
+  let cleaned = text.replace(/<autoauto_notes>[\s\S]*?<\/autoauto_notes>/g, "")
+  cleaned = cleaned.replace(/<autoauto_notes>[\s\S]*$/, "")
+  return { cleaned, notes }
+}
+
+function NotesCard({ notes }: { notes: ExperimentNotes }) {
+  const items: Array<{ label: string; value: string; color: string }> = []
+  if (notes.hypothesis) items.push({ label: "Tried", value: notes.hypothesis, color: colors.text })
+  if (notes.why) items.push({ label: "Result", value: notes.why, color: colors.textMuted })
+  if (notes.avoid?.length) items.push({ label: "Avoid", value: notes.avoid.join("; "), color: colors.warning })
+  if (notes.next?.length) items.push({ label: "Next", value: notes.next.join("; "), color: colors.info })
+  if (items.length === 0) return null
+
+  const labelWidth = 8 // "Result  " — enough for longest label + padding
+
+  return (
+    <box flexDirection="column" marginTop={1}>
+      <text fg={colors.textDimmer} selectable>{"─── "}Agent Notes{"  "}{"─".repeat(30)}</text>
+      {items.map(({ label, value, color }) => (
+        <text key={label} selectable>
+          <span fg={colors.textDim}>{label.padEnd(labelWidth)}</span>
+          <span fg={color}>{value}</span>
+        </text>
+      ))}
     </box>
   )
 }
@@ -131,14 +164,18 @@ function formatTimestamp(epoch: number): string {
 }
 
 export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResult, phaseLabel, experimentNumber, secondaryMetrics }: AgentPanelProps) {
+  const { displayText, notes } = useMemo(() => {
+    const { cleaned, notes } = extractNotes(streamingText)
+    return { displayText: cleaned, notes }
+  }, [streamingText])
   const { segments, hasMarkers, lastTextIdx } = useMemo(() => {
-    const segs = parseStreamSegments(streamingText)
+    const segs = parseStreamSegments(displayText)
     return {
       segments: segs,
       hasMarkers: segs.some(s => s.type === "event"),
       lastTextIdx: segs.findLastIndex(s => s.type === "text"),
     }
-  }, [streamingText])
+  }, [displayText])
 
   if (selectedResult) {
     return (
@@ -156,12 +193,12 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0}>
       <scrollbox flexGrow={1} minHeight={0} stickyScroll stickyStart="bottom">
-        {!streamingText && isRunning && (
+        {!displayText && isRunning && (
           <box paddingX={1} flexDirection="column">
             <WaitingIndicator phaseLabel={phaseLabel} experimentNumber={experimentNumber} toolStatus={toolStatus} />
           </box>
         )}
-        {streamingText && (
+        {displayText && (
           <box paddingX={1} flexDirection="column">
             {toolStatus && isRunning && !hasMarkers && (
               <text fg={colors.textDim} selectable>{toolStatus}</text>
@@ -184,8 +221,9 @@ export function AgentPanel({ streamingText, toolStatus, isRunning, selectedResul
                 )
               })
             ) : (
-              <markdown content={streamingText} syntaxStyle={syntaxStyle} streaming={isRunning} />
+              <markdown content={displayText} syntaxStyle={syntaxStyle} streaming={isRunning} />
             )}
+            {notes && <NotesCard notes={notes} />}
           </box>
         )}
       </scrollbox>

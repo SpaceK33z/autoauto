@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useMemo } from "react"
+import { memo, useState, useEffect, useMemo, useRef } from "react"
 import { useKeyboard } from "@opentui/react"
 import type { ExperimentResult, ExperimentStatus } from "../lib/run.ts"
 import { parseSecondaryValues } from "../lib/run.ts"
@@ -15,6 +15,7 @@ interface ResultsTableProps {
   focused?: boolean
   selectedResult?: ExperimentResult | null
   onSelect?: (result: ExperimentResult) => void
+  onHighlight?: (index: number) => void
 }
 
 export function statusColor(status: ExperimentStatus): string {
@@ -28,7 +29,7 @@ export function statusColor(status: ExperimentStatus): string {
   }
 }
 
-const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highlighted, selected, columnWidths, lineWidth, rowWidth }: {
+const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highlighted, selected, columnWidths, lineWidth, rowWidth, onMouseDown }: {
   result: ExperimentResult
   secondaryFields: string[]
   highlighted?: boolean
@@ -36,6 +37,7 @@ const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highligh
   columnWidths: number[]
   lineWidth: number
   rowWidth: number
+  onMouseDown?: () => void
 }) {
   const bg = selected ? colors.surfaceActiveSelection : highlighted ? colors.surfaceHighlight : undefined
   const fg = statusColor(r.status)
@@ -58,7 +60,7 @@ const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highligh
   const line = formatCell(`${fixedCells.join("")}${secondaryCells.join("")}${trailingCells.join("")}`, lineWidth)
 
   return (
-    <box width={rowWidth} height={1} paddingX={1} backgroundColor={bg} flexShrink={0}>
+    <box width={rowWidth} height={1} paddingX={1} backgroundColor={bg} flexShrink={0} onMouseDown={onMouseDown}>
       <text width={lineWidth} fg={fg} selectable>
         {line}
       </text>
@@ -74,7 +76,7 @@ function labelWidth(label: string, base: number, max: number): number {
   return Math.min(Math.max(base, label.length + 2), max)
 }
 
-export function ResultsTable({ results, metricField, secondaryMetrics, width, experimentNumber, focused, selectedResult, onSelect }: ResultsTableProps) {
+export function ResultsTable({ results, metricField, secondaryMetrics, width, experimentNumber, focused, selectedResult, onSelect, onHighlight }: ResultsTableProps) {
   const secondaryFields = useMemo(() => secondaryMetrics ? Object.keys(secondaryMetrics) : [], [secondaryMetrics])
 
   // Skip the baseline row (#0) — it's in the stats header
@@ -105,6 +107,7 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
   const columnWidths = useMemo(() => allocateColumnWidths(innerWidth, columnSpecs), [innerWidth, columnSpecs])
 
   const [highlightIndex, setHighlightIndex] = useState(0)
+  const lastClickRef = useRef<{ index: number; time: number } | null>(null)
 
   // Reset highlight to latest row when table gains focus
   useEffect(() => {
@@ -166,6 +169,18 @@ export function ResultsTable({ results, metricField, secondaryMetrics, width, ex
               rowWidth={rowWidth}
               highlighted={focused && i === safeHighlight}
               selected={selectedResult?.experiment_number === r.experiment_number}
+              onMouseDown={(onHighlight || onSelect) ? () => {
+                const now = Date.now()
+                const last = lastClickRef.current
+                setHighlightIndex(i)
+                onHighlight?.(i)
+                if (last && last.index === i && now - last.time < 400 && onSelect) {
+                  onSelect(r)
+                  lastClickRef.current = null
+                } else {
+                  lastClickRef.current = { index: i, time: now }
+                }
+              } : undefined}
             />
           ))
         )}

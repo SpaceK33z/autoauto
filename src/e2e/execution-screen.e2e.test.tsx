@@ -118,6 +118,14 @@ describe("ExecutionScreen E2E — attach to completed run", () => {
     expect(lastNav).toBe("home")
   })
 
+  test("shows keyboard shortcuts bar at the bottom", async () => {
+    harness = await renderExecution()
+    await harness.waitForText("kept 3", 5000)
+    const frame = await harness.frame()
+    expect(frame).toContain("Esc back")
+    expect(frame).toContain("f finalize")
+  })
+
   test("keeps results area stable in short terminals", async () => {
     harness = await renderExecutionCompact()
     // Wait for completed state to load (stats header shows "kept 3" once run data is reconstructed)

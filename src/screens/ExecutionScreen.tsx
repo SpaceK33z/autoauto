@@ -41,6 +41,7 @@ import { DirtyTreePrompt } from "../components/DirtyTreePrompt.tsx"
 import { syntaxStyle } from "../lib/syntax-theme.ts"
 import { truncateStreamText } from "../lib/format.ts"
 import type { QuotaInfo } from "../lib/agent/types.ts"
+import { extractExperimentIdeas } from "../lib/ideas-backlog.ts"
 
 type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error" | "dirty"
 
@@ -122,6 +123,99 @@ function IdeasPanel({ text }: { text: string }) {
   )
 }
 
+function BottomPanels({ narrowWidth, ideasVisible, ideasText, activeBottomTab, focusedPanel, selectedResult, agentStreamText, toolStatus, isRunning, secondaryMetrics, setFocusedPanel, setActiveBottomTab }: {
+  narrowWidth: boolean
+  ideasVisible: boolean
+  ideasText: string
+  activeBottomTab: "agent" | "ideas"
+  focusedPanel: string
+  selectedResult: ExperimentResult | null | undefined
+  agentStreamText: string
+  toolStatus: string | null
+  isRunning: boolean
+  secondaryMetrics: Record<string, import("../lib/programs.ts").SecondaryMetric> | undefined
+  setFocusedPanel: (panel: "results" | "agent" | "ideas") => void
+  setActiveBottomTab: (tab: "agent" | "ideas") => void
+}) {
+  if (narrowWidth && ideasVisible) {
+    const agentLabel = selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"
+    return (
+      <box
+        flexDirection="column"
+        flexGrow={1}
+        minHeight={0}
+        minWidth={0}
+        border
+        borderStyle="rounded"
+        borderColor={focusedPanel === activeBottomTab ? BORDER_ACTIVE : BORDER_DIM}
+        onMouseDown={() => setFocusedPanel(activeBottomTab)}
+      >
+        <box flexDirection="row" flexShrink={0} paddingX={1}>
+          <text
+            fg={activeBottomTab === "agent" ? colors.text : colors.textMuted}
+            onMouseDown={() => { setActiveBottomTab("agent"); setFocusedPanel("agent") }}
+          >{activeBottomTab === "agent" ? <strong>{agentLabel}</strong> : agentLabel}</text>
+          <text fg={colors.textDim}> │ </text>
+          <text
+            fg={activeBottomTab === "ideas" ? colors.text : colors.textMuted}
+            onMouseDown={() => { setActiveBottomTab("ideas"); setFocusedPanel("ideas") }}
+          >{activeBottomTab === "ideas" ? <strong>Ideas</strong> : "Ideas"}</text>
+        </box>
+        {activeBottomTab === "agent" ? (
+          <AgentPanel
+            streamingText={agentStreamText}
+            toolStatus={toolStatus}
+            isRunning={isRunning}
+            selectedResult={selectedResult}
+            secondaryMetrics={secondaryMetrics}
+          />
+        ) : (
+          <IdeasPanel text={ideasText} />
+        )}
+      </box>
+    )
+  }
+
+  return (
+    <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
+      <box
+        flexDirection="column"
+        flexGrow={ideasVisible ? 3 : 1}
+        minHeight={0}
+        minWidth={0}
+        border
+        borderStyle="rounded"
+        borderColor={focusedPanel === "agent" ? BORDER_ACTIVE : BORDER_DIM}
+        title={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"}
+        onMouseDown={() => setFocusedPanel("agent")}
+      >
+        <AgentPanel
+          streamingText={agentStreamText}
+          toolStatus={toolStatus}
+          isRunning={isRunning}
+          selectedResult={selectedResult}
+          secondaryMetrics={secondaryMetrics}
+        />
+      </box>
+      {ideasVisible && (
+        <box
+          flexDirection="column"
+          flexGrow={2}
+          minHeight={0}
+          minWidth={0}
+          border
+          borderStyle="rounded"
+          borderColor={focusedPanel === "ideas" ? BORDER_ACTIVE : BORDER_DIM}
+          title={selectedResult ? `Ideas · #${selectedResult.experiment_number}` : "Ideas"}
+          onMouseDown={() => setFocusedPanel("ideas")}
+        >
+          <IdeasPanel text={ideasText} />
+        </box>
+      )}
+    </box>
+  )
+}
+
 export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, keepSimplifications, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram, fallbackModel }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
@@ -155,6 +249,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [ideasText, setIdeasText] = useState("")
   const [summaryText, setSummaryText] = useState("")
   const [showIdeas, setShowIdeas] = useState(true)
+  const [activeBottomTab, setActiveBottomTab] = useState<"agent" | "ideas">("agent")
 
   // Verification state
   const [showVerifyOverlay, setShowVerifyOverlay] = useState(false)
@@ -169,6 +264,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
   const secondaryMetricsConfig = useMemo(() => programConfig?.secondary_metrics, [programConfig])
   const ideasVisible = showIdeas && ideasText.length > 0
+  const narrowWidth = termWidth < 80
+  const displayIdeasText = useMemo(
+    () => selectedResult ? extractExperimentIdeas(ideasText, selectedResult.experiment_number) : ideasText,
+    [ideasText, selectedResult],
+  )
 
   const watcherRef = useRef<DaemonWatcher | null>(null)
   const abortControllerRef = useRef<AbortController>(new AbortController())
@@ -578,6 +678,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     if (phase === "complete" && readOnly) {
       if (key.name === "escape") {
         navigate("home")
+      } else if ((key.name === "[" || key.name === "]") && ideasVisible) {
+        const next: FocusPanel = activeBottomTab === "agent" ? "ideas" : "agent"
+        setActiveBottomTab(next)
+        setFocusedPanel(next)
       } else if (key.name === "i" && !runState?.finalized_at) {
         setShowIdeas(v => !v)
       } else if (key.name === "f" && !runState?.finalized_at) {
@@ -645,11 +749,20 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
     // During execution: Tab to cycle panel focus
     if ((phase === "starting" || phase === "running") && key.name === "tab") {
-      setFocusedPanel(p => {
-        if (p === "results") return "agent"
-        if (p === "agent") return ideasVisible ? "ideas" : "results"
-        return "results" // ideas → results
-      })
+      const next: FocusPanel =
+        focusedPanel === "results" ? "agent" :
+        focusedPanel === "agent" ? (ideasVisible ? "ideas" : "results") :
+        "results"
+      setFocusedPanel(next)
+      if (next === "agent" || next === "ideas") setActiveBottomTab(next)
+      return
+    }
+
+    // [ and ] to switch between Agent and Ideas panels (lazygit-style)
+    if ((key.name === "[" || key.name === "]") && ideasVisible && (phase === "starting" || phase === "running")) {
+      const next: FocusPanel = activeBottomTab === "agent" ? "ideas" : "agent"
+      setActiveBottomTab(next)
+      setFocusedPanel(next)
       return
     }
 
@@ -763,6 +876,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   focused={focusedPanel === "results"}
                   selectedResult={selectedResult}
                   onSelect={setSelectedResult}
+                  onHighlight={() => setFocusedPanel("results")}
                 />
               ) : (
                 <AgentPanel
@@ -796,45 +910,24 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   focused={focusedPanel === "results"}
                   selectedResult={selectedResult}
                   onSelect={setSelectedResult}
+                  onHighlight={() => setFocusedPanel("results")}
                 />
               </box>
 
-              <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
-                <box
-                  flexDirection="column"
-                  flexGrow={ideasVisible ? 3 : 1}
-                  minHeight={0}
-                  minWidth={0}
-                  border
-                  borderStyle="rounded"
-                  borderColor={focusedPanel === "agent" ? BORDER_ACTIVE : BORDER_DIM}
-                  title={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"}
-                  onMouseDown={() => setFocusedPanel("agent")}
-                >
-                  <AgentPanel
-                    streamingText={agentStreamText}
-                    toolStatus={toolStatus}
-                    isRunning={phase === "running"}
-                    selectedResult={selectedResult}
-                    secondaryMetrics={secondaryMetricsConfig}
-                  />
-                </box>
-                {ideasVisible && (
-                  <box
-                    flexDirection="column"
-                    flexGrow={2}
-                    minHeight={0}
-                    minWidth={0}
-                    border
-                    borderStyle="rounded"
-                    borderColor={focusedPanel === "ideas" ? BORDER_ACTIVE : BORDER_DIM}
-                    title="Ideas"
-                    onMouseDown={() => setFocusedPanel("ideas")}
-                  >
-                    <IdeasPanel text={ideasText} />
-                  </box>
-                )}
-              </box>
+              <BottomPanels
+                narrowWidth={narrowWidth}
+                ideasVisible={ideasVisible}
+                ideasText={displayIdeasText}
+                activeBottomTab={activeBottomTab}
+                focusedPanel={focusedPanel}
+                selectedResult={selectedResult}
+                agentStreamText={agentStreamText}
+                toolStatus={toolStatus}
+                isRunning={phase === "running"}
+                secondaryMetrics={secondaryMetricsConfig}
+                setFocusedPanel={setFocusedPanel}
+                setActiveBottomTab={setActiveBottomTab}
+              />
             </>
           )}
 
@@ -864,8 +957,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             </box>
           )}
 
-          <box paddingX={1}>
-            <text fg={colors.textMuted}>Esc: detach · Tab: switch panel · s: settings · q: stop{ideasText.length > 0 ? " · i: ideas" : ""}</text>
+          <box paddingX={1} flexShrink={0}>
+            <text fg={colors.textMuted}>Esc: detach · Tab: switch panel · s: settings · q: stop{ideasVisible ? " · [/]: agent/ideas · i: ideas" : ideasText.length > 0 ? " · i: ideas" : ""}</text>
           </box>
         </box>
       )}
@@ -912,6 +1005,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               focused={focusedPanel === "results"}
               selectedResult={selectedResult}
               onSelect={setSelectedResult}
+              onHighlight={() => setFocusedPanel("results")}
             />
           </box>
           {summaryText ? (
@@ -931,48 +1025,26 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               </scrollbox>
             </box>
           ) : (
-            <box flexDirection="row" flexGrow={1} minHeight={0} minWidth={0}>
-              <box
-                flexDirection="column"
-                flexGrow={ideasVisible ? 3 : 1}
-                minHeight={0}
-                minWidth={0}
-                border
-                borderStyle="rounded"
-                borderColor={focusedPanel === "agent" ? BORDER_ACTIVE : BORDER_DIM}
-                title={selectedResult ? `Experiment #${selectedResult.experiment_number}` : "Agent"}
-                onMouseDown={() => setFocusedPanel("agent")}
-              >
-                <AgentPanel
-                  streamingText={agentStreamText}
-                  toolStatus={toolStatus}
-                  isRunning={false}
-                  selectedResult={selectedResult}
-                  secondaryMetrics={secondaryMetricsConfig}
-                />
-              </box>
-              {ideasVisible && (
-                <box
-                  flexDirection="column"
-                  flexGrow={2}
-                  minHeight={0}
-                  minWidth={0}
-                  border
-                  borderStyle="rounded"
-                  borderColor={focusedPanel === "ideas" ? BORDER_ACTIVE : BORDER_DIM}
-                  title="Ideas"
-                  onMouseDown={() => setFocusedPanel("ideas")}
-                >
-                  <IdeasPanel text={ideasText} />
-                </box>
-              )}
-            </box>
+            <BottomPanels
+              narrowWidth={narrowWidth}
+              ideasVisible={ideasVisible}
+              ideasText={displayIdeasText}
+              activeBottomTab={activeBottomTab}
+              focusedPanel={focusedPanel}
+              selectedResult={selectedResult}
+              agentStreamText={agentStreamText}
+              toolStatus={toolStatus}
+              isRunning={false}
+              secondaryMetrics={secondaryMetricsConfig}
+              setFocusedPanel={setFocusedPanel}
+              setActiveBottomTab={setActiveBottomTab}
+            />
           )}
-          <box paddingX={1}>
+          <box paddingX={1} flexShrink={0}>
             <text fg={colors.textMuted}>
               {summaryText
                 ? "Esc back"
-                : `Esc back · f finalize${ideasText.length > 0 ? " · i toggle ideas" : ""}`}
+                : `Esc back · f finalize${ideasVisible ? " · [/]: agent/ideas · i toggle ideas" : ideasText.length > 0 ? " · i toggle ideas" : ""}`}
             </text>
           </box>
         </box>
@@ -1017,7 +1089,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             title={`Finalize · ${headerModelLabel}`}
             onMessagesChange={handleFinalizeMessagesChange}
           />
-          <box paddingX={1}>
+          <box paddingX={1} flexShrink={0}>
             <text fg={colors.textMuted}>Esc: cancel finalize</text>
           </box>
         </box>
@@ -1039,7 +1111,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               </box>
             </scrollbox>
           </box>
-          <box paddingX={1}>
+          <box paddingX={1} flexShrink={0}>
             <text fg={colors.textMuted}>Esc: back</text>
           </box>
         </box>

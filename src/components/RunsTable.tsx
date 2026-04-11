@@ -1,4 +1,4 @@
-import { memo } from "react"
+import { memo, useRef } from "react"
 import type { RunInfo, RunState } from "../lib/run.ts"
 import type { ProgramConfig } from "../lib/programs.ts"
 import { allocateColumnWidths, formatCell } from "../lib/format.ts"
@@ -13,6 +13,7 @@ export interface RunsTableProps {
   focused?: boolean
   selectedIndex?: number
   onSelectIndex?: (index: number) => void
+  onActivateIndex?: (index: number) => void
 }
 
 function phaseColor(state: RunState | null): string {
@@ -172,7 +173,8 @@ const RunRow = memo(function RunRow({
   )
 })
 
-export function RunsTable({ runs, programConfigs, width, focused = false, selectedIndex = 0, onSelectIndex }: RunsTableProps) {
+export function RunsTable({ runs, programConfigs, width, focused = false, selectedIndex = 0, onSelectIndex, onActivateIndex }: RunsTableProps) {
+  const lastClickRef = useRef<{ index: number; time: number } | null>(null)
   const innerWidth = Math.max(width - CHROME, 0)
   const rowWidth = innerWidth + 2
   const fixedWidth = COL_STATUS + COL_PROGRAM + COL_EXP + COL_MODEL + COL_TOKENS + COL_TIME
@@ -227,7 +229,17 @@ export function RunsTable({ runs, programConfigs, width, focused = false, select
               lineWidth={innerWidth}
               rowWidth={rowWidth}
               selected={focused && index === selectedIndex}
-              onMouseDown={onSelectIndex ? () => onSelectIndex(index) : undefined}
+              onMouseDown={(onSelectIndex || onActivateIndex) ? () => {
+                const now = Date.now()
+                const last = lastClickRef.current
+                if (onSelectIndex) onSelectIndex(index)
+                if (last && last.index === index && now - last.time < 400 && onActivateIndex) {
+                  onActivateIndex(index)
+                  lastClickRef.current = null
+                } else {
+                  lastClickRef.current = { index, time: now }
+                }
+              } : undefined}
             />
           ))
         )}
