@@ -42,6 +42,7 @@ export async function spawnDaemon(
   source: "manual" | "queue" = "manual",
   maxCostUsd?: number,
   keepSimplifications?: boolean,
+  fallbackModel?: ModelSlot | null,
 ): Promise<{ runId: string; runDir: string; worktreePath: string | null; pid: number }> {
   // 1. Check working tree
   if (!(await isWorkingTreeClean(mainRoot))) {
@@ -86,6 +87,9 @@ export async function spawnDaemon(
       carry_forward: carryForward,
       keep_simplifications: keepSimplifications,
       source,
+      fallback_provider: fallbackModel?.provider,
+      fallback_model: fallbackModel?.model,
+      fallback_effort: fallbackModel?.effort,
     }
     await writeRunConfig(runDir, runConfig)
 

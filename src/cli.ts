@@ -388,7 +388,8 @@ async function cmdStart(args: ParsedArgs) {
   // Spawn daemon
   let result: { runId: string; runDir: string; worktreePath: string | null; pid: number }
   try {
-    result = await spawnDaemon(root, slug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward)
+    const projConfig = await loadProjectConfig(root)
+    result = await spawnDaemon(root, slug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward, "manual", undefined, undefined, projConfig.executionFallbackModel)
   } catch (err) {
     const msg = formatShellError(err)
     if (msg.includes("uncommitted changes")) die(msg)

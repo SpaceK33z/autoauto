@@ -270,6 +270,7 @@ export function App() {
             attachRunId={attachRunId ?? undefined}
             readOnly={attachReadOnly}
             autoFinalize={autoFinalize}
+            fallbackModel={projectConfig.executionFallbackModel}
             onUpdateProgram={(slug) => {
               setPreRunOverrides(null)
               setAttachRunId(null)
