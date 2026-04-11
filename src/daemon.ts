@@ -170,6 +170,20 @@ async function main() {
       const baseline = await runMeasurementSeries(measureShPath, worktreePath, config, abortController.signal, buildShPath)
 
       if (!baseline.success) {
+        // If aborted by user, treat as a clean abort — not a crash
+        if (abortController.signal.aborted) {
+          const abortedState: RunState = {
+            ...baselineState,
+            phase: "complete",
+            termination_reason: "aborted",
+            updated_at: new Date().toISOString(),
+          }
+          await writeState(runDir, abortedState)
+          await unlockMeasurement(programDir)
+          await releaseLock(programDir)
+          return
+        }
+
         const errorState: RunState = {
           ...baselineState,
           phase: "crashed",
