@@ -336,8 +336,8 @@ async function runExperimentAgentRaw(
   try {
     const session = getProvider(modelConfig.provider).runOnce(userPrompt, {
       systemPrompt,
-      tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-      allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+      tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task"],
+      allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task"],
       maxTurns,
       cwd,
       model: modelConfig.model,
