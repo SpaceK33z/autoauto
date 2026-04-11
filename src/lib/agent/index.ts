@@ -8,6 +8,7 @@ export type {
   AgentProviderID,
   AgentModelOption,
   ErrorKind,
+  QuotaInfo,
 } from "./types.ts"
 
 import type { AgentProvider, AgentProviderID } from "./types.ts"
