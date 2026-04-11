@@ -81,6 +81,7 @@ function formatDurationMs(deltaMs: number, suffix = ""): string {
 export function formatResetsIn(resetsAt: number): string {
   const deltaMs = resetsAt - Date.now()
   if (deltaMs <= 0) return "now"
+  if (deltaMs < 60_000) return "<1m"
   return formatDurationMs(deltaMs)
 }
 

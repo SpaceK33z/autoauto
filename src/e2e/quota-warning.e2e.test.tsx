@@ -6,13 +6,13 @@
  *   3. formatResetsIn and formatElapsed produce correct output
  */
 
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test"
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test"
 import { join } from "node:path"
 import { mkdir, chmod } from "node:fs/promises"
 import { $ } from "bun"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { setProvider } from "../lib/agent/index.ts"
+import { setProvider, getProvider } from "../lib/agent/index.ts"
 import type {
   AgentProvider,
   AgentSession,
@@ -151,6 +151,16 @@ afterAll(async () => {
 })
 
 describe("Quota update callback flow", () => {
+  let originalProvider: AgentProvider | undefined
+
+  beforeEach(() => {
+    try { originalProvider = getProvider("claude") } catch { originalProvider = undefined }
+  })
+
+  afterEach(() => {
+    if (originalProvider) setProvider("claude", originalProvider)
+  })
+
   test("onQuotaUpdate fires when agent emits quota_update event", async () => {
     const quotaInfo: QuotaInfo = {
       status: "allowed_warning",

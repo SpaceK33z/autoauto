@@ -68,7 +68,7 @@ function getQuotaDisplay(info: QuotaInfo | undefined): { text: string; color: st
   }
   // allowed — only show if utilization data is available
   if (info.utilization != null) {
-    return { text: `Quota: ${Math.round(info.utilization * 100)}%`, color: colors.textDim }
+    return { text: `Quota: ${Math.round(info.utilization * 100)}%${resetStr}`, color: colors.textDim }
   }
   return null
 }

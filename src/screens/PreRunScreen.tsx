@@ -95,14 +95,6 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     listRuns(programDir).then(async (runs) => {
       const completedRuns = runs.filter((r) => r.state?.phase === "complete")
       setHasPreviousRuns(completedRuns.length > 0)
-      const latest = completedRuns[0] ?? null
-      if (!latest) return
-      try {
-        const results = await readAllResults(latest.run_dir)
-        setAvgDurationMs(getAvgMeasurementDuration(results))
-      } catch {
-        setHasPreviousRuns(false)
-      }
       // Load cached quota from latest run (any status, not just completed)
       const latestAny = runs[0] ?? null
       if (latestAny) {
@@ -110,6 +102,14 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
           const quota = await Bun.file(`${latestAny.run_dir}/quota.json`).json() as QuotaInfo
           setCachedQuota(quota)
         } catch { /* no cached quota */ }
+      }
+      const latest = completedRuns[0] ?? null
+      if (!latest) return
+      try {
+        const results = await readAllResults(latest.run_dir)
+        setAvgDurationMs(getAvgMeasurementDuration(results))
+      } catch {
+        setHasPreviousRuns(false)
       }
     })
   }, [cwd, programSlug])

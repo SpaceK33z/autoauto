@@ -189,6 +189,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
   useEffect(() => {
     let cancelled = false
+    setQuotaInfo(undefined)
     const programDir = getProgramDir(cwd, programSlug)
 
     ;(async () => {

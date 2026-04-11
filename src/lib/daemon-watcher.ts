@@ -204,6 +204,7 @@ export function watchRunDir(
       scheduleRead("state.json")
       scheduleRead("results.tsv")
       if (currentStreamFile) scheduleRead(currentStreamFile)
+      if (callbacks.onQuotaChange) scheduleRead("quota.json")
     }, 300)
   }
 
