@@ -468,6 +468,17 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   } else if (final.state.phase === "complete") {
                     setPhase("complete")
                   } else {
+                    // Persist crashed state to disk so the run doesn't stay
+                    // stuck in a non-terminal phase after the TUI closes
+                    const crashedState: RunState = {
+                      ...final.state,
+                      phase: "crashed",
+                      error: logTail || "Daemon died unexpectedly",
+                      error_phase: final.state.phase,
+                      updated_at: new Date().toISOString(),
+                    }
+                    writeState(activeRunDir, crashedState).catch(() => {})
+                    setRunState(crashedState)
                     const detail = logTail ? `\n\n${logTail}` : ""
                     setLastError(`Daemon died unexpectedly while ${final.state.phase}${detail}`)
                     setPhase("error")

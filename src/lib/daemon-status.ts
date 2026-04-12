@@ -2,8 +2,8 @@ import { join } from "node:path"
 import { rm } from "node:fs/promises"
 import { $ } from "bun"
 import { streamLogName } from "./daemon-callbacks.ts"
-import type { RunState, ExperimentResult } from "./run.ts"
-import { readAllResults, readState, getMetricHistory, backfillFinalizedAt, listRuns, isRunActive } from "./run.ts"
+import type { RunState, ExperimentResult, RunInfo } from "./run.ts"
+import { readAllResults, readState, getMetricHistory, backfillFinalizedAt, listRuns, isRunActive, writeState } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
 import { loadProgramConfig, getProgramDir } from "./programs.ts"
 import {
@@ -270,4 +270,51 @@ export async function abortAndDeleteActiveRuns(
   }
 
   await releaseLock(programDir)
+}
+
+// --- Stale Run Cleanup ---
+
+/**
+ * Detects runs that appear active but whose daemon is dead, and marks them
+ * as crashed. Called from loadHomeData to clean up after daemon crashes that
+ * happened while the TUI wasn't watching (e.g. TUI was closed).
+ *
+ * Only acts when daemon.json exists (proving a daemon once started). Runs
+ * with no daemon.json are left untouched — they may be test fixtures or in
+ * a startup race.
+ *
+ * @param programDir - The program directory (used for lock release)
+ * @param runs - All runs for the program (mutated in-place if cleaned up)
+ */
+export async function cleanupStaleRuns(programDir: string, runs: RunInfo[]): Promise<void> {
+  let cleaned = false
+
+  for (const run of runs) {
+    if (!isRunActive(run) || !run.state) continue
+
+    const status = await getDaemonStatus(run.run_dir)
+    // Only clean up if daemon.json exists (daemon once started) and is now dead
+    if (status.alive || status.starting || !status.daemonJson) continue
+
+    // Daemon is dead but state is non-terminal — mark as crashed
+    const logTail = await readDaemonLogTail(run.run_dir)
+    const crashedState: RunState = {
+      ...run.state,
+      phase: "crashed",
+      error: logTail || "Daemon died unexpectedly",
+      error_phase: run.state.phase,
+      updated_at: new Date().toISOString(),
+    }
+    await writeState(run.run_dir, crashedState)
+    run.state = crashedState // update in-place so callers see the fix
+    cleaned = true
+  }
+
+  if (cleaned) {
+    // Release program lock if no more active runs remain
+    const stillActive = runs.some((r) => isRunActive(r))
+    if (!stillActive) {
+      await releaseLock(programDir)
+    }
+  }
 }
