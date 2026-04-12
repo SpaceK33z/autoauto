@@ -15,7 +15,7 @@ Quick reference for the core AutoAuto terms.
 | **Crash** | Failed experiment: agent error, timeout, invalid output, lock violation, or measurement failure. |
 | **Metric field** | Primary numeric output being optimized, e.g. `lcp_ms`. |
 | **Direction** | Whether the metric is `"lower"`-is-better or `"higher"`-is-better. |
-| **Noise threshold** | Minimum relative improvement required to count as real signal. Can be overridden by Mann-Whitney U statistical significance (p < 0.05). |
+| **Noise threshold** | Minimum relative improvement required to count as real signal, unless Mann-Whitney U shows statistical significance (p < 0.05). |
 | **p-value** | Two-sided Mann-Whitney U p-value comparing baseline vs experiment samples. Shown as `p≤` when at the minimum for the sample size. |
 | **Quality gate** | Secondary metric with a hard min/max threshold that must not be violated. |
 | **Secondary metric** | Informational tracked metric shown to the agent but not used as a hard gate. |
