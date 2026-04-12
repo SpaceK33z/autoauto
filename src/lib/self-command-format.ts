@@ -5,7 +5,7 @@ function shellQuote(arg: string): string {
   return `'${arg.replace(/'/g, `'"'"'`)}'`
 }
 
-export function formatSelfCommand(subcommand: string): string {
+export function formatSelfCommand(subcommand: string, args: string[] = []): string {
   const command = getSelfCommand(subcommand)
-  return [command.command, ...command.args].map(shellQuote).join(" ")
+  return [command.command, ...command.args, ...args].map(shellQuote).join(" ")
 }

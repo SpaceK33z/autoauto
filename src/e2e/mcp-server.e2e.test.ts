@@ -6,6 +6,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { join } from "node:path"
+import { mkdir } from "node:fs/promises"
 import {
   createMcpTestClient,
   getTextContent,
@@ -67,6 +68,24 @@ describe("MCP list_programs", () => {
     expect(progA.hasActiveRun).toBe(false)
     expect(progB.goal).toContain("latency")
     expect(progB.totalRuns).toBe(0)
+  })
+
+  test("uses the detected project root when started in a subdirectory", async () => {
+    await createProgramForMcp(fixture.cwd, "root-prog", {
+      programMd: "# Root Program\n\n## Goal\nMeasure from repo root.\n",
+    })
+
+    const nestedCwd = join(fixture.cwd, "packages", "app")
+    await mkdir(nestedCwd, { recursive: true })
+    const nestedMcp = await createMcpTestClient(nestedCwd)
+
+    try {
+      const result = await nestedMcp.client.callTool({ name: "list_programs", arguments: {} })
+      const data = getJsonContent(result) as Array<{ name: string }>
+      expect(data.some((program) => program.name === "root-prog")).toBe(true)
+    } finally {
+      await nestedMcp.cleanup()
+    }
   })
 })
 
@@ -244,8 +263,39 @@ describe("MCP create_program", () => {
       })
       // If we get a result, it should be an error
       expect(result.isError).toBe(true)
-    } catch {
-      // MCP SDK may throw on schema validation failure — that's fine
+    } catch (err) {
+      expect(String(err)).toMatch(/name|slug|invalid|validation/i)
+    }
+  })
+
+  test("creates program files under the detected project root", async () => {
+    const nestedCwd = join(fixture.cwd, "apps", "web")
+    await mkdir(nestedCwd, { recursive: true })
+    const nestedMcp = await createMcpTestClient(nestedCwd)
+
+    try {
+      const result = await nestedMcp.client.callTool({
+        name: "create_program",
+        arguments: {
+          name: "nested-prog",
+          program_md: "# Nested Program\n\n## Goal\nWrite into root .autoauto.\n",
+          measure_sh: '#!/bin/bash\necho \'{"bytes": 1000}\'',
+          config: {
+            metric_field: "bytes",
+            direction: "lower",
+            noise_threshold: 0.01,
+            repeats: 1,
+            max_experiments: 5,
+            quality_gates: {},
+          },
+        },
+      })
+
+      expect(result.isError).toBeFalsy()
+      expect(await Bun.file(join(fixture.cwd, ".autoauto", "programs", "nested-prog", "config.json")).exists()).toBe(true)
+      expect(await Bun.file(join(nestedCwd, ".autoauto", "programs", "nested-prog", "config.json")).exists()).toBe(false)
+    } finally {
+      await nestedMcp.cleanup()
     }
   })
 })

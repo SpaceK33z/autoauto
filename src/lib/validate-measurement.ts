@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /* eslint-disable no-console, no-await-in-loop */
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { $ } from "bun"
 import { validateProgramConfig, type ProgramConfig } from "./programs.ts"
@@ -164,7 +164,7 @@ export async function startValidateMeasurement(args = process.argv.slice(2)) {
 
   let config: ProgramConfig
   try {
-    config = validateProgramConfig(JSON.parse(readFileSync(configJsonPath, "utf-8")))
+    config = validateProgramConfig(await Bun.file(configJsonPath).json())
   } catch (err) {
     console.log(JSON.stringify({ success: false, error: `Failed to read config.json: ${err}` }))
     process.exit(0)

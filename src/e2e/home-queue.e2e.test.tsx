@@ -34,7 +34,7 @@ afterAll(async () => {
   await fixture.cleanup()
 })
 
-function renderHome() {
+function renderHome(onResumeQueue = noop) {
   return renderTui(
     <HomeScreen
       cwd={fixture.cwd}
@@ -44,6 +44,7 @@ function renderHome() {
       onUpdateProgram={noop}
       onFinalizeRun={noop}
       onResumeDraft={noop}
+      onResumeQueue={onResumeQueue}
     />,
     { width: 120 },
   )
@@ -116,6 +117,16 @@ describe("HomeScreen — queue panel", () => {
     // Queue should still be there
     const frame = await harness.flush()
     expect(frame).toContain("Queue (2)")
+  })
+
+  test("s on queue panel resumes the queue", async () => {
+    let resumed = 0
+    harness = await renderHome(() => { resumed++ })
+    await harness.waitForText("Queue (2)")
+    await harness.tab()
+    await harness.tab()
+    await harness.press("s")
+    expect(resumed).toBe(1)
   })
 })
 

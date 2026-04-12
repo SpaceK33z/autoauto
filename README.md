@@ -111,6 +111,16 @@ autoauto queue add <program>         # Enqueue a run
 
 See [CLI Reference](docs/cli.md) for full documentation of all commands and flags.
 
+### MCP Server
+
+AutoAuto also ships as an [MCP server](https://modelcontextprotocol.io/), letting you use it from any coding agent (Claude Code, Cursor, Windsurf, etc.) that supports MCP. The TUI is recommended for the best experience, but the MCP server gives your agent full access to create programs, start runs, monitor progress, and read results.
+
+```bash
+autoauto mcp  # stdio transport, spawned by your MCP client
+```
+
+See [MCP Server](docs/mcp-server.md) for setup and the full tool reference.
+
 ## How it works
 
 ### 1. Setup — define what to optimize
@@ -207,6 +217,7 @@ Supported providers: **Claude** (Agent SDK), **Codex** (CLI), **OpenCode**.
 | Doc | Contents |
 |-----|----------|
 | [CLI Reference](docs/cli.md) | Full headless CLI documentation — all commands, flags, JSON output |
+| [MCP Server](docs/mcp-server.md) | MCP server setup, tools, and workflows for coding agent integration |
 | [Concepts](docs/concepts.md) | How AutoAuto works: programs, runs, experiments, measurement, agents |
 | [Glossary](docs/glossary.md) | Quick definitions for AutoAuto terms and run mechanics |
 | [Measurement Guide](docs/measurement-guide.md) | Writing good measurement scripts, choosing metrics, avoiding pitfalls |

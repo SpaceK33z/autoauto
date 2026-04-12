@@ -369,10 +369,10 @@ server.registerTool(
   },
   async () => {
     const root = await getProjectRoot(cwd)
-    const programs = await listPrograms(cwd)
+    const programs = await listPrograms(root)
     if (programs.length === 0) return text("No programs found.")
 
-    const summaries = await loadProgramSummaries(cwd)
+    const summaries = await loadProgramSummaries(root)
     const summaryMap = new Map(summaries.map((s) => [s.slug, s.goal]))
 
     const result = await Promise.all(
@@ -849,7 +849,7 @@ server.registerTool(
     }
 
     // Ensure .autoauto directory and .gitignore
-    await ensureAutoAutoDir(cwd)
+    await ensureAutoAutoDir(root)
 
     // Create program directory
     await mkdir(programDir, { recursive: true })
