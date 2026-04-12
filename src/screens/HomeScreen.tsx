@@ -13,7 +13,7 @@ import { RunsTable } from "../components/RunsTable.tsx"
 import { formatShellError } from "../lib/git.ts"
 import { listDrafts, deleteDraft, type DraftSession, type DraftEntry } from "../lib/drafts.ts"
 import { readQueue, removeFromQueue, clearQueue, type QueueFile } from "../lib/queue.ts"
-import { abortAndDeleteActiveRuns } from "../lib/daemon-status.ts"
+import { abortAndDeleteActiveRuns, cleanupStaleRuns } from "../lib/daemon-status.ts"
 import { colors } from "../lib/theme.ts"
 
 interface HomeScreenProps {
@@ -63,6 +63,9 @@ async function loadHomeData(cwd: string): Promise<HomeData> {
         listRuns(programDir),
         loadProgramConfig(programDir).catch(() => null),
       ])
+
+      // Clean up runs whose daemon died while the TUI wasn't watching
+      await cleanupStaleRuns(programDir, runs)
 
       allRuns.push(...runs)
       if (config) programConfigs[p.name] = config

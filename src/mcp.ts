@@ -68,6 +68,9 @@ const CWD = resolveCwd()
 
 const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "lib", "validate-measurement.ts")
 
+/** Reusable slug schema — prevents path traversal via names like "../../etc" */
+const SlugSchema = z.string().min(1).regex(/^[a-z0-9-]+$/, "Must be lowercase letters, numbers, and hyphens only")
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -191,7 +194,7 @@ server.registerTool(
     description:
       "Get the full details of a program: config.json, program.md, measure.sh, and build.sh.",
     inputSchema: z.object({
-      name: z.string().describe("Program slug (e.g. 'homepage-lcp')"),
+      name: SlugSchema.describe("Program slug (e.g. 'homepage-lcp')"),
     }),
     annotations: { readOnlyHint: true },
   },
@@ -417,6 +420,7 @@ const SecondaryMetricSchema = z.object({
   direction: z.enum(["lower", "higher"]).describe("Which direction is better"),
 })
 
+// Keep in sync with validateProgramConfig() in programs.ts — both validate config shape
 const ConfigSchema = z.object({
   metric_field: z.string().min(1).describe("Key in measure.sh JSON output to optimize"),
   direction: z.enum(["lower", "higher"]).describe("Which direction is better"),
@@ -445,11 +449,7 @@ server.registerTool(
       "After creating, call validate_measurement to verify it works.",
     ].join(" "),
     inputSchema: z.object({
-      name: z
-        .string()
-        .min(1)
-        .regex(/^[a-z0-9-]+$/, "Must be lowercase letters, numbers, and hyphens only")
-        .describe("Program slug (e.g. 'homepage-lcp')"),
+      name: SlugSchema.describe("Program slug (e.g. 'homepage-lcp')"),
       program_md: z.string().min(1).describe("Full contents of program.md"),
       measure_sh: z.string().min(1).describe("Full contents of measure.sh"),
       build_sh: z.string().optional().describe("Full contents of build.sh (optional)"),
@@ -512,7 +512,7 @@ server.registerTool(
     description:
       "Update specific files in an existing program. Only the provided fields are overwritten.",
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
       program_md: z.string().optional().describe("New contents of program.md"),
       measure_sh: z.string().optional().describe("New contents of measure.sh"),
       build_sh: z.string().optional().describe("New contents of build.sh"),
@@ -576,7 +576,7 @@ server.registerTool(
     description:
       "Permanently delete a program and all its runs. Cannot delete a program with an active run.",
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
       confirm: z.literal(true).describe("Must be true to confirm deletion"),
     }),
     annotations: { destructiveHint: true },
@@ -614,7 +614,7 @@ server.registerTool(
       "and recommended config values.",
     ].join(" "),
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
       runs: z.number().int().min(1).max(20).default(5).describe("Number of measurement runs (default 5)"),
     }),
   },
@@ -685,7 +685,7 @@ server.registerTool(
       "Returns immediately — use get_run_status to poll for progress.",
     ].join(" "),
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
       provider: z.enum(["claude", "codex", "opencode"]).optional().describe("Agent provider (default: from project config)"),
       model: z.string().optional().describe("Model name, e.g. 'sonnet', 'opus' (default: from project config)"),
       effort: z.enum(["low", "medium", "high", "max"]).optional().describe("Effort level (default: from project config)"),
@@ -750,7 +750,7 @@ server.registerTool(
     description:
       "Get the status of the latest (or a specific) run: phase, metrics, progress, cost, and whether the daemon is alive.",
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
       run_id: z.string().optional().describe("Specific run ID (default: latest)"),
     }),
     annotations: { readOnlyHint: true },
@@ -822,7 +822,7 @@ server.registerTool(
     title: "List Runs",
     description: "List all runs for a program with summary info (newest first).",
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
     }),
     annotations: { readOnlyHint: true },
   },
@@ -865,7 +865,7 @@ server.registerTool(
     description:
       "Get the experiment results table for a run: experiment number, status (keep/discard/crash), metric value, change %, commit, and description.",
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
       run_id: z.string().optional().describe("Specific run ID (default: latest)"),
       limit: z.number().int().min(1).optional().describe("Return only the last N results"),
     }),
@@ -934,7 +934,7 @@ server.registerTool(
     description:
       "Get the agent's streaming output (thinking, tool use, code changes) for a specific experiment.",
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
       experiment_number: z.union([
         z.number().int().min(0),
         z.literal("latest"),
@@ -993,7 +993,7 @@ server.registerTool(
       "With abort=true: hard abort — kills agent immediately, records current experiment as crash.",
     ].join(" "),
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
       abort: z.boolean().default(false).describe("Hard abort (default: soft stop)"),
     }),
   },
@@ -1053,7 +1053,7 @@ server.registerTool(
     description:
       "Update the max experiments cap on an active run. Takes effect at the next iteration boundary.",
     inputSchema: z.object({
-      name: z.string().min(1).describe("Program slug"),
+      name: SlugSchema.describe("Program slug"),
       max_experiments: z.number().int().min(1).describe("New max experiments value"),
     }),
   },
