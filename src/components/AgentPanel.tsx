@@ -28,11 +28,6 @@ function ExperimentDetail({ result, secondaryMetrics }: {
   return (
     <box flexDirection="column" paddingX={1} gap={1}>
       <box flexDirection="column">
-        <text selectable><strong fg={colors.text}>Experiment #{result.experiment_number}</strong></text>
-        <text fg={colors.textDim}>{"─".repeat(40)}</text>
-      </box>
-
-      <box flexDirection="column">
         <text selectable><strong fg={colors.text}>Status:  </strong><strong fg={statusColor(result.status)}>{result.status}</strong></text>
         <text selectable><strong fg={colors.text}>Commit:  </strong><strong fg={colors.text}>{result.commit}</strong></text>
         <text selectable><strong fg={colors.text}>Metric:  </strong><strong fg={colors.text}>{result.metric_value ?? "—"}</strong></text>
