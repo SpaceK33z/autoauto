@@ -552,10 +552,16 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
     try {
       const worktreePath = runState.in_place ? undefined : runState.worktree_path
-      const effectiveCwd = worktreePath ?? cwd
-      const context = await buildFinalizeContext(effectiveCwd, runDir, runState, programConfig, cwd)
+      // Worktree may have been removed already (e.g. queue-sourced runs clean up
+      // immediately). Fall back to main checkout and use the branch name as ref.
+      const worktreeExists = worktreePath
+        ? await Bun.file(`${worktreePath}/.git`).exists()
+        : false
+      const effectiveCwd = worktreeExists ? worktreePath! : cwd
+      const headRef = worktreeExists ? "HEAD" : runState.branch_name
+      const context = await buildFinalizeContext(effectiveCwd, runDir, runState, programConfig, cwd, headRef)
       const systemPrompt = getFinalizeSystemPrompt(context)
-      const initialMessage = await buildFinalizeInitialMessage(context)
+      const initialMessage = await buildFinalizeInitialMessage(context, headRef)
       setFinalizeSystemPrompt(systemPrompt)
       setFinalizeInitialMessage(initialMessage)
       setFinalizeCwd(effectiveCwd)

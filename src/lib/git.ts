@@ -20,8 +20,9 @@ export async function getFullSha(cwd: string): Promise<string> {
   return (await $`git rev-parse HEAD`.cwd(cwd).text()).trim()
 }
 
-export async function getRecentLog(cwd: string, count?: number): Promise<string> {
-  return (await $`git log --oneline --decorate -n ${String(count ?? 10)}`.cwd(cwd).text()).trim()
+export async function getRecentLog(cwd: string, count?: number, ref?: string): Promise<string> {
+  const args = ref ? [ref] : []
+  return (await $`git log ${args} --oneline --decorate -n ${String(count ?? 10)}`.cwd(cwd).text()).trim()
 }
 
 /** Resets HEAD to the given SHA, discarding all changes. Primary discard mechanism for failed experiments. */

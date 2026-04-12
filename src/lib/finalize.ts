@@ -40,10 +40,12 @@ export async function buildFinalizeContext(
   state: RunState,
   config: ProgramConfig,
   projectRoot?: string,
+  /** Git ref to use as the "current" end of diffs. Defaults to "HEAD". */
+  headRef = "HEAD",
 ): Promise<FinalizeContext> {
   const [results, changedFiles] = await Promise.all([
     readAllResults(runDir),
-    getFilesChangedBetween(cwd, state.original_baseline_sha, "HEAD"),
+    getFilesChangedBetween(cwd, state.original_baseline_sha, headRef),
   ])
   const stats = getRunStats(state, config.direction)
 
@@ -62,12 +64,16 @@ export async function buildFinalizeContext(
   }
 }
 
-export async function buildFinalizeInitialMessage(context: FinalizeContext): Promise<string> {
+export async function buildFinalizeInitialMessage(
+  context: FinalizeContext,
+  /** Git ref to use as the "current" end of diffs. Defaults to "HEAD". */
+  headRef = "HEAD",
+): Promise<string> {
   const { state, results, stats, changedFiles, cwd } = context
 
   const [diff, gitLog] = await Promise.all([
-    getDiffBetween(cwd, state.original_baseline_sha, "HEAD"),
-    getRecentLog(cwd, 50),
+    getDiffBetween(cwd, state.original_baseline_sha, headRef),
+    getRecentLog(cwd, 50, headRef),
   ])
 
   const resultsSummary = results
