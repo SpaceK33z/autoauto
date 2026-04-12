@@ -53,6 +53,7 @@ import {
 } from "./lib/config.ts"
 import { streamLogName } from "./lib/daemon-callbacks.ts"
 import { formatRunDuration, formatChangePct } from "./lib/format.ts"
+import { generateSummaryReport, saveFinalizeReport } from "./lib/finalize.ts"
 
 // ---------------------------------------------------------------------------
 // CWD resolution
@@ -139,7 +140,7 @@ const server = new McpServer(
     instructions: [
       "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
       "Setup workflow: (1) get_setup_guide to learn artifact formats, (2) list_programs to check for duplicates, (3) create_program to write all files, (4) validate_measurement to verify stability.",
-      "Run workflow: (1) start_run to launch an experiment loop, (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied.",
+      "Run workflow: (1) start_run to launch an experiment loop, (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
       "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run.",
     ].join("\n"),
   },
@@ -1068,6 +1069,100 @@ server.registerTool(
     await updateMaxExperiments(active.runDir, max_experiments)
 
     return jsonText({ run_id: active.runId, max_experiments })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: get_run_summary
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_run_summary",
+  {
+    title: "Get Run Summary",
+    description: [
+      "Get a summary report for a completed run.",
+      "Returns the existing summary if available, or generates a stats-based summary with generate=true.",
+      "Only completed or crashed runs can have summaries generated.",
+    ].join(" "),
+    inputSchema: z.object({
+      name: SlugSchema.describe("Program slug"),
+      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      generate: z.boolean().default(false).describe("Generate stats summary if none exists (only for completed/crashed runs)"),
+    }),
+    annotations: { readOnlyHint: false },
+  },
+  async ({ name, run_id, generate }) => {
+    let resolved: Awaited<ReturnType<typeof resolveProgram>>
+    try {
+      resolved = await resolveProgram(name)
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+    const { programDir, programConfig } = resolved
+
+    let runDir: string
+    let resolvedRunId: string
+    try {
+      const r = await resolveRunDir(programDir, run_id)
+      runDir = r.runDir
+      resolvedRunId = r.runId
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+
+    const summaryPath = join(runDir, "summary.md")
+    const hasSummary = await Bun.file(summaryPath).exists()
+
+    if (hasSummary) {
+      const summaryText = await Bun.file(summaryPath).text()
+      const state = await readState(runDir)
+      const stats = getRunStats(state, programConfig.direction)
+      return jsonText({
+        run_id: resolvedRunId,
+        has_summary: true,
+        generated: false,
+        summary: summaryText,
+        stats: {
+          total_experiments: stats.total_experiments,
+          total_keeps: stats.total_keeps,
+          improvement_pct: stats.improvement_pct,
+        },
+      })
+    }
+
+    if (generate) {
+      const state = await readState(runDir)
+      if (state.phase !== "complete" && state.phase !== "crashed") {
+        return errorResult("Can only generate summary for completed or crashed runs.")
+      }
+
+      const results = await readAllResults(runDir)
+      const summaryText = generateSummaryReport(state, results, programConfig, "")
+      await saveFinalizeReport(runDir, summaryText)
+
+      const stats = getRunStats(state, programConfig.direction)
+      return jsonText({
+        run_id: resolvedRunId,
+        has_summary: true,
+        generated: true,
+        summary: summaryText,
+        stats: {
+          total_experiments: stats.total_experiments,
+          total_keeps: stats.total_keeps,
+          improvement_pct: stats.improvement_pct,
+        },
+      })
+    }
+
+    return jsonText({
+      run_id: resolvedRunId,
+      has_summary: false,
+      generated: false,
+      summary: null,
+      stats: null,
+      hint: "Use generate=true to create a stats summary for completed runs.",
+    })
   },
 )
 
