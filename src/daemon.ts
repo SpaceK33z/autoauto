@@ -38,8 +38,7 @@ import { removeWorktree } from "./lib/worktree.ts"
 
 // --- Parse CLI args ---
 
-function parseArgs(): { programSlug: string; runId: string; mainRoot: string; worktreePath: string; daemonId: string; inPlace: boolean } {
-  const args = process.argv.slice(2)
+function parseArgs(args: string[]): { programSlug: string; runId: string; mainRoot: string; worktreePath: string; daemonId: string; inPlace: boolean } {
   const inPlace = args.includes("--in-place")
   // Remove --in-place before key-value parsing (it's a boolean flag)
   const kvArgs = args.filter((a) => a !== "--in-place")
@@ -67,9 +66,9 @@ function parseArgs(): { programSlug: string; runId: string; mainRoot: string; wo
 
 // --- Main ---
 
-async function main() {
+export async function startDaemon(args = process.argv.slice(2)) {
   registerDefaultProviders()
-  const { programSlug, runId, mainRoot, worktreePath, daemonId, inPlace } = parseArgs()
+  const { programSlug, runId, mainRoot, worktreePath, daemonId, inPlace } = parseArgs(args)
   const programDir = join(mainRoot, ".autoauto", "programs", programSlug)
   const runDir = join(programDir, "runs", runId)
 
@@ -351,7 +350,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  process.stderr.write(`Daemon fatal error: ${formatShellError(err)}\n`)
-  process.exit(1)
-})
+if (import.meta.main) {
+  startDaemon().catch((err) => {
+    process.stderr.write(`Daemon fatal error: ${formatShellError(err)}\n`)
+    process.exit(1)
+  })
+}

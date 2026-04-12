@@ -83,7 +83,7 @@ export async function buildFinalizeInitialMessage(
   let diffSection: string
   if (diff.length > MAX_DIFF_LENGTH) {
     diffSection = diff.slice(0, MAX_DIFF_LENGTH) +
-      `\n\n... (diff truncated at ${MAX_DIFF_LENGTH} chars — use \`git diff ${state.original_baseline_sha} HEAD\` for the full output)`
+      `\n\n... (diff truncated at ${MAX_DIFF_LENGTH} chars — use \`git diff ${state.original_baseline_sha} ${headRef}\` for the full output)`
   } else {
     diffSection = diff
   }

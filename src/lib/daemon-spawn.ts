@@ -1,6 +1,5 @@
 import { open } from "node:fs/promises"
-import { join, dirname } from "node:path"
-import { fileURLToPath } from "node:url"
+import { join } from "node:path"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { generateRunId } from "./run.ts"
@@ -17,6 +16,7 @@ import {
   type DaemonJson,
   type RunConfig,
 } from "./daemon-lifecycle.ts"
+import { getSelfCommand } from "./self-command.ts"
 
 /**
  * Prepares and spawns a new daemon for a run. Does everything the TUI needs
@@ -100,15 +100,15 @@ export async function spawnDaemon(
     await writeRunConfig(runDir, runConfig)
 
     // 4. Spawn detached daemon
-    const daemonPath = join(dirname(fileURLToPath(import.meta.url)), "..", "daemon.ts")
     const logPath = join(runDir, "daemon.log")
     const logFd = await open(logPath, "w")
+    const daemonExec = getSelfCommand("__daemon")
 
-    const daemonArgs = [daemonPath, "--program", programSlug, "--run-id", runId, "--main-root", mainRoot, "--worktree", worktreePath, "--daemon-id", daemonId]
+    const daemonArgs = [...daemonExec.args, "--program", programSlug, "--run-id", runId, "--main-root", mainRoot, "--worktree", worktreePath, "--daemon-id", daemonId]
     if (!useWorktree) daemonArgs.push("--in-place")
 
     const proc = spawn(
-      "bun",
+      daemonExec.command,
       daemonArgs,
       {
         detached: true,

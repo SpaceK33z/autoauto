@@ -1,8 +1,10 @@
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { getProgramsDir, type ProgramSummary } from "../programs.ts"
+import { formatSelfCommand } from "../self-command-format.ts"
 
 const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "validate-measurement.ts")
+const VALIDATE_COMMAND = formatSelfCommand("__validate_measurement")
 
 export interface SetupPromptResult {
   systemPrompt: string
@@ -93,6 +95,7 @@ This file contains step-by-step conversation guidance, artifact formats, saving 
 **Paths:**
 - Programs directory: ${programsDir}
 - Validation script: ${VALIDATE_SCRIPT}
+- Validation command: ${VALIDATE_COMMAND}
 
 ## Step-by-Step Guidance
 

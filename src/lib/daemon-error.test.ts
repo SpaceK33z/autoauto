@@ -217,8 +217,8 @@ describe("daemon startup failure", () => {
       // daemon.log should contain something about the missing config
       const logTail = await readDaemonLogTail(result.runDir)
       expect(logTail.length).toBeGreaterThan(0)
-      // The daemon writes "Daemon fatal error: ..." for unhandled exceptions
-      expect(logTail).toContain("Daemon fatal error")
+      // The daemon logs an error referencing the missing config.json
+      expect(logTail).toContain("config.json")
 
     } finally {
       await releaseLock(programDir).catch(() => {})

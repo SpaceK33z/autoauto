@@ -20,6 +20,10 @@ export function setProvider(id: AgentProviderID, p: AgentProvider): void {
   providers.set(id, p)
 }
 
+export function hasProvider(id: AgentProviderID): boolean {
+  return providers.has(id)
+}
+
 /** Get the active agent provider. Throws if not yet configured. */
 export function getProvider(id: AgentProviderID = "claude"): AgentProvider {
   const provider = providers.get(id)

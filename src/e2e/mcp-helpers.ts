@@ -133,7 +133,7 @@ export async function createRunForMcp(
   const runDir = join(programDir, "runs", runId)
   await mkdir(runDir, { recursive: true })
 
-  const initSha = (await import("bun").then((b) => b.$`git rev-parse HEAD`.cwd(cwd).text())).trim()
+  const initSha = (await Bun.$`git rev-parse HEAD`.cwd(cwd).text()).trim()
 
   const state = {
     run_id: runId,

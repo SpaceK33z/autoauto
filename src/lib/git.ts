@@ -50,11 +50,54 @@ export class DirtyWorkingTreeError extends Error {
   }
 }
 
+function isOnlyAutoAutoGitignorePatch(diff: string): boolean {
+  if (!diff.trim()) return true
+
+  for (const line of diff.split("\n")) {
+    if (
+      line.startsWith("diff --git") ||
+      line.startsWith("index ") ||
+      line.startsWith("--- ") ||
+      line.startsWith("+++ ") ||
+      line.startsWith("@@")
+    ) {
+      continue
+    }
+
+    if ((line.startsWith("+") || line.startsWith("-")) && line.slice(1).trim() !== ".autoauto/") {
+      return false
+    }
+  }
+
+  return true
+}
+
+async function isOnlyAutoAutoGitignoreChange(cwd: string): Promise<boolean> {
+  const [unstaged, staged] = await Promise.all([
+    $`git diff -- .gitignore`.cwd(cwd).text(),
+    $`git diff --cached -- .gitignore`.cwd(cwd).text(),
+  ])
+
+  return isOnlyAutoAutoGitignorePatch(unstaged) && isOnlyAutoAutoGitignorePatch(staged)
+}
+
 export async function isWorkingTreeClean(cwd: string): Promise<boolean> {
   const lines = (await $`git status --porcelain`.cwd(cwd).text()).trim()
   if (!lines) return true
-  // Ignore autoauto-owned files (measurement PID/log, diagnostics) that live in the worktree
-  const significant = lines.split("\n").filter((l) => !/ \.autoauto-/.test(l))
+  const allowAutoAutoGitignore = lines.includes(".gitignore")
+    ? await isOnlyAutoAutoGitignoreChange(cwd)
+    : false
+  const significant: string[] = []
+
+  for (const line of lines.split("\n")) {
+    if (!line || / \.autoauto-/.test(line)) continue
+
+    const path = line.slice(3).trim()
+    if (path === ".gitignore" && allowAutoAutoGitignore) continue
+
+    significant.push(line)
+  }
+
   return significant.length === 0
 }
 
