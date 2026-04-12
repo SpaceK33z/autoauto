@@ -4,6 +4,7 @@ import type { RunState, ExperimentResult, TerminationReason, PreviousRunContext 
 import type { ProgramConfig } from "./programs.ts"
 import type { QuotaInfo } from "./agent/types.ts"
 import { type ModelSlot, formatModelLabel } from "./config.ts"
+import { formatPValue } from "./format.ts"
 import {
   readState,
   writeState,
@@ -21,7 +22,7 @@ import {
 } from "./git.ts"
 import {
   runMeasurementSeries,
-  compareMetric,
+  compareMetricWithSignificance,
 } from "./measure.ts"
 import type { DiffStats } from "./git.ts"
 import {
@@ -189,11 +190,13 @@ async function maybeRebaseline(
 
   if (!driftCheck.success) return state
 
-  const driftVerdict = compareMetric(
+  const { verdict: driftVerdict } = compareMetricWithSignificance(
     state.current_baseline,
     driftCheck.median_metric,
     config.noise_threshold,
     config.direction,
+    state.baseline_samples,
+    driftCheck.metric_values,
   )
 
   if (driftVerdict === "noise") return state
@@ -202,6 +205,7 @@ async function maybeRebaseline(
   const newState: RunState = {
     ...state,
     current_baseline: driftCheck.median_metric,
+    baseline_samples: driftCheck.metric_values,
     updated_at: now(),
   }
   await writeState(runDir, newState)
@@ -309,12 +313,14 @@ async function runMeasurementAndDecide(
     return { state: finalState, kept: false, diagnostics: series.diagnostics }
   }
 
-  // 4. Compare against baseline
-  const verdict = compareMetric(
+  // 4. Compare against baseline (with statistical significance)
+  const { verdict, p_value, p_is_minimum } = compareMetricWithSignificance(
     state.current_baseline,
     series.median_metric,
     config.noise_threshold,
     config.direction,
+    state.baseline_samples,
+    series.metric_values,
   )
 
   // 5. Check for simplification auto-keep: net-negative LOC within noise
@@ -328,7 +334,8 @@ async function runMeasurementAndDecide(
     // KEEP (metric improvement or simplification)
     const keepReason = isSimplification ? "simplification" : "keep"
     const keepDesc = isSimplification ? `simplification: ${description}` : description
-    callbacks.onPhaseChange("kept", `${keepReason}: ${state.current_baseline} → ${series.median_metric}`)
+    const pLabel = p_value != null ? ` (${formatPValue(p_value, p_is_minimum)})` : ""
+    callbacks.onPhaseChange("kept", `${keepReason}: ${state.current_baseline} → ${series.median_metric}${pLabel}`)
 
     const isBest = !isSimplification && (config.direction === "lower"
       ? series.median_metric < state.best_metric
@@ -343,6 +350,8 @@ async function runMeasurementAndDecide(
       description: keepDesc,
       measurement_duration_ms: series.duration_ms,
       diff_stats: diffStatsStr,
+      p_value,
+      p_is_minimum,
     }
     await appendResult(runDir, result)
     await recordBacklog(result)
@@ -352,6 +361,7 @@ async function runMeasurementAndDecide(
     callbacks.onPhaseChange("measuring", `re-baselining after ${keepReason}`)
     const rebaseline = await runMeasurementSeries(measureShPath, cwd, config, signal, buildShPath)
     const newBaseline = rebaseline.success ? rebaseline.median_metric : series.median_metric
+    const newBaselineSamples = rebaseline.success ? rebaseline.metric_values : series.metric_values
 
     if (rebaseline.success && newBaseline !== series.median_metric) {
       callbacks.onRebaseline?.(series.median_metric, newBaseline, keepReason)
@@ -361,6 +371,7 @@ async function runMeasurementAndDecide(
       ...currentState,
       total_keeps: currentState.total_keeps + 1,
       current_baseline: newBaseline,
+      baseline_samples: newBaselineSamples,
       best_metric: isBest ? series.median_metric : currentState.best_metric,
       best_experiment: isBest ? state.experiment_number : currentState.best_experiment,
       last_known_good_sha: candidateSha,
@@ -374,7 +385,8 @@ async function runMeasurementAndDecide(
 
   // DISCARD (regressed or noise without simplification)
   const reason = verdict === "regressed" ? "regressed" : "within noise"
-  callbacks.onPhaseChange("reverting", `${reason}: ${state.current_baseline} → ${series.median_metric}`)
+  const pLabel = p_value != null ? ` (${formatPValue(p_value, p_is_minimum)})` : ""
+  callbacks.onPhaseChange("reverting", `${reason}: ${state.current_baseline} → ${series.median_metric}${pLabel}`)
 
   currentState = { ...currentState, phase: "reverting", updated_at: now() }
   await writeState(runDir, currentState)
@@ -392,6 +404,7 @@ async function runMeasurementAndDecide(
     description: statusDesc,
     measurement_duration_ms: series.duration_ms,
     diff_stats: diffStatsStr,
+    p_value,
   }
   await appendResult(runDir, result)
   await recordBacklog(result)

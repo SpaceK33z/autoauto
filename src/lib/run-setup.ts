@@ -27,7 +27,7 @@ export async function initRunDir(programDir: string, runId: string): Promise<str
 
   await Bun.write(
     join(runDir, "results.tsv"),
-    "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\tdiff_stats\n",
+    "experiment#\tcommit\tmetric_value\tsecondary_values\tstatus\tdescription\tmeasurement_duration_ms\tdiff_stats\tp_value\tp_min\n",
   )
 
   return runDir

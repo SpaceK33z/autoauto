@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   compareMetric,
+  compareMetricWithSignificance,
   checkQualityGates,
   validateMeasurementOutput,
   runMeasurement,
@@ -78,6 +79,112 @@ describe("compareMetric", () => {
       expect(compareMetric(100, 101, 0, "lower")).toBe("regressed")
       // Equal stays noise (0 > 0 is false)
       expect(compareMetric(100, 100, 0, "lower")).toBe("noise")
+    })
+  })
+})
+
+// --- compareMetricWithSignificance ---
+
+describe("compareMetricWithSignificance", () => {
+  test("returns verdict without p_value when no samples provided", () => {
+    const result = compareMetricWithSignificance(100, 90, 0.02, "lower")
+    expect(result.verdict).toBe("keep")
+    expect(result.p_value).toBeUndefined()
+  })
+
+  test("returns verdict without p_value when samples too small", () => {
+    const result = compareMetricWithSignificance(100, 90, 0.02, "lower", [100], [90])
+    expect(result.verdict).toBe("keep")
+    expect(result.p_value).toBeUndefined()
+  })
+
+  test("returns p_value when both samples have ≥ 2 values", () => {
+    const result = compareMetricWithSignificance(
+      100, 90, 0.02, "lower",
+      [100, 102, 98], [90, 92, 88],
+    )
+    expect(result.verdict).toBe("keep")
+    expect(result.p_value).toBeDefined()
+    expect(result.p_value!).toBeGreaterThan(0)
+    expect(result.p_value!).toBeLessThanOrEqual(1)
+  })
+
+  test("clear separation gives low p_value", () => {
+    const result = compareMetricWithSignificance(
+      100, 80, 0.02, "lower",
+      [99, 100, 101, 102, 98], [79, 80, 81, 82, 78],
+    )
+    expect(result.verdict).toBe("keep")
+    expect(result.p_value!).toBeLessThan(0.05)
+  })
+
+  test("overlapping samples give high p_value even with threshold keep", () => {
+    // Medians differ enough for threshold, but individual samples overlap heavily
+    const result = compareMetricWithSignificance(
+      100, 95, 0.02, "lower",
+      [95, 100, 105], [90, 95, 100],
+    )
+    expect(result.verdict).toBe("keep")
+    // Overlap means high p_value — the improvement may not be statistically significant
+    expect(result.p_value!).toBeGreaterThan(0.1)
+  })
+
+  describe("p-value override of noise threshold", () => {
+    test("overrides noise → keep when improvement is statistically significant", () => {
+      // 3% improvement below 5% threshold, but completely separated samples (n=5)
+      const result = compareMetricWithSignificance(
+        100, 97, 0.05, "lower",
+        [99, 100, 101, 102, 103], [94, 95, 96, 97, 98],
+      )
+      // Threshold: 3% < 5% → "noise"
+      // Mann-Whitney: complete separation → p ≈ 0.008 < 0.05 → override to "keep"
+      expect(result.verdict).toBe("keep")
+      expect(result.p_value!).toBeLessThan(0.05)
+    })
+
+    test("overrides noise → regressed when worsening is statistically significant", () => {
+      // 3% regression below 5% threshold, but completely separated samples (n=5)
+      const result = compareMetricWithSignificance(
+        100, 103, 0.05, "lower",
+        [98, 99, 100, 101, 102], [103, 104, 105, 106, 107],
+      )
+      // Threshold: -3% > -5% → "noise"
+      // Mann-Whitney: complete separation → p < 0.05 → override to "regressed"
+      expect(result.verdict).toBe("regressed")
+      expect(result.p_value!).toBeLessThan(0.05)
+    })
+
+    test("stays noise when p >= 0.05 despite being within threshold", () => {
+      // Small change, heavily overlapping samples → p > 0.05 → no override
+      const result = compareMetricWithSignificance(
+        100, 99, 0.05, "lower",
+        [97, 100, 103], [96, 99, 102],
+      )
+      expect(result.verdict).toBe("noise")
+      expect(result.p_value!).toBeGreaterThan(0.05)
+    })
+
+    test("no override with n=3 (minimum p=0.10 > 0.05)", () => {
+      // Complete separation with n=3 → p = 0.10, which is > 0.05
+      // So even though samples are perfectly separated, can't reach significance
+      const result = compareMetricWithSignificance(
+        100, 97, 0.05, "lower",
+        [100, 101, 102], [94, 95, 96],
+      )
+      expect(result.verdict).toBe("noise")
+      expect(result.p_value!).toBeCloseTo(0.1, 4)
+    })
+
+    test("override works with direction=higher", () => {
+      // 3% improvement below 5% threshold, higher is better
+      const result = compareMetricWithSignificance(
+        100, 103, 0.05, "higher",
+        [98, 99, 100, 101, 102], [103, 104, 105, 106, 107],
+      )
+      // Threshold: 3% < 5% → "noise"
+      // Mann-Whitney: separated → p < 0.05 → override to "keep"
+      expect(result.verdict).toBe("keep")
+      expect(result.p_value!).toBeLessThan(0.05)
     })
   })
 })
@@ -365,6 +472,7 @@ esac
     expect(result.success).toBe(true)
     expect(result.median_metric).toBe(20) // median of [10, 30, 20] = 20
     expect(result.individual_runs).toHaveLength(3)
+    expect(result.metric_values).toEqual([10, 30, 20])
   })
 
   test("fails when any repeat fails", async () => {

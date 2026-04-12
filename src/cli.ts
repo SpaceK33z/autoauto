@@ -45,7 +45,7 @@ import { closeProviders, type AgentProviderID } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
 import { getDefaultModel } from "./lib/model-options.ts"
 import { formatShellError } from "./lib/git.ts"
-import { formatRunDuration, formatChangePct } from "./lib/format.ts"
+import { formatRunDuration, formatChangePct, formatStatusWithP } from "./lib/format.ts"
 import {
   readQueue,
   appendToQueue,
@@ -700,7 +700,7 @@ async function cmdResults(args: ParsedArgs) {
         : formatChangePct(originalBaseline, r.metric_value, programConfig.direction)
     const num = String(r.experiment_number)
     out(
-      `${padRight(num, 5)} ${padRight(r.status, 22)} ${padRight(String(r.metric_value), 14)} ${padRight(change, 10)} ${padRight(r.commit.slice(0, 7), 10)} ${r.description}`,
+      `${padRight(num, 5)} ${padRight(formatStatusWithP(r.status, r.p_value, r.p_is_minimum), 22)} ${padRight(String(r.metric_value), 14)} ${padRight(change, 10)} ${padRight(r.commit.slice(0, 7), 10)} ${r.description}`,
     )
   }
 }
