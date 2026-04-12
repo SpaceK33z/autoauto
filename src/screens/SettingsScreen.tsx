@@ -311,8 +311,8 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
         label="Fallback Model"
         value={fallbackEnabled ? "On" : "Off"}
         description={fallbackEnabled
-          ? "Auto-switch to fallback when primary model hits limits"
-          : "Run stops when primary model hits quota or persistent rate limits"}
+          ? "Keeps the run going with a backup model, but experiment quality may drop"
+          : "Run stops cleanly on quota/rate limits — resume later to maintain quality"}
         isFocused={selected === ROW_FALLBACK_TOGGLE}
       />
       {fallbackEnabled && (
@@ -344,8 +344,8 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
         label="Ideas Backlog"
         value={config.ideasBacklogEnabled ? "On" : "Off"}
         description={config.ideasBacklogEnabled
-          ? "Capture why experiments worked or failed and what to try next"
-          : "Use results.tsv-based experiment memory only"}
+          ? "Prevents repeating failed approaches, but uses extra context per experiment"
+          : "Saves context for the agent, but may waste cycles re-trying dead ends"}
         isFocused={selected === ROW_IDEAS}
       />
       <box height={1} />

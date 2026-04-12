@@ -282,7 +282,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
       <box height={1} />
 
-      <CycleField label="Run Mode" value={useWorktree ? "Worktree (recommended)" : "In-place"} isFocused={selected === 5} />
+      <CycleField label="Run Mode" value={useWorktree ? "Worktree" : "In-place"} hint={useWorktree ? "(recommended)" : undefined} description={useWorktree ? "Your checkout stays usable while experiments run in an isolated copy" : undefined} isFocused={selected === 5} />
       {!useWorktree && (
         <box flexDirection="column">
           <text fg={colors.error}>{"  \u26A0 DANGER: Runs git reset --hard in your main checkout."}</text>
@@ -291,10 +291,10 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
         </box>
       )}
 
-      <CycleField label="Keep Simplifications" value={keepSimplifications ? "On (recommended)" : "Off"} description={keepSimplifications ? "Auto-keep experiments that reduce code without regressing the metric" : "Only keep experiments that improve the metric"} isFocused={selected === 6} />
+      <CycleField label="Keep Simplifications" value={keepSimplifications ? "On" : "Off"} hint={keepSimplifications ? "(recommended)" : undefined} description={keepSimplifications ? "Free wins: keeps code-reducing changes even if the metric stays flat" : "Strict mode: only keep changes that measurably improve the metric"} isFocused={selected === 6} />
 
       {hasPreviousRuns && (
-        <CycleField label="Previous Run Context" value={carryForward ? "On" : "Off"} description={carryForward ? "Feed previous run results and ideas into experiments" : "Start fresh without previous run context"} isFocused={selected === 7} />
+        <CycleField label="Previous Run Context" value={carryForward ? "On" : "Off"} description={carryForward ? "Avoids repeating failed approaches, but may bias toward previous patterns" : "Fresh perspective for breaking out of local optima, but may re-try failed approaches"} isFocused={selected === 7} />
       )}
 
       <box height={1} />

@@ -102,10 +102,10 @@ export function cycleChoice<T>(choices: readonly T[], current: T, direction: -1 
 }
 
 export const EFFORT_DESCRIPTIONS: Record<EffortLevel, string> = {
-  low: "Fastest, cheapest — minimal thinking",
-  medium: "Balanced speed and quality",
-  high: "Deep reasoning (default)",
-  max: "Maximum effort (Opus only)",
+  low: "Fastest and cheapest — good for bulk exploration or simple tasks",
+  medium: "Balanced speed and quality — good for most optimization runs",
+  high: "Deep reasoning (default) — best for complex problems worth the extra cost",
+  max: "Maximum reasoning (Opus only) — for hard problems that defeated high effort",
 }
 
 function normalizeModelSlot(slot: Partial<ModelSlot> | undefined): ModelSlot {
