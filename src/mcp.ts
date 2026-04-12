@@ -65,8 +65,6 @@ function resolveCwd(): string {
   return process.cwd()
 }
 
-const CWD = resolveCwd()
-
 const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "lib", "validate-measurement.ts")
 
 /** Reusable slug schema — prevents path traversal via names like "../../etc" */
@@ -111,40 +109,42 @@ async function resolveRunDir(
   return { runDir: latest.run_dir, runId: latest.run_id }
 }
 
-async function resolveProgram(name: string): Promise<{ root: string; programDir: string; programConfig: ProgramConfig }> {
-  const root = await getProjectRoot(CWD)
-  const programDir = getProgramDir(root, name)
-  try {
-    const programConfig = await loadProgramConfig(programDir)
-    return { root, programDir, programConfig }
-  } catch {
-    throw new Error(`Program '${name}' not found.`)
-  }
-}
-
 async function writeScript(path: string, content: string): Promise<void> {
   await Bun.write(path, content)
   await chmod(path, 0o755)
 }
 
-// ---------------------------------------------------------------------------
-// Server
-// ---------------------------------------------------------------------------
-
 const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json()
 
-const server = new McpServer(
-  { name: "autoauto", version: pkg.version },
-  {
-    capabilities: { logging: {} },
-    instructions: [
-      "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
-      "Setup workflow: (1) get_setup_guide to learn artifact formats, (2) list_programs to check for duplicates, (3) create_program to write all files, (4) validate_measurement to verify stability.",
-      "Run workflow: (1) start_run to launch an experiment loop, (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
-      "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run.",
-    ].join("\n"),
-  },
-)
+// ---------------------------------------------------------------------------
+// Server factory
+// ---------------------------------------------------------------------------
+
+/** Create an MCP server instance bound to the given project root. */
+export function createMcpServer(cwd: string): McpServer {
+  async function resolveProgram(name: string): Promise<{ root: string; programDir: string; programConfig: ProgramConfig }> {
+    const root = await getProjectRoot(cwd)
+    const programDir = getProgramDir(root, name)
+    try {
+      const programConfig = await loadProgramConfig(programDir)
+      return { root, programDir, programConfig }
+    } catch {
+      throw new Error(`Program '${name}' not found.`)
+    }
+  }
+
+  const server = new McpServer(
+    { name: "autoauto", version: pkg.version },
+    {
+      capabilities: { logging: {} },
+      instructions: [
+        "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
+        "Setup workflow: (1) get_setup_guide to learn artifact formats, (2) list_programs to check for duplicates, (3) create_program to write all files, (4) validate_measurement to verify stability.",
+        "Run workflow: (1) start_run to launch an experiment loop, (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
+        "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run.",
+      ].join("\n"),
+    },
+  )
 
 // ---------------------------------------------------------------------------
 // Tool: list_programs
@@ -160,11 +160,11 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   async () => {
-    const root = await getProjectRoot(CWD)
-    const programs = await listPrograms(CWD)
+    const root = await getProjectRoot(cwd)
+    const programs = await listPrograms(cwd)
     if (programs.length === 0) return text("No programs found.")
 
-    const summaries = await loadProgramSummaries(CWD)
+    const summaries = await loadProgramSummaries(cwd)
     const summaryMap = new Map(summaries.map((s) => [s.slug, s.goal]))
 
     const result = await Promise.all(
@@ -200,7 +200,7 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   async ({ name }) => {
-    const root = await getProjectRoot(CWD)
+    const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
 
     let config: ProgramConfig
@@ -244,7 +244,7 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   async () => {
-    const root = await getProjectRoot(CWD)
+    const root = await getProjectRoot(cwd)
     const programsDir = getProgramsDir(root)
 
     const guide = `# AutoAuto Program Setup Guide
@@ -459,7 +459,7 @@ server.registerTool(
     annotations: { destructiveHint: false, idempotentHint: false },
   },
   async ({ name, program_md, measure_sh, build_sh, config }) => {
-    const root = await getProjectRoot(CWD)
+    const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
 
     // Check for existing program
@@ -477,7 +477,7 @@ server.registerTool(
     }
 
     // Ensure .autoauto directory and .gitignore
-    await ensureAutoAutoDir(CWD)
+    await ensureAutoAutoDir(cwd)
 
     // Create program directory
     await mkdir(programDir, { recursive: true })
@@ -522,7 +522,7 @@ server.registerTool(
     annotations: { destructiveHint: false, idempotentHint: true },
   },
   async ({ name, program_md, measure_sh, build_sh, config }) => {
-    const root = await getProjectRoot(CWD)
+    const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
 
     if (!(await Bun.file(join(programDir, "config.json")).exists())) {
@@ -587,7 +587,7 @@ server.registerTool(
       return errorResult("Deletion requires confirm=true.")
     }
 
-    const root = await getProjectRoot(CWD)
+    const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
 
     if (!(await Bun.file(join(programDir, "config.json")).exists())) {
@@ -624,7 +624,7 @@ server.registerTool(
     }),
   },
   async ({ name, runs }) => {
-    const root = await getProjectRoot(CWD)
+    const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
     const measureSh = join(programDir, "measure.sh")
     const configJson = join(programDir, "config.json")
@@ -949,7 +949,7 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   async ({ name, experiment_number, run_id }) => {
-    const root = await getProjectRoot(CWD)
+    const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
 
     if (!(await Bun.file(join(programDir, "config.json")).exists())) {
@@ -1003,7 +1003,7 @@ server.registerTool(
     }),
   },
   async ({ name, abort }) => {
-    const root = await getProjectRoot(CWD)
+    const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
 
     const active = await findActiveRun(programDir)
@@ -1063,7 +1063,7 @@ server.registerTool(
     }),
   },
   async ({ name, max_experiments }) => {
-    const root = await getProjectRoot(CWD)
+    const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
 
     const active = await findActiveRun(programDir)
@@ -1170,15 +1170,20 @@ server.registerTool(
   },
 )
 
+  return server
+}
+
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
 
 export async function startMcpServer() {
+  const cwd = resolveCwd()
+  const server = createMcpServer(cwd)
   const transport = new StdioServerTransport()
   await server.connect(transport)
   // All logging must go to stderr — stdout is the MCP protocol channel
-  console.error(`AutoAuto MCP server running (cwd: ${CWD})`)
+  console.error(`AutoAuto MCP server running (cwd: ${cwd})`)
 }
 
 // Direct execution
