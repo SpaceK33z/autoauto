@@ -119,7 +119,8 @@ src/
     auth.ts              # Authentication checking via agent provider
     config.ts            # Project config CRUD (.autoauto/config.json)
     git.ts               # Git operations (branch, revert, log, SHA, diff stats)
-    measure.ts           # Measurement execution, validation, comparison
+    measure.ts           # Measurement execution, validation, comparison, significance testing
+    stats.ts             # Mann-Whitney U test (exact DP + normal approximation)
     programs.ts          # Filesystem ops, program CRUD, config types
     push-stream.ts       # Push-based async iterable utility
     queue.ts               # Sequential run queue: persistence, manipulation, daemon chaining

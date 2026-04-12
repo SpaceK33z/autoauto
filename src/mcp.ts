@@ -1508,6 +1508,8 @@ server.registerTool(
         commit: r.commit.slice(0, 7),
         description: r.description,
         diff_stats: r.diff_stats ?? null,
+        p_value: r.p_value ?? null,
+        p_is_minimum: r.p_is_minimum ?? false,
       })),
     })
   },

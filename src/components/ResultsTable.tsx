@@ -3,7 +3,7 @@ import { useKeyboard } from "@opentui/react"
 import type { ExperimentResult, ExperimentStatus } from "../lib/run.ts"
 import { parseSecondaryValues } from "../lib/run.ts"
 import type { SecondaryMetric } from "../lib/programs.ts"
-import { allocateColumnWidths, formatCell, type ColumnSpec } from "../lib/format.ts"
+import { allocateColumnWidths, formatCell, formatStatusWithP, type ColumnSpec } from "../lib/format.ts"
 import { colors } from "../lib/theme.ts"
 
 interface ResultsTableProps {
@@ -53,7 +53,7 @@ const ResultRow = memo(function ResultRow({ result: r, secondaryFields, highligh
     return formatCell(val != null ? String(val) : "—", columnWidths[3 + i])
   })
   const trailingCells = [
-    formatCell(r.status, columnWidths[3 + secondaryFields.length]),
+    formatCell(formatStatusWithP(r.status, r.p_value, r.p_is_minimum), columnWidths[3 + secondaryFields.length]),
     formatCell(r.description, columnWidths[4 + secondaryFields.length]),
   ]
 

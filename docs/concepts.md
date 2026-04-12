@@ -55,8 +55,8 @@ An **experiment** is a single iteration of the loop:
 2. The agent makes one change and commits
 3. AutoAuto measures the result (median of N runs of `measure.sh`)
 4. Decision:
-   - **Keep** — metric improved beyond the noise threshold and all quality gates passed
-   - **Discard** — metric regressed, was within noise, or a quality gate failed (reverted via `git reset --hard`)
+   - **Keep** — metric improved beyond the noise threshold (or statistically significant via Mann-Whitney U, p < 0.05) and all quality gates passed
+   - **Discard** — metric regressed, was within noise without statistical significance, or a quality gate failed (reverted via `git reset --hard`)
    - **Crash** — agent error, timeout, or invalid output
 
 Each experiment uses a fresh agent with no memory beyond the context packet. This prevents narrative momentum — where an agent becomes attached to a failing approach — and enables clean recovery from any failure.
@@ -77,7 +77,7 @@ The measurement system is the heart of AutoAuto. Your `measure.sh` script output
 
 **Metric field and direction.** One field is the primary metric to optimize. It has a direction: `"lower"` (e.g., latency) or `"higher"` (e.g., accuracy).
 
-**Noise threshold.** The minimum relative improvement (as a decimal fraction, e.g., 0.02 = 2%) to accept a change. Improvements below this are considered noise and discarded. AutoAuto helps you set this during setup by measuring your script's variance.
+**Noise threshold.** The minimum relative improvement (as a decimal fraction, e.g., 0.02 = 2%) to accept a change. Improvements below this are considered noise and discarded — unless the Mann-Whitney U test shows the difference is statistically significant (p < 0.05). AutoAuto helps you set this during setup by measuring your script's variance.
 
 **Repeats.** How many times `measure.sh` runs per experiment (typically 3-5). AutoAuto uses the median value for comparison, filtering out outliers.
 
@@ -85,7 +85,7 @@ The measurement system is the heart of AutoAuto. Your `measure.sh` script output
 
 **Simplicity criterion.** Experiments that are within noise but reduce lines of code are auto-kept. This rewards code simplification even without a metric gain. Note: simplification keeps do not reset the consecutive-discard counter — they don't count as real progress for stagnation detection. This behavior can be disabled by setting `"keep_simplifications": false` in `config.json` — useful for prompt/template optimization where LOC is meaningless, or when the measurement harness has known coverage gaps.
 
-**Statistical significance.** With 2+ repeats, AutoAuto runs a Mann-Whitney U test on the raw samples and shows a p-value alongside each result. The noise threshold still makes the keep/discard decision — the p-value is supplementary confidence info. More repeats = more statistical power (minimum p is 0.1 at 3 repeats, ~0.008 at 5).
+**Statistical significance.** With 2+ repeats, AutoAuto runs a Mann-Whitney U test (non-parametric, no normality assumption) on the raw samples and shows a p-value alongside each result. The p-value can override the noise threshold: if an improvement falls within the threshold but the Mann-Whitney test shows it's statistically significant (p < 0.05), the experiment is kept. This prevents discarding small-but-real improvements. More repeats = more statistical power (minimum p is 0.1 at 3 repeats, ~0.008 at 5). Use 5+ repeats if you want p < 0.05 significance to be achievable.
 
 **Re-baselining.** After every kept experiment, AutoAuto re-measures the baseline on the new code. It also re-measures after consecutive discards to detect environment drift.
 

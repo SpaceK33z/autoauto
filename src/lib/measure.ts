@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 import { join } from "node:path"
 import { unlink } from "node:fs/promises"
 import type { ProgramConfig } from "./programs.ts"
+import { mannWhitneyU } from "./stats.ts"
 
 // --- Helpers ---
 
@@ -24,6 +25,8 @@ export type MeasurementResult =
 export interface MeasurementSeriesResult {
   success: boolean
   median_metric: number
+  /** Raw metric values from each successful repeat (for statistical tests) */
+  metric_values: number[]
   median_quality_gates: Record<string, number>
   median_secondary_metrics: Record<string, number>
   quality_gates_passed: boolean
@@ -352,6 +355,7 @@ export async function runMeasurementSeries(
       return {
         success: false,
         median_metric: 0,
+        metric_values: [],
         median_quality_gates: {},
         median_secondary_metrics: {},
         quality_gates_passed: false,
@@ -394,6 +398,7 @@ export async function runMeasurementSeries(
     return {
       success: false,
       median_metric: 0,
+      metric_values: [],
       median_quality_gates: {},
       median_secondary_metrics: {},
       quality_gates_passed: false,
@@ -418,6 +423,7 @@ export async function runMeasurementSeries(
     return {
       success: false,
       median_metric: 0,
+      metric_values: [],
       median_quality_gates: {},
       median_secondary_metrics: {},
       quality_gates_passed: false,
@@ -441,6 +447,7 @@ export async function runMeasurementSeries(
   return {
     success: true,
     median_metric: medianMetric,
+    metric_values: validMetrics,
     median_quality_gates: medianGates,
     median_secondary_metrics: medianSecondary,
     quality_gates_passed: gateCheck.passed,
@@ -471,4 +478,71 @@ export function compareMetric(
   if (relativeChange > noiseThreshold) return "keep"
   if (relativeChange < -noiseThreshold) return "regressed"
   return "noise"
+}
+
+// --- Comparison with statistical significance ---
+
+/** Significance level for p-value override of noise threshold */
+const SIGNIFICANCE_ALPHA = 0.05
+
+export interface ComparisonResult {
+  verdict: "keep" | "regressed" | "noise"
+  /** Two-sided p-value from Mann-Whitney U test (undefined if samples too small) */
+  p_value?: number
+  /** True when p_value is the minimum attainable for these sample sizes (need more repeats for lower p) */
+  p_is_minimum?: boolean
+}
+
+/**
+ * Compares metric with both threshold check and statistical significance.
+ *
+ * Decision logic:
+ * 1. If the change exceeds noise_threshold → keep or regressed (as before)
+ * 2. If within threshold BUT Mann-Whitney p < 0.05 → the difference is
+ *    statistically real despite being small, so override:
+ *    - improvement direction → keep
+ *    - regression direction → regressed
+ * 3. Otherwise → noise
+ *
+ * This means small-but-real improvements get kept instead of discarded.
+ * Requires ≥ 2 samples in each group for significance testing.
+ */
+export function compareMetricWithSignificance(
+  baseline: number,
+  measured: number,
+  noiseThreshold: number,
+  direction: "lower" | "higher",
+  baselineSamples?: number[],
+  measuredSamples?: number[],
+): ComparisonResult {
+  const verdict = compareMetric(baseline, measured, noiseThreshold, direction)
+
+  if (!baselineSamples?.length || !measuredSamples?.length
+    || baselineSamples.length < 2 || measuredSamples.length < 2) {
+    return { verdict }
+  }
+
+  const test = mannWhitneyU(baselineSamples, measuredSamples)
+  if (!test) return { verdict }
+
+  // If threshold already decided (keep or regressed), just attach the p-value
+  if (verdict !== "noise") {
+    return { verdict, p_value: test.p, p_is_minimum: test.isMinimum }
+  }
+
+  // Threshold says "noise" — check if Mann-Whitney disagrees
+  if (test.p < SIGNIFICANCE_ALPHA) {
+    const relativeChange = direction === "lower"
+      ? (baseline - measured) / baseline
+      : (measured - baseline) / baseline
+
+    if (relativeChange > 0) {
+      return { verdict: "keep", p_value: test.p, p_is_minimum: test.isMinimum }
+    }
+    if (relativeChange < 0) {
+      return { verdict: "regressed", p_value: test.p, p_is_minimum: test.isMinimum }
+    }
+  }
+
+  return { verdict: "noise", p_value: test.p, p_is_minimum: test.isMinimum }
 }

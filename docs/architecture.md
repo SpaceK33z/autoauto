@@ -136,7 +136,7 @@ Stop/abort escalation: `q` -> confirmation -> stop-after-current; `Ctrl+C` -> ab
 
 - `runMeasurement()` — single execution with JSON parsing and validation
 - `runMeasurementSeries()` — N repeated measurements with median aggregation
-- `compareMetric()` — relative change comparison against noise threshold
+- `compareMetricWithSignificance()` — relative change comparison against noise threshold with Mann-Whitney U p-value override
 - `checkQualityGates()` — threshold enforcement
 
 `src/lib/validate-measurement.ts` — standalone script for setup-time stability validation: runs measure.sh N times, computes CV%, recommends config.

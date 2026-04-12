@@ -45,8 +45,9 @@ The core keep/discard loop:
 1. Agent makes one change, commits
 2. Orchestrator measures (median of N runs)
 3. If metric improved beyond noise threshold AND quality gates pass -> **keep**
-4. If metric didn't improve or a gate failed -> **discard** (`git reset --hard`)
-5. Loop
+4. If within noise threshold BUT Mann-Whitney U test says significant (p < 0.05) AND quality gates pass -> **keep** (statistical override)
+5. If metric didn't improve or a gate failed -> **discard** (`git reset --hard`)
+6. Loop
 
 **Design principles:**
 - **Immediate accept/revert.** No probabilistic acceptance, no batching. The codebase can only move forward.

@@ -104,6 +104,20 @@ export function formatRunDuration(startedAt: string, endedAt?: string): string {
   return formatDurationMs(end - start)
 }
 
+/** Format p-value for display: exponential notation for small values, 2 decimal places otherwise.
+ *  When isMinimum is true, uses "p≤" to indicate this is the lowest attainable p-value
+ *  for the sample sizes used (e.g. "p≤0.10" with 3 repeats means complete separation — strongest
+ *  possible signal, but more repeats needed to reach conventional p<0.05 significance). */
+export function formatPValue(p: number, isMinimum?: boolean): string {
+  const formatted = p < 0.01 ? p.toExponential(1) : p.toFixed(2)
+  return `p${isMinimum ? "≤" : "="}${formatted}`
+}
+
+/** Format status with optional p-value suffix, e.g. "keep p=0.03" or "keep p≤0.10" */
+export function formatStatusWithP(status: string, p_value?: number, p_is_minimum?: boolean): string {
+  return p_value != null ? `${status} ${formatPValue(p_value, p_is_minimum)}` : status
+}
+
 /** Format metric change as a signed percentage string. */
 export function formatChangePct(
   original: number,

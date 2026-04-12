@@ -66,6 +66,8 @@ export interface RunState {
   error?: string | null
   /** Which phase the error occurred in */
   error_phase?: RunPhase | null
+  /** Individual metric values from the most recent baseline measurement (for Mann-Whitney U test) */
+  baseline_samples?: number[]
   /** Whether this run was started manually or from the queue */
   source?: "manual" | "queue"
   /** ISO timestamp of when finalization completed */
@@ -93,6 +95,10 @@ export interface ExperimentResult {
   measurement_duration_ms: number
   /** Diff stats JSON — e.g. {"lines_added":12,"lines_removed":5}. Absent for old runs. */
   diff_stats?: string
+  /** Two-sided p-value from Mann-Whitney U test comparing baseline vs experiment samples */
+  p_value?: number
+  /** True when p_value is the minimum attainable for the sample sizes (complete separation) */
+  p_is_minimum?: boolean
 }
 
 /** Structured secondary values stored in results.tsv */
@@ -167,7 +173,9 @@ export async function readState(runDir: string): Promise<RunState> {
 export async function appendResult(runDir: string, result: ExperimentResult): Promise<void> {
   const secondaryStr = result.secondary_values || ""
   const diffStatsStr = result.diff_stats || ""
-  const line = `${result.experiment_number}\t${result.commit}\t${result.metric_value}\t${secondaryStr}\t${result.status}\t${result.description}\t${result.measurement_duration_ms}\t${diffStatsStr}\n`
+  const pValueStr = result.p_value != null ? String(result.p_value) : ""
+  const pMinStr = result.p_is_minimum ? "1" : ""
+  const line = `${result.experiment_number}\t${result.commit}\t${result.metric_value}\t${secondaryStr}\t${result.status}\t${result.description}\t${result.measurement_duration_ms}\t${diffStatsStr}\t${pValueStr}\t${pMinStr}\n`
   await appendFile(join(runDir, "results.tsv"), line)
 }
 
@@ -177,6 +185,7 @@ export async function appendResult(runDir: string, result: ExperimentResult): Pr
 function parseTsvRow(line: string): ExperimentResult | null {
   const parts = line.split("\t")
   if (parts.length < 6) return null
+  const pv = parts[8] ? parseFloat(parts[8]) : undefined
   return {
     experiment_number: parseInt(parts[0], 10),
     commit: parts[1],
@@ -186,6 +195,8 @@ function parseTsvRow(line: string): ExperimentResult | null {
     description: parts[5],
     measurement_duration_ms: parts[6] ? parseInt(parts[6], 10) : 0,
     diff_stats: parts[7] || undefined,
+    p_value: pv != null && isFinite(pv) ? pv : undefined,
+    p_is_minimum: parts[9] === "1" ? true : undefined,
   }
 }
 
