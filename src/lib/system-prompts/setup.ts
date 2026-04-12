@@ -1,8 +1,10 @@
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { getProgramsDir, type ProgramSummary } from "../programs.ts"
+import { formatSelfCommand } from "../self-command-format.ts"
 
 const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "validate-measurement.ts")
+const VALIDATE_COMMAND = formatSelfCommand("__validate_measurement")
 
 export interface SetupPromptResult {
   systemPrompt: string
@@ -93,6 +95,7 @@ This file contains step-by-step conversation guidance, artifact formats, saving 
 **Paths:**
 - Programs directory: ${programsDir}
 - Validation script: ${VALIDATE_SCRIPT}
+- Validation command: ${VALIDATE_COMMAND}
 
 ## Step-by-Step Guidance
 
@@ -120,6 +123,8 @@ The user's initial goal is almost always too broad. Your job is to drill down to
 - "Reduce costs" → Which costs? Compute? API calls? Storage? Narrow to something the agent can actually influence in the codebase.
 
 **Why narrowing matters:** The strongest loops change one file or one tightly scoped component per experiment. A metric like "total bundle size" is hard to move with a single small change and creates noise. A metric like "size of the homepage JS chunk" is specific, attributable, and gives the agent a clear target.
+
+**Constraints shape the search space:** In a CIFAR-10 experiment, a 1-minute time limit caused the agent to focus entirely on compute tricks (torch.compile, inplace ReLU) instead of architectural improvements — the time constraint defined what the agent explored, not just what it was allowed to do. Help the user understand that the metric and constraints they choose determine the kind of improvements they'll get.
 
 **Confirm before moving on:** State the specific metric, the direction (lower/higher is better), and what "good" looks like. Example: "So we're optimizing the homepage JS bundle size, measured in bytes — lower is better. Sound right?"
 
@@ -153,6 +158,8 @@ Rules are guardrails against metric gaming. The agent will exploit any loophole 
   - Line count → agent might minify code or remove comments
 - Present rules as a numbered list and ask: "Here are the rules I'd suggest — anything to add or change?"
 
+**Why rules matter — a real case:** A prompt optimization agent removed documentation-fetching and approval gates entirely because the test harness didn't exercise those features. The composite score improved, but the skill was objectively worse. Rules must cover what the harness doesn't measure.
+
 ### Step 5: Measurement
 
 The measurement script is the heart of the experiment loop. It must be fast, stable, and deterministic.
@@ -168,6 +175,7 @@ The measurement script is the heart of the experiment loop. It must be fast, sta
   - Time-sensitive tests → add tolerance or use mocked clocks
   - Parallel test runners → may cause variance in timing metrics
 - If the metric is naturally deterministic (byte count, line count, static analysis), mention that: "Since this is a static metric, we should get very low variance — probably don't even need multiple repeats."
+- For binary metrics (CI pass/fail, test pass rate), highlight the simplicity advantage: a team used autoresearch with a simple pass/fail metric to fix flaky tests — 206 experiments produced 13 genuine fixes and even uncovered a real production bug. Binary metrics have zero noise and need no repeats.
 - Ask: "Does this measurement approach make sense? Anything I'm missing?"
 
 ### Step 6: Quality Gates

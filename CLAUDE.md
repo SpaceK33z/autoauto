@@ -12,6 +12,7 @@ TUI tool for autoresearch — autonomous experiment loops on any codebase.
 - `docs/patterns/metric-design.md` — Metric design, scoring approaches, variance handling, gaming defenses
 - `docs/patterns/failure-modes.md` — Failure modes, anti-patterns & safeguards from real implementations
 - `docs/patterns/loop-tuning.md` — Loop design, context packets, stopping criteria, model choice
+- `docs/mcp-server.md` — MCP server: tools, workflows, and client configuration
 - `references/articles/INDEX.md` — 30 indexed autoresearch articles for inspiration
 
 ## Stack

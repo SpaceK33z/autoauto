@@ -248,7 +248,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
       }
       return
     }
-    if (key.name === "s") {
+    if (key.name === "s" && !(focusedPanel === "queue" && hasQueueItems && onResumeQueueRef.current)) {
       navigate("settings")
       return
     }

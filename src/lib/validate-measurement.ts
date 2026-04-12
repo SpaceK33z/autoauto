@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /* eslint-disable no-console, no-await-in-loop */
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { $ } from "bun"
 import { validateProgramConfig, type ProgramConfig } from "./programs.ts"
@@ -57,28 +57,6 @@ interface ValidationOutput {
 }
 
 // --- Input Parsing ---
-
-const [measureShPath, configJsonPath, runsStr] = process.argv.slice(2)
-
-if (!measureShPath || !configJsonPath) {
-  console.error("Usage: validate-measurement.ts <measure_sh> <config_json> [runs]")
-  process.exit(1)
-}
-
-const numRuns = parseInt(runsStr || "5", 10)
-// Resolve cwd from measure.sh's location — go up from .autoauto/programs/<slug>/
-// to the project root.
-const projectRoot = dirname(dirname(dirname(dirname(measureShPath))))
-
-// --- Config Parsing ---
-
-let config: ProgramConfig
-try {
-  config = validateProgramConfig(JSON.parse(readFileSync(configJsonPath, "utf-8")))
-} catch (err) {
-  console.log(JSON.stringify({ success: false, error: `Failed to read config.json: ${err}` }))
-  process.exit(0)
-}
 
 // --- Measurement Execution ---
 
@@ -173,7 +151,25 @@ async function createValidationWorktree(root: string): Promise<string> {
   return worktreePath
 }
 
-async function main() {
+export async function startValidateMeasurement(args = process.argv.slice(2)) {
+  const [measureShPath, configJsonPath, runsStr] = args
+
+  if (!measureShPath || !configJsonPath) {
+    console.error("Usage: validate-measurement.ts <measure_sh> <config_json> [runs]")
+    process.exit(1)
+  }
+
+  const numRuns = parseInt(runsStr || "5", 10)
+  const projectRoot = dirname(dirname(dirname(dirname(measureShPath))))
+
+  let config: ProgramConfig
+  try {
+    config = validateProgramConfig(await Bun.file(configJsonPath).json())
+  } catch (err) {
+    console.log(JSON.stringify({ success: false, error: `Failed to read config.json: ${err}` }))
+    process.exit(0)
+  }
+
   const buildShPath = join(dirname(measureShPath), "build.sh")
 
   process.stderr.write("Creating validation worktree...\n")
@@ -187,7 +183,7 @@ async function main() {
   process.stderr.write(`Worktree: ${worktreePath}\n`)
 
   try {
-    await runInWorktree(worktreePath, buildShPath)
+    await runInWorktree(worktreePath, buildShPath, measureShPath, numRuns, config)
   } finally {
     process.stderr.write("Cleaning up validation worktree...\n")
     await removeWorktree(projectRoot, worktreePath)
@@ -197,6 +193,9 @@ async function main() {
 async function runInWorktree(
   cwd: string,
   buildShPath: string,
+  measureShPath: string,
+  numRuns: number,
+  config: ProgramConfig,
 ) {
   const hasBuildScript = existsSync(buildShPath)
   const buildResult = hasBuildScript
@@ -331,6 +330,8 @@ async function runInWorktree(
   console.log(JSON.stringify(output, null, 2))
 }
 
-main().catch((err) => {
-  console.log(JSON.stringify({ success: false, error: String(err) }))
-})
+if (import.meta.main) {
+  startValidateMeasurement().catch((err) => {
+    console.log(JSON.stringify({ success: false, error: String(err) }))
+  })
+}

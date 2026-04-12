@@ -1,5 +1,4 @@
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { join } from "node:path"
 import {
   listPrograms,
   loadProgramConfig,
@@ -54,6 +53,8 @@ import {
   clearQueue,
   startNextFromQueue,
 } from "./lib/queue.ts"
+import { getSelfCommand } from "./lib/self-command.ts"
+import { AUTOAUTO_VERSION } from "./version.ts"
 
 // --- Arg Parsing ---
 
@@ -1558,9 +1559,8 @@ async function cmdValidate(args: ParsedArgs) {
     measurePath = fallback
   }
 
-  const scriptPath = join(dirname(fileURLToPath(import.meta.url)), "lib", "validate-measurement.ts")
-
-  const proc = Bun.spawn(["bun", "run", scriptPath, measurePath, configPath, String(numRuns)], {
+  const validator = getSelfCommand("__validate_measurement")
+  const proc = Bun.spawn([validator.command, ...validator.args, measurePath, configPath, String(numRuns)], {
     stdout: "pipe",
     stderr: "inherit",
   })
@@ -1702,9 +1702,20 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<void>> = {
 }
 
 export async function run(argv: string[]) {
+  if (argv[0] === "__daemon") {
+    const { startDaemon } = await import("./daemon.ts")
+    await startDaemon(argv.slice(1))
+    return
+  }
+
+  if (argv[0] === "__validate_measurement") {
+    const { startValidateMeasurement } = await import("./lib/validate-measurement.ts")
+    await startValidateMeasurement(argv.slice(1))
+    return
+  }
+
   if (argv.includes("--version") || argv.includes("-v")) {
-    const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json()
-    out(pkg.version)
+    out(AUTOAUTO_VERSION)
     return
   }
 

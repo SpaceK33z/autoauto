@@ -11,11 +11,10 @@
  *            autoauto mcp [--cwd <project-root>]
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
-import { join, dirname } from "node:path"
-import { fileURLToPath } from "node:url"
+import { join } from "node:path"
 import { mkdir, chmod } from "node:fs/promises"
 import {
   listPrograms,
@@ -39,23 +38,50 @@ import {
   type RunState,
 } from "./lib/run.ts"
 import {
-  spawnDaemon,
-  getDaemonStatus,
-  sendStop,
-  sendAbort,
-  forceKillDaemon,
-  findActiveRun,
-  updateMaxExperiments,
+  spawnDaemon as _spawnDaemon,
+  getDaemonStatus as _getDaemonStatus,
+  sendStop as _sendStop,
+  sendAbort as _sendAbort,
+  forceKillDaemon as _forceKillDaemon,
+  findActiveRun as _findActiveRun,
+  updateMaxExperiments as _updateMaxExperiments,
   readGuidance,
   writeGuidance,
 } from "./lib/daemon-client.ts"
+
+/** Daemon function overrides for testing (avoids process-wide mock.module). */
+export interface McpDaemonDeps {
+  spawnDaemon: typeof _spawnDaemon
+  getDaemonStatus: typeof _getDaemonStatus
+  sendStop: typeof _sendStop
+  sendAbort: typeof _sendAbort
+  forceKillDaemon: typeof _forceKillDaemon
+  findActiveRun: typeof _findActiveRun
+  updateMaxExperiments: typeof _updateMaxExperiments
+}
 import {
   loadProjectConfig,
+  saveProjectConfig,
+  NOTIFICATION_PRESET_IDS,
+  PROVIDER_CHOICES,
+  type ProjectConfig,
   type ModelSlot,
 } from "./lib/config.ts"
 import { streamLogName } from "./lib/daemon-callbacks.ts"
 import { formatRunDuration, formatChangePct } from "./lib/format.ts"
 import { generateSummaryReport, saveFinalizeReport } from "./lib/finalize.ts"
+import { getSelfCommand } from "./lib/self-command.ts"
+import {
+  deleteSession as deleteAgentSession,
+  listSessions as listAgentSessions,
+  loadSession as loadAgentSession,
+  sendSessionMessage,
+  startSetupSession,
+  startUpdateSession,
+} from "./lib/mcp-agent-sessions.ts"
+import { getProvider } from "./lib/agent/index.ts"
+import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
+import { AUTOAUTO_VERSION } from "./version.ts"
 
 // ---------------------------------------------------------------------------
 // CWD resolution
@@ -66,8 +92,6 @@ function resolveCwd(): string {
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1]
   return process.cwd()
 }
-
-const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "lib", "validate-measurement.ts")
 
 /** Reusable slug schema — prevents path traversal via names like "../../etc" */
 const SlugSchema = z.string().min(1).regex(/^[a-z0-9-]+$/, "Must be lowercase letters, numbers, and hyphens only")
@@ -89,10 +113,30 @@ function errorResult(msg: string) {
   return { content: [{ type: "text" as const, text: msg }], isError: true as const }
 }
 
+function getProviderOrError(provider: typeof PROVIDER_CHOICES[number]) {
+  try {
+    return { provider: getProvider(provider), error: null }
+  } catch (err) {
+    return {
+      provider: null,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
 async function readFileOrNull(path: string): Promise<string | null> {
   const f = Bun.file(path)
   if (await f.exists()) return f.text()
   return null
+}
+
+async function readProgramFiles(programDir: string) {
+  const [programMd, measureSh, buildSh] = await Promise.all([
+    readFileOrNull(join(programDir, "program.md")),
+    readFileOrNull(join(programDir, "measure.sh")),
+    readFileOrNull(join(programDir, "build.sh")),
+  ])
+  return { programMd, measureSh, buildSh }
 }
 
 async function resolveRunDir(
@@ -117,14 +161,22 @@ async function writeScript(path: string, content: string): Promise<void> {
   await chmod(path, 0o755)
 }
 
-const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json()
-
 // ---------------------------------------------------------------------------
 // Server factory
 // ---------------------------------------------------------------------------
 
 /** Create an MCP server instance bound to the given project root. */
-export function createMcpServer(cwd: string): McpServer {
+export function createMcpServer(cwd: string, daemonDeps?: Partial<McpDaemonDeps>): McpServer {
+  registerDefaultProviders()
+
+  const spawnDaemon = daemonDeps?.spawnDaemon ?? _spawnDaemon
+  const getDaemonStatus = daemonDeps?.getDaemonStatus ?? _getDaemonStatus
+  const sendStop = daemonDeps?.sendStop ?? _sendStop
+  const sendAbort = daemonDeps?.sendAbort ?? _sendAbort
+  const forceKillDaemon = daemonDeps?.forceKillDaemon ?? _forceKillDaemon
+  const findActiveRun = daemonDeps?.findActiveRun ?? _findActiveRun
+  const updateMaxExperiments = daemonDeps?.updateMaxExperiments ?? _updateMaxExperiments
+
   async function resolveProgram(name: string): Promise<{ root: string; programDir: string; programConfig: ProgramConfig }> {
     const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
@@ -137,135 +189,50 @@ export function createMcpServer(cwd: string): McpServer {
   }
 
   const server = new McpServer(
-    { name: "autoauto", version: pkg.version },
+    { name: "autoauto", version: AUTOAUTO_VERSION },
     {
-      capabilities: { logging: {} },
+      capabilities: { logging: {}, resources: {} },
       instructions: [
         "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
-        "Setup workflow: (1) get_setup_guide to learn artifact formats, (2) list_programs to check for duplicates, (3) create_program to write all files, (4) validate_measurement to verify stability.",
-        "Run workflow: (1) start_run to launch an experiment loop, (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
+        "Setup workflow: (1) get_setup_guide to learn principles and workflow, (2) list_programs to check for duplicates, (3) create_program to write all files (get user confirmation first!), (4) validate_measurement to verify stability, (5) review config with user based on validation results.",
+        "Run workflow: (1) start_run to launch an experiment loop (give cost/time estimate first), (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
         "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run, set_guidance to steer the agent's direction.",
+        "Resources: read autoauto://setup-guide for the full setup reference (artifact formats, validation procedures, anti-gaming rules, config tuning). Read autoauto://program/{name} for a program's full details.",
       ].join("\n"),
     },
   )
 
 // ---------------------------------------------------------------------------
-// Tool: list_programs
+// Resource: autoauto://setup-guide
 // ---------------------------------------------------------------------------
 
-server.registerTool(
-  "list_programs",
+server.registerResource(
+  "setup-guide",
+  "autoauto://setup-guide",
   {
-    title: "List Programs",
     description:
-      "List all autoresearch programs in the project with their goals and run counts.",
-    inputSchema: z.object({}),
-    annotations: { readOnlyHint: true },
-  },
-  async () => {
-    const root = await getProjectRoot(cwd)
-    const programs = await listPrograms(cwd)
-    if (programs.length === 0) return text("No programs found.")
-
-    const summaries = await loadProgramSummaries(cwd)
-    const summaryMap = new Map(summaries.map((s) => [s.slug, s.goal]))
-
-    const result = await Promise.all(
-      programs.map(async (p) => {
-        const programDir = getProgramDir(root, p.name)
-        const runs = await listRuns(programDir)
-        const activeRun = runs.find(isRunActive)
-        return {
-          name: p.name,
-          goal: summaryMap.get(p.name) ?? "(unknown)",
-          totalRuns: runs.length,
-          hasActiveRun: !!activeRun,
-        }
-      }),
-    )
-    return jsonText(result)
-  },
-)
-
-// ---------------------------------------------------------------------------
-// Tool: get_program
-// ---------------------------------------------------------------------------
-
-server.registerTool(
-  "get_program",
-  {
-    title: "Get Program Details",
-    description:
-      "Get the full details of a program: config.json, program.md, measure.sh, and build.sh.",
-    inputSchema: z.object({
-      name: SlugSchema.describe("Program slug (e.g. 'homepage-lcp')"),
-    }),
-    annotations: { readOnlyHint: true },
-  },
-  async ({ name }) => {
-    const root = await getProjectRoot(cwd)
-    const programDir = getProgramDir(root, name)
-
-    let config: ProgramConfig
-    try {
-      config = await loadProgramConfig(programDir)
-    } catch (err) {
-      return errorResult(`Program '${name}' not found or invalid config: ${err}`)
-    }
-
-    const [programMd, measureSh, buildSh] = await Promise.all([
-      readFileOrNull(join(programDir, "program.md")),
-      readFileOrNull(join(programDir, "measure.sh")),
-      readFileOrNull(join(programDir, "build.sh")),
-    ])
-
-    return jsonText({
-      name,
-      config,
-      program_md: programMd,
-      measure_sh: measureSh,
-      build_sh: buildSh,
-    })
-  },
-)
-
-// ---------------------------------------------------------------------------
-// Tool: get_setup_guide
-// ---------------------------------------------------------------------------
-
-server.registerTool(
-  "get_setup_guide",
-  {
-    title: "Get Setup Guide",
-    description: [
-      "Get the complete guide for creating AutoAuto programs.",
-      "Includes artifact formats (program.md, measure.sh, build.sh, config.json),",
-      "measurement requirements, quality gate design, and autoresearch best practices.",
-      "Read this BEFORE calling create_program.",
-    ].join(" "),
-    inputSchema: z.object({}),
-    annotations: { readOnlyHint: true },
+      "Full setup reference for creating AutoAuto programs: artifact formats, validation procedures, anti-gaming rules, config tuning, quality gate design, and cost estimates. Read this before creating or updating programs.",
+    mimeType: "text/markdown",
   },
   async () => {
     const root = await getProjectRoot(cwd)
     const programsDir = getProgramsDir(root)
 
-    const guide = `# AutoAuto Program Setup Guide
+    return {
+      contents: [
+        {
+          uri: "autoauto://setup-guide",
+          mimeType: "text/markdown",
+          text: `# AutoAuto Setup Reference
 
-## What is an AutoAuto Program?
+## Critical Checkpoints
 
-An optimization program defines a repeatable, measurable experiment loop that an AI agent runs autonomously to improve a specific metric. Each program has:
-- **program.md** — Goal, scope, rules, and steps for the agent
-- **measure.sh** — Script that outputs a single JSON object with the metric
-- **build.sh** (optional) — Build/compile step that runs once before measurements
-- **config.json** — Metric configuration, quality gates, and tuning parameters
+These are mandatory steps that must not be skipped:
 
-## Key Principles
-
-- **One metric, one direction, one target.** Every program optimizes exactly one number. Narrow is better — "reduce homepage JS chunk size in bytes" beats "reduce bundle size."
-- **Scope is safety.** The experiment agent will exploit any loophole. Tight scope prevents metric gaming.
-- **Measurement must be fast and stable.** The script runs hundreds of times. It should complete in seconds, not minutes.
-- **Binary over sliding scale.** For subjective metrics, prefer binary yes/no criteria over 1-7 scales.
+1. **User Confirmation**: NEVER create a program without the user's explicit "yes." Present all artifacts (program.md, measure.sh, config.json) as code blocks and ask the user to confirm before calling create_program.
+2. **Quality Gates Discussion**: Ask the user what metrics must not regress while optimizing the primary metric. Don't silently set empty quality gates — discuss first, then use empty gates only if the user agrees none are needed.
+3. **Config Review After Validation**: After validate_measurement returns CV% and recommendations, present the recommended config changes to the user and get approval before updating. Never silently leave config at defaults.
+4. **Cost/Time Estimate**: Before calling start_run, tell the user: expected cost (~$0.05-0.20/experiment), time (~12 experiments/hour at 5-min eval), and keep rate (5-25% is normal). Get acknowledgment.
 
 ## Program Directory Structure
 
@@ -330,6 +297,7 @@ Requirements:
 - Must be deterministic: lock random seeds, avoid network calls
 - All quality gate and secondary metric fields must be present as finite numbers
 - NEVER hardcode absolute home paths — use relative paths or \`$HOME\`
+- measure.sh can write \`.autoauto-diagnostics\` sidecar file for rich context to the agent
 
 ### build.sh (optional)
 
@@ -375,19 +343,13 @@ Field reference:
 - \`build_timeout\`: (optional) Timeout in ms for build.sh (default 600000)
 - \`max_cost_usd\`: (optional) Cost cap per run
 
-## Measurement Design Tips
-
-- If the metric is naturally deterministic (byte count, line count), noise_threshold=0.01 and repeats=1 may suffice
-- For tool-based metrics (Lighthouse, benchmarks), use repeats=3 minimum
-- Flag potential noise sources: cold starts, network calls, random seeds, caching
-- measure.sh can write \`.autoauto-diagnostics\` sidecar file for rich context to the agent
-
 ## Quality Gate Design
 
-- Suggest gates based on what could break when optimizing the primary metric
+- Suggest gates based on what could realistically break when optimizing the primary metric
 - Test pass rate is a common default gate: \`"test_pass_rate": { "min": 1.0 }\`
-- Keep gates focused — too many gates leads to checklist gaming
+- Keep gates focused — too many gates leads to "checklist gaming"
 - Prefer binary pass/fail over threshold-based gates
+- Not every program needs gates — say so if none are needed, but always discuss it
 
 ## Anti-Gaming Rules
 
@@ -396,16 +358,470 @@ Think about how the agent could game the metric and add rules against it:
 - Test coverage → agent might add trivial tests
 - Latency → agent might remove error handling or validation
 - Line count → agent might minify code or remove comments
+- Performance benchmarks → agent might optimize only for the benchmark input shape (won't generalize)
 
-## Expectations
+## Validation Interpretation
 
+After running validate_measurement, interpret the CV% results:
+
+| CV% | Assessment | Recommended Config |
+|-----|-----------|-------------------|
+| < 1% | Deterministic | noise_threshold=0.01, repeats=1 (but use repeats=3 minimum for tool-based metrics like benchmarks) |
+| 1-5% | Excellent | noise_threshold=0.02, repeats=3 |
+| 5-15% | Acceptable | noise_threshold=max(CV%*1.5/100, 0.05), repeats=5 |
+| 15-30% | Noisy | noise_threshold=max(CV%*2/100, 0.10), repeats=7. Try to reduce noise first. |
+| >= 30% | Unstable | Do NOT proceed — fix the measurement first |
+
+**Important**: noise_threshold must EXCEED the noise floor. Never set it lower than the observed CV%.
+
+### Discrete & Near-Ceiling Metrics
+
+If the metric is near its theoretical max/min (e.g., Lighthouse score at 98/100), the smallest possible improvement is a tiny percentage. Calculate: \`minimum_step / baseline_value\`. Set noise_threshold to at most HALF that ratio.
+
+Example: Lighthouse composite at 98 → minimum improvement is 1/98 ≈ 1.02% → noise_threshold ≤ 0.005. Use repeats ≥ 3.
+
+## Common Noise Causes & Fixes
+
+1. **Cold starts** — First run is slower. Fix: add warmup run in measure.sh.
+2. **Background processes** — CPU contention. Fix: close resource-heavy apps or measure relative to baseline.
+3. **Network calls** — Variable latency. Fix: mock or cache external calls.
+4. **Non-deterministic code** — Random seeds, shuffled data. Fix: lock seeds, fix ordering.
+5. **Caching** — First run populates caches. Fix: always warm or always clear cache.
+6. **Shared state** — Previous run affects next. Fix: clean up between runs.
+7. **Short measurement duration** — Timer resolution issues. Fix: increase sample size.
+
+## Config Tuning After Validation
+
+Based on validation results, update these config values:
+
+- \`noise_threshold\`: Set based on CV% table above. Present to user with reasoning.
+- \`repeats\`: Set based on CV% table. More repeats = more reliable but slower.
+- \`measurement_timeout\`: Validation output includes \`recommended_timeout\` (3x avg duration, floor 60s). Set this when measurements take >15s average.
+- \`max_consecutive_discards\`: Fast/cheap measurements → 10-15. Slow/expensive → 5-8. Noisy (CV% 10%+) → 12-15.
+- \`max_experiments\`: 20 default. Lower (10-15) for expensive/slow, higher (50+) for cheap/fast.
+
+## Cost & Time Expectations
+
+Share these with the user before starting a run:
 - 5-25% keep rate is normal (most experiments get discarded)
+- High revert rates map the search ceiling — they're information, not waste
 - ~$0.05-0.20/experiment, ~$5-10 for 50 experiments
-- ~12 experiments/hour at a 5-minute eval budget
+- ~12 experiments/hour at a 5-minute eval budget; cached evals push much higher
+- When keep rate drops to 0% for 10+ experiments, the target likely has no remaining headroom`,
+        },
+      ],
+    }
+  },
+)
 
-## After Creating a Program
+// ---------------------------------------------------------------------------
+// Resource: autoauto://program/{name}
+// ---------------------------------------------------------------------------
 
-Always run validate_measurement to verify the measurement script works and check variance (CV%).`
+server.registerResource(
+  "program",
+  new ResourceTemplate("autoauto://program/{name}", {
+    list: async () => {
+      const root = await getProjectRoot(cwd)
+      const programs = await loadProgramSummaries(root)
+      return {
+        resources: programs.map((p) => ({
+          uri: `autoauto://program/${p.slug}`,
+          name: p.slug,
+          description: p.goal,
+          mimeType: "text/markdown",
+        })),
+      }
+    },
+  }),
+  {
+    description: "Full details of an autoresearch program: program.md, config.json, measure.sh, and build.sh.",
+    mimeType: "text/markdown",
+  },
+  async (uri, { name }) => {
+    const slug = SlugSchema.parse(name)
+    const root = await getProjectRoot(cwd)
+    const programDir = getProgramDir(root, slug)
+
+    let config: ProgramConfig
+    try {
+      config = await loadProgramConfig(programDir)
+    } catch {
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "text/plain",
+            text: `Program '${slug}' not found.`,
+          },
+        ],
+      }
+    }
+
+    const { programMd, measureSh, buildSh } = await readProgramFiles(programDir)
+
+    const sections = [
+      `# Program: ${name}`,
+      "",
+      "## program.md",
+      programMd ?? "(not found)",
+      "",
+      "## config.json",
+      "```json",
+      JSON.stringify(config, null, 2),
+      "```",
+      "",
+      "## measure.sh",
+      "```bash",
+      measureSh ?? "(not found)",
+      "```",
+    ]
+
+    if (buildSh) {
+      sections.push("", "## build.sh", "```bash", buildSh, "```")
+    }
+
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "text/markdown",
+          text: sections.join("\n"),
+        },
+      ],
+    }
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+const ModelSlotSchema = z.object({
+  provider: z.enum(PROVIDER_CHOICES),
+  model: z.string().min(1),
+  effort: z.enum(["low", "medium", "high", "max"]),
+})
+
+const PartialProjectConfigSchema = z.object({
+  executionModel: ModelSlotSchema.optional(),
+  supportModel: ModelSlotSchema.optional(),
+  executionFallbackModel: z.union([ModelSlotSchema, z.null()]).optional(),
+  ideasBacklogEnabled: z.boolean().optional(),
+  notificationPreset: z.enum(NOTIFICATION_PRESET_IDS).optional(),
+  notificationCommand: z.union([z.string(), z.null()]).optional(),
+})
+
+function mergeProjectConfig(current: ProjectConfig, patch: z.infer<typeof PartialProjectConfigSchema>): ProjectConfig {
+  return {
+    ...current,
+    ...patch,
+    executionModel: patch.executionModel ?? current.executionModel,
+    supportModel: patch.supportModel ?? current.supportModel,
+    executionFallbackModel: patch.executionFallbackModel !== undefined
+      ? patch.executionFallbackModel
+      : current.executionFallbackModel,
+  }
+}
+
+server.registerTool(
+  "get_config",
+  {
+    title: "Get Config",
+    description: "Get the project configuration used for execution, setup/update, fallback, ideas backlog, and notifications.",
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    const root = await getProjectRoot(cwd)
+    const config = await loadProjectConfig(root)
+    return jsonText(config)
+  },
+)
+
+server.registerTool(
+  "set_config",
+  {
+    title: "Set Config",
+    description: "Update project configuration fields. Only provided fields are changed.",
+    inputSchema: PartialProjectConfigSchema,
+  },
+  async (patch) => {
+    const root = await getProjectRoot(cwd)
+    const current = await loadProjectConfig(root)
+    const next = mergeProjectConfig(current, patch)
+    await saveProjectConfig(root, next)
+    return jsonText(next)
+  },
+)
+
+server.registerTool(
+  "list_models",
+  {
+    title: "List Models",
+    description: "List available models for one provider or all providers, including the provider default model when available.",
+    inputSchema: z.object({
+      provider: z.enum(PROVIDER_CHOICES).optional().describe("Optional provider filter"),
+      force_refresh: z.boolean().default(false).describe("Ask the provider to refresh model data"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ provider, force_refresh }) => {
+    const root = await getProjectRoot(cwd)
+    const providers = provider ? [provider] as const : PROVIDER_CHOICES
+    const results = await Promise.all(providers.map(async (providerId) => {
+      const resolved = getProviderOrError(providerId)
+      if (!resolved.provider) {
+        return {
+          provider: providerId,
+          available: false,
+          error: resolved.error,
+          default_model: null,
+          models: [],
+        }
+      }
+
+      try {
+        const [models, defaultModel] = await Promise.all([
+          resolved.provider.listModels?.(root, force_refresh) ?? Promise.resolve([]),
+          resolved.provider.getDefaultModel?.(root) ?? Promise.resolve(null),
+        ])
+        return {
+          provider: providerId,
+          available: true,
+          error: null,
+          default_model: defaultModel,
+          models: models.map((model) => ({
+            provider: model.provider,
+            model: model.model,
+            label: model.label,
+            description: model.description ?? null,
+            is_default: model.isDefault ?? false,
+          })),
+        }
+      } catch (err) {
+        return {
+          provider: providerId,
+          available: false,
+          error: err instanceof Error ? err.message : String(err),
+          default_model: null,
+          models: [],
+        }
+      }
+    }))
+
+    return jsonText(provider ? results[0] : results)
+  },
+)
+
+server.registerTool(
+  "check_auth",
+  {
+    title: "Check Auth",
+    description: "Check authentication status for one provider or all providers.",
+    inputSchema: z.object({
+      provider: z.enum(PROVIDER_CHOICES).optional().describe("Optional provider filter"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ provider }) => {
+    const providers = provider ? [provider] as const : PROVIDER_CHOICES
+    const results = await Promise.all(providers.map(async (providerId) => {
+      const resolved = getProviderOrError(providerId)
+      if (!resolved.provider) {
+        return {
+          provider: providerId,
+          available: false,
+          authenticated: false,
+          error: resolved.error,
+          account: null,
+        }
+      }
+
+      try {
+        const auth = await resolved.provider.checkAuth()
+        return {
+          provider: providerId,
+          available: true,
+          authenticated: auth.authenticated,
+          error: auth.authenticated ? null : auth.error,
+          account: auth.authenticated ? auth.account : null,
+        }
+      } catch (err) {
+        return {
+          provider: providerId,
+          available: false,
+          authenticated: false,
+          error: err instanceof Error ? err.message : String(err),
+          account: null,
+        }
+      }
+    }))
+
+    return jsonText(provider ? results[0] : results)
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: list_programs
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "list_programs",
+  {
+    title: "List Programs",
+    description:
+      "List all autoresearch programs in the project with their goals and run counts.",
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    const root = await getProjectRoot(cwd)
+    const programs = await listPrograms(root)
+    if (programs.length === 0) return text("No programs found.")
+
+    const summaries = await loadProgramSummaries(root)
+    const summaryMap = new Map(summaries.map((s) => [s.slug, s.goal]))
+
+    const result = await Promise.all(
+      programs.map(async (p) => {
+        const programDir = getProgramDir(root, p.name)
+        const runs = await listRuns(programDir)
+        const activeRun = runs.find(isRunActive)
+        return {
+          name: p.name,
+          goal: summaryMap.get(p.name) ?? "(unknown)",
+          totalRuns: runs.length,
+          hasActiveRun: !!activeRun,
+        }
+      }),
+    )
+    return jsonText(result)
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: get_program
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_program",
+  {
+    title: "Get Program Details",
+    description:
+      "Get the full details of a program: config.json, program.md, measure.sh, and build.sh.",
+    inputSchema: z.object({
+      name: SlugSchema.describe("Program slug (e.g. 'homepage-lcp')"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ name }) => {
+    const root = await getProjectRoot(cwd)
+    const programDir = getProgramDir(root, name)
+
+    let config: ProgramConfig
+    try {
+      config = await loadProgramConfig(programDir)
+    } catch (err) {
+      return errorResult(`Program '${name}' not found or invalid config: ${err}`)
+    }
+
+    const { programMd, measureSh, buildSh } = await readProgramFiles(programDir)
+
+    return jsonText({
+      name,
+      config,
+      program_md: programMd,
+      measure_sh: measureSh,
+      build_sh: buildSh,
+    })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: get_setup_guide
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_setup_guide",
+  {
+    title: "Get Setup Guide",
+    description: [
+      "Get the setup workflow for creating AutoAuto programs.",
+      "Returns key principles, mandatory step-by-step workflow, and config field summary.",
+      "For full artifact formats, validation tables, and anti-gaming rules,",
+      "read the autoauto://setup-guide resource.",
+      "Read this BEFORE calling create_program.",
+    ].join(" "),
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    const root = await getProjectRoot(cwd)
+    const programsDir = getProgramsDir(root)
+
+    const guide = `# AutoAuto Program Setup — Quick Guide
+
+## What You're Creating
+
+An optimization program: a repeatable experiment loop that an AI agent runs autonomously. Each program has 3-4 files in ${programsDir}/<slug>/:
+- **program.md** — Goal, scope, rules, and steps
+- **measure.sh** — Outputs a single JSON object with the metric (must be fast, stable, deterministic)
+- **build.sh** (optional) — Build/compile step that runs once before measurements
+- **config.json** — Metric configuration, quality gates, tuning parameters
+
+## Key Principles
+
+1. **One metric, one direction, one target.** Narrow beats broad — "reduce homepage JS chunk size in bytes" beats "reduce bundle size."
+2. **Scope is safety.** The experiment agent will exploit any loophole. Tight scope prevents metric gaming.
+3. **Measurement must be fast and stable.** The script runs hundreds of times. Seconds, not minutes.
+4. **Binary over sliding scale.** For subjective metrics, prefer binary yes/no criteria over 1-7 scales.
+
+## Mandatory Workflow (follow every step)
+
+### 1. Understand the project
+Read the repo structure, config files, build system, and test setup before asking the user anything.
+
+### 2. Discuss goals with the user
+Narrow to ONE specific, measurable target. Confirm: metric name, direction (lower/higher), what "good" looks like.
+
+### 3. Define scope and rules
+Propose specific file paths. Define what's off-limits. Suggest 3-5 anti-gaming rules.
+
+### 4. Discuss quality gates
+Suggest secondary metrics that must not regress (e.g., test pass rate). Not every program needs gates — say so if none are needed, but always discuss it.
+
+### 5. Present artifacts and get user confirmation
+Present ALL artifacts (program.md, measure.sh, config.json) as code blocks. **Do NOT call create_program until the user explicitly confirms.** This is a hard requirement.
+
+### 6. Create the program
+Call create_program with the confirmed artifacts.
+
+### 7. Validate measurement
+Call validate_measurement immediately after creation. Do NOT skip this step.
+
+### 8. Review validation results and update config
+Based on CV% results, propose updated noise_threshold and repeats to the user. Update config if needed via update_program. **Do NOT proceed to a run without reviewing validation results with the user.**
+
+### 9. Provide cost/time estimate before starting a run
+Before calling start_run, tell the user:
+- Estimated cost: ~$0.05-0.20/experiment, ~$5-10 for 50 experiments
+- Estimated time: ~12 experiments/hour at 5-minute eval, faster for cached evals
+- Expected keep rate: 5-25% is normal (most experiments get discarded)
+
+## config.json Field Summary
+
+- \`metric_field\`: key from measure.sh JSON output
+- \`direction\`: "lower" or "higher"
+- \`noise_threshold\`: minimum relative improvement (decimal, e.g., 0.02 = 2%)
+- \`repeats\`: measurements per experiment (3 for stable, 5 for noisy)
+- \`max_experiments\`: cap per run (20 default)
+- \`quality_gates\`: hard pass/fail constraints, e.g., \`{"test_pass_rate": {"min": 1.0}}\`
+- \`secondary_metrics\`: advisory tracked metrics (not gating)
+- \`max_consecutive_discards\`: (optional) auto-stop after N consecutive non-improving experiments (default 10)
+- \`measurement_timeout\`: (optional) timeout in ms for each measure.sh run (default 60000)
+
+For full artifact format templates, validation interpretation tables, anti-gaming rules, config tuning formulas, and measurement debugging tips, read the **autoauto://setup-guide** resource.`
 
     return text(guide)
   },
@@ -443,13 +859,178 @@ const ConfigSchema = z.object({
 })
 
 server.registerTool(
+  "start_setup_session",
+  {
+    title: "Start Setup Session",
+    description:
+      "Start a conversational setup agent session. Use mode='analyze' for ideation or mode='direct' when you already know the target.",
+    inputSchema: z.object({
+      mode: z.enum(["direct", "analyze"]).describe("Conversation mode"),
+      message: z.string().optional().describe("Optional first message for direct mode"),
+      focus: z.string().optional().describe("Optional area to focus on for analyze mode"),
+      provider: z.enum(["claude", "codex", "opencode"]).optional().describe("Support-model provider override"),
+      model: z.string().optional().describe("Support-model name override"),
+      effort: z.enum(["low", "medium", "high", "max"]).optional().describe("Support-model effort override"),
+    }),
+  },
+  async ({ mode, message, focus, provider, model, effort }) => {
+    try {
+      const result = await startSetupSession(cwd, { mode, message, focus, provider, model, effort })
+      return jsonText({
+        session_id: result.session.id,
+        kind: result.session.kind,
+        provider: result.session.provider,
+        model: result.session.model,
+        effort: result.session.effort,
+        auto_sent: Boolean(result.firstTurn),
+        assistant_message: result.firstTurn?.assistantMessage ?? null,
+        tool_events: result.firstTurn?.toolEvents ?? [],
+        messages: result.firstTurn?.messages ?? result.session.messages,
+      })
+    } catch (err) {
+      return errorResult(`Failed to start setup session: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+)
+
+server.registerTool(
+  "start_update_session",
+  {
+    title: "Start Update Session",
+    description:
+      "Start a conversational update agent session for an existing program. Auto-seeds the agent with the latest run context.",
+    inputSchema: z.object({
+      name: SlugSchema.describe("Program slug"),
+      provider: z.enum(["claude", "codex", "opencode"]).optional().describe("Support-model provider override"),
+      model: z.string().optional().describe("Support-model name override"),
+      effort: z.enum(["low", "medium", "high", "max"]).optional().describe("Support-model effort override"),
+    }),
+  },
+  async ({ name, provider, model, effort }) => {
+    try {
+      const result = await startUpdateSession(cwd, name, { provider, model, effort })
+      return jsonText({
+        session_id: result.session.id,
+        kind: result.session.kind,
+        program_slug: result.session.programSlug,
+        provider: result.session.provider,
+        model: result.session.model,
+        effort: result.session.effort,
+        assistant_message: result.firstTurn.assistantMessage,
+        tool_events: result.firstTurn.toolEvents,
+        messages: result.firstTurn.messages,
+      })
+    } catch (err) {
+      return errorResult(`Failed to start update session: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+)
+
+server.registerTool(
+  "send_session_message",
+  {
+    title: "Send Session Message",
+    description:
+      "Send a user message to a setup/update session and wait for the agent's next reply.",
+    inputSchema: z.object({
+      session_id: z.string().min(1).describe("Session ID from start_setup_session or start_update_session"),
+      message: z.string().min(1).describe("User message to send"),
+    }),
+  },
+  async ({ session_id, message }) => {
+    try {
+      const result = await sendSessionMessage(cwd, session_id, message)
+      return jsonText({
+        session_id,
+        assistant_message: result.assistantMessage,
+        tool_events: result.toolEvents,
+        messages: result.messages,
+      })
+    } catch (err) {
+      return errorResult(`Failed to send session message: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+)
+
+server.registerTool(
+  "get_session",
+  {
+    title: "Get Session",
+    description: "Get the current transcript and metadata for a setup/update session.",
+    inputSchema: z.object({
+      session_id: z.string().min(1).describe("Session ID"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ session_id }) => {
+    const session = await loadAgentSession(cwd, session_id)
+    if (!session) return errorResult(`Session "${session_id}" not found.`)
+    return jsonText({
+      session_id: session.id,
+      kind: session.kind,
+      program_slug: session.programSlug,
+      created_at: session.createdAt,
+      updated_at: session.updatedAt,
+      provider: session.provider,
+      model: session.model,
+      effort: session.effort,
+      messages: session.messages,
+    })
+  },
+)
+
+server.registerTool(
+  "list_sessions",
+  {
+    title: "List Sessions",
+    description: "List persisted setup/update conversation sessions.",
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    const sessions = await listAgentSessions(cwd)
+    return jsonText(sessions.map((session) => ({
+      session_id: session.id,
+      kind: session.kind,
+      program_slug: session.programSlug,
+      updated_at: session.updatedAt,
+      provider: session.provider,
+      model: session.model,
+      effort: session.effort,
+      message_count: session.messages.length,
+    })))
+  },
+)
+
+server.registerTool(
+  "delete_session",
+  {
+    title: "Delete Session",
+    description: "Delete a persisted setup/update conversation session.",
+    inputSchema: z.object({
+      session_id: z.string().min(1).describe("Session ID"),
+      confirm: z.literal(true).describe("Must be true to confirm deletion"),
+    }),
+    annotations: { destructiveHint: true },
+  },
+  async ({ session_id, confirm }) => {
+    if (!confirm) return errorResult("Deletion requires confirm=true.")
+    const session = await loadAgentSession(cwd, session_id)
+    if (!session) return errorResult(`Session "${session_id}" not found.`)
+    await deleteAgentSession(cwd, session_id)
+    return text(`Session '${session_id}' deleted.`)
+  },
+)
+
+server.registerTool(
   "create_program",
   {
     title: "Create Program",
     description: [
       "Create a new autoresearch program with all required files.",
       "Writes program.md, measure.sh, config.json, and optionally build.sh.",
-      "Call get_setup_guide first to understand the artifact formats.",
+      "Call get_setup_guide first for the workflow. Read autoauto://setup-guide for full artifact format reference.",
+      "IMPORTANT: Get explicit user confirmation before calling this tool.",
       "After creating, call validate_measurement to verify it works.",
     ].join(" "),
     inputSchema: z.object({
@@ -480,7 +1061,7 @@ server.registerTool(
     }
 
     // Ensure .autoauto directory and .gitignore
-    await ensureAutoAutoDir(cwd)
+    await ensureAutoAutoDir(root)
 
     // Create program directory
     await mkdir(programDir, { recursive: true })
@@ -620,6 +1201,8 @@ server.registerTool(
       "Creates a temporary git worktree, runs build.sh + measure.sh multiple times,",
       "and reports CV%, assessment (deterministic/excellent/acceptable/noisy/unstable),",
       "and recommended config values.",
+      "After validation, review results with the user and update config via update_program if needed.",
+      "See autoauto://setup-guide for validation interpretation tables.",
     ].join(" "),
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
@@ -637,8 +1220,9 @@ server.registerTool(
     }
 
     try {
+      const validator = getSelfCommand("__validate_measurement")
       const proc = Bun.spawn(
-        ["bun", "run", VALIDATE_SCRIPT, measureSh, configJson, String(runs)],
+        [validator.command, ...validator.args, measureSh, configJson, String(runs)],
         {
           cwd: root,
           stdout: "pipe",
@@ -691,6 +1275,7 @@ server.registerTool(
       "Start an experiment run for a program.",
       "Spawns a background daemon that measures a baseline then runs experiments autonomously.",
       "Returns immediately — use get_run_status to poll for progress.",
+      "IMPORTANT: Before starting, give the user a cost/time estimate (~$0.05-0.20/experiment, ~12 experiments/hour at 5-min eval).",
     ].join(" "),
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),

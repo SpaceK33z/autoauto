@@ -81,8 +81,8 @@ describe("guidance", () => {
       const longText = "x".repeat(3000)
       await writeGuidance(runDir, longText)
       const result = await readGuidance(runDir)
-      expect(result.length).toBeLessThan(3000)
-      expect(result).toEndWith("[truncated]")
+      const expected = "x".repeat(2000) + "\n[truncated]"
+      expect(result).toBe(expected)
     } finally {
       await rm(runDir, { recursive: true, force: true })
     }

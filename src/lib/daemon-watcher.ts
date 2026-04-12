@@ -40,6 +40,7 @@ export function watchRunDir(
   let resultsByteOffset = 0
   let streamByteOffset = 0
   let currentStreamFile = "" // e.g. "stream-001.log"
+  let lastGuidanceText: string | undefined
 
   if (options.startAtEnd) {
     try {
@@ -83,7 +84,11 @@ export function watchRunDir(
           const text = await Bun.file(join(runDir, "ideas.md")).text()
           callbacks.onIdeasChange(text)
         } else if (file === "guidance.md" && callbacks.onGuidanceChange) {
-          callbacks.onGuidanceChange(await readGuidance(runDir))
+          const guidance = await readGuidance(runDir)
+          if (guidance !== lastGuidanceText) {
+            lastGuidanceText = guidance
+            callbacks.onGuidanceChange(guidance)
+          }
         } else if (file === "quota.json" && callbacks.onQuotaChange) {
           const data = await Bun.file(join(runDir, "quota.json")).json() as QuotaInfo
           callbacks.onQuotaChange(data)

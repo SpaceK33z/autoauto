@@ -85,6 +85,8 @@ The measurement system is the heart of AutoAuto. Your `measure.sh` script output
 
 **Simplicity criterion.** Experiments that are within noise but reduce lines of code are auto-kept. This rewards code simplification even without a metric gain. Note: simplification keeps do not reset the consecutive-discard counter — they don't count as real progress for stagnation detection. This behavior can be disabled by setting `"keep_simplifications": false` in `config.json` — useful for prompt/template optimization where LOC is meaningless, or when the measurement harness has known coverage gaps.
 
+**Statistical significance.** With 2+ repeats, AutoAuto runs a Mann-Whitney U test on the raw samples and shows a p-value alongside each result. The noise threshold still makes the keep/discard decision — the p-value is supplementary confidence info. More repeats = more statistical power (minimum p is 0.1 at 3 repeats, ~0.008 at 5).
+
 **Re-baselining.** After every kept experiment, AutoAuto re-measures the baseline on the new code. It also re-measures after consecutive discards to detect environment drift.
 
 **Budget cap.** An optional `max_cost_usd` limit stops the run when cumulative agent cost exceeds the threshold. Checked at each iteration boundary — the last experiment that pushes cost over the limit completes normally before stopping. Set it per-program in `config.json` or override it per-run in the PreRun screen. When no cap is set, cost is tracked but unlimited.
