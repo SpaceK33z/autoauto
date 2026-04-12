@@ -46,6 +46,7 @@ import { closeProviders, type AgentProviderID } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
 import { getDefaultModel } from "./lib/model-options.ts"
 import { formatShellError } from "./lib/git.ts"
+import { formatRunDuration, formatChangePct } from "./lib/format.ts"
 import {
   readQueue,
   appendToQueue,
@@ -114,34 +115,9 @@ function padRight(str: string, len: number): string {
   return str.length >= len ? str : str + " ".repeat(len - str.length)
 }
 
-function formatElapsed(startedAt: string, endedAt?: string): string {
-  const start = new Date(startedAt).getTime()
-  const end = endedAt ? new Date(endedAt).getTime() : Date.now()
-  const ms = end - start
-  const mins = Math.floor(ms / 60_000)
-  if (mins < 60) return `${mins}m`
-  const hours = Math.floor(mins / 60)
-  const remainingMins = mins % 60
-  return `${hours}h ${remainingMins}m`
-}
-
 function formatCost(usd: number | undefined): string {
   if (usd == null) return "$0.00"
   return `$${usd.toFixed(2)}`
-}
-
-function formatChangePct(
-  original: number,
-  current: number,
-  direction: ProgramConfig["direction"],
-): string {
-  if (original === 0) return "—"
-  const pct =
-    direction === "lower"
-      ? ((original - current) / Math.abs(original)) * 100
-      : ((current - original) / Math.abs(original)) * 100
-  const sign = pct > 0 ? "+" : ""
-  return `${sign}${pct.toFixed(1)}%`
 }
 
 function parsePositiveInt(value: string): number | null {
@@ -560,7 +536,7 @@ async function cmdStatus(args: ParsedArgs) {
     outJson({
       ...state,
       daemon_alive: daemonAlive,
-      elapsed: formatElapsed(state.started_at, isComplete ? state.updated_at : undefined),
+      elapsed: formatRunDuration(state.started_at, isComplete ? state.updated_at : undefined),
       improvement_pct: stats.improvement_pct,
       keep_rate: stats.keep_rate,
       metric_field: programConfig.metric_field,
@@ -595,7 +571,7 @@ async function cmdStatus(args: ParsedArgs) {
       `Baseline: ${state.original_baseline} → Final best: ${state.best_metric} (${formatChangePct(state.original_baseline, state.best_metric, programConfig.direction)})`,
     )
     out(`Keeps: ${stats.total_keeps} | Discards: ${stats.total_discards} | Crashes: ${stats.total_crashes}`)
-    out(`Cost: ${formatCost(state.total_cost_usd)} | Duration: ${formatElapsed(state.started_at, state.updated_at)}`)
+    out(`Cost: ${formatCost(state.total_cost_usd)} | Duration: ${formatRunDuration(state.started_at, state.updated_at)}`)
     if (state.error) out(`Error: ${state.error}`)
   } else {
     const phaseDetail =
@@ -607,7 +583,7 @@ async function cmdStatus(args: ParsedArgs) {
       `Baseline: ${state.original_baseline} → Current best: ${state.best_metric} (${formatChangePct(state.original_baseline, state.best_metric, programConfig.direction)})`,
     )
     out(`Keeps: ${stats.total_keeps} | Discards: ${stats.total_discards} | Crashes: ${stats.total_crashes}`)
-    out(`Cost: ${formatCost(state.total_cost_usd)} | Elapsed: ${formatElapsed(state.started_at)}`)
+    out(`Cost: ${formatCost(state.total_cost_usd)} | Elapsed: ${formatRunDuration(state.started_at)}`)
   }
 }
 
@@ -1732,6 +1708,13 @@ export async function run(argv: string[]) {
     return
   }
 
+  // MCP server mode — bypass normal CLI dispatch
+  if (argv[0] === "mcp") {
+    const { startMcpServer } = await import("./mcp.ts")
+    await startMcpServer()
+    return
+  }
+
   registerDefaultProviders()
   const args = parseArgs(argv)
   const handler = COMMANDS[args.command]
@@ -1753,6 +1736,7 @@ export async function run(argv: string[]) {
     out("  delete <slug>                 Delete a program or run")
     out("  config                        Show/update project configuration")
     out("  queue [list|add|remove|clear] Manage run queue")
+    out("  mcp                           Start MCP server (stdio transport)")
     out("")
     out("Global flags:")
     out("  --json                        Output as JSON")
