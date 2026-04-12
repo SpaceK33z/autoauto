@@ -21,6 +21,8 @@ export interface FinalizeContext {
   changedFiles: string[]
   riskAssessmentEnabled: boolean
   cwd: string
+  /** Main project root (differs from cwd when run used a worktree). */
+  projectRoot?: string
 }
 
 export interface FinalizeResult {
@@ -37,6 +39,7 @@ export async function buildFinalizeContext(
   runDir: string,
   state: RunState,
   config: ProgramConfig,
+  projectRoot?: string,
 ): Promise<FinalizeContext> {
   const [results, changedFiles] = await Promise.all([
     readAllResults(runDir),
@@ -55,6 +58,7 @@ export async function buildFinalizeContext(
     changedFiles,
     riskAssessmentEnabled: config.finalize_risk_assessment !== false,
     cwd,
+    projectRoot: projectRoot !== cwd ? projectRoot : undefined,
   }
 }
 

@@ -2,7 +2,7 @@ import type { FinalizeContext } from "../finalize.ts"
 
 /** Returns the system prompt for the conversational finalize agent. */
 export function getFinalizeSystemPrompt(context: FinalizeContext): string {
-  const { branchName, originalBranch, originalBaselineSha, riskAssessmentEnabled } = context
+  const { branchName, originalBranch, originalBaselineSha, riskAssessmentEnabled, projectRoot, cwd } = context
 
   const branchOptions = [
     `1. **Keep on current run branch** (\`${branchName}\`) — changes stay as-is`,
@@ -94,6 +94,9 @@ Based on the user's choice:
   2. Cherry-pick the kept (non-excluded) commits in order
   3. If conflicts arise, resolve them and explain what you did
   4. Confirm the final state
+${projectRoot ? `
+**Worktree awareness:** This run used a git worktree. Your working directory is \`${cwd}\` (the worktree), and the main project checkout is at \`${projectRoot}\`. If you need to operate on a branch that is already checked out in the main worktree (e.g. the original branch), \`cd\` to \`${projectRoot}\` and cherry-pick there instead of trying to check it out here. Use \`git worktree list\` to see which branches are checked out where.
+` : ""}
 
 ### Step 6: Completion
 
@@ -114,9 +117,11 @@ Replace BRANCH_NAME with the actual branch name where the code ended up.
 - \`git reset --hard\` on main or master branches
 - \`git branch -D\` (force-delete branches)
 - \`git push --force\`
-- Any command that modifies files outside the working directory
+- Any command that modifies files outside the repository${projectRoot ? `
 
-Only operate within the provided working directory. All git operations should be local only.
+Only operate within the working directory (\`${cwd}\`) or the main project checkout (\`${projectRoot}\`). All git operations should be local only.` : `
+
+Only operate within the provided working directory. All git operations should be local only.`}
 
 ## Style
 

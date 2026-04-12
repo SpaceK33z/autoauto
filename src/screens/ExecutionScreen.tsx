@@ -553,7 +553,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     try {
       const worktreePath = runState.in_place ? undefined : runState.worktree_path
       const effectiveCwd = worktreePath ?? cwd
-      const context = await buildFinalizeContext(effectiveCwd, runDir, runState, programConfig)
+      const context = await buildFinalizeContext(effectiveCwd, runDir, runState, programConfig, cwd)
       const systemPrompt = getFinalizeSystemPrompt(context)
       const initialMessage = await buildFinalizeInitialMessage(context)
       setFinalizeSystemPrompt(systemPrompt)
