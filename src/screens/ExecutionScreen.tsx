@@ -370,7 +370,15 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             setAgentStreamText(reconstructed.streamText)
             setIdeasText(reconstructed.ideasText)
             setSummaryText(reconstructed.summaryText)
-            setPhase("running")
+            if (reconstructed.state.phase === "crashed") {
+              setLastError(reconstructed.state.error ?? "Daemon crashed")
+              setPhase("error")
+            } else if (reconstructed.state.phase === "complete") {
+              setTerminationReason(reconstructed.state.termination_reason ?? null)
+              setPhase("complete")
+            } else {
+              setPhase("running")
+            }
             // Sync maxExpText from run-config for settings panel
             const currentMax = await getMaxExperiments(activeRunDir)
             if (!cancelled && currentMax != null) {
