@@ -726,8 +726,8 @@ server.registerTool(
         use_worktree,
         carry_forward,
         "manual",
-        undefined,  // maxCostUsd
-        undefined,  // keepSimplifications
+        programConfig.max_cost_usd,
+        programConfig.keep_simplifications,
         projectConfig.executionFallbackModel,
       )
 
@@ -1183,8 +1183,5 @@ export async function startMcpServer() {
 
 // Direct execution
 if (import.meta.main) {
-  startMcpServer().catch((err) => {
-    console.error("Fatal:", err)
-    process.exit(1)
-  })
+  await startMcpServer()
 }
