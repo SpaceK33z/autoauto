@@ -131,7 +131,6 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
     loadHomeData(cwd)
       .then((d) => {
         setData(d)
-        onResumeQueueRef.current?.()
       })
       .catch((err: unknown) => {
         setError(formatShellError(err))
@@ -337,6 +336,8 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
         }
       } else if (key.name === "c") {
         setConfirmClearQueue(true)
+      } else if (key.name === "s") {
+        onResumeQueueRef.current?.()
       }
     }
   })
