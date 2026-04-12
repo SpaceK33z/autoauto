@@ -1732,6 +1732,13 @@ export async function run(argv: string[]) {
     return
   }
 
+  // MCP server mode — bypass normal CLI dispatch
+  if (argv[0] === "mcp") {
+    const { startMcpServer } = await import("./mcp.ts")
+    await startMcpServer()
+    return
+  }
+
   registerDefaultProviders()
   const args = parseArgs(argv)
   const handler = COMMANDS[args.command]
@@ -1753,6 +1760,7 @@ export async function run(argv: string[]) {
     out("  delete <slug>                 Delete a program or run")
     out("  config                        Show/update project configuration")
     out("  queue [list|add|remove|clear] Manage run queue")
+    out("  mcp                           Start MCP server (stdio transport)")
     out("")
     out("Global flags:")
     out("  --json                        Output as JSON")
