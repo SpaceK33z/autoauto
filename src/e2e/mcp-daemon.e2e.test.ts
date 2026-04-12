@@ -286,6 +286,7 @@ describe("MCP update_run_limit", () => {
     const data = getJsonContent(result) as { run_id: string; max_experiments: number }
     expect(data.max_experiments).toBe(100)
     expect(mockUpdateMaxExperiments).toHaveBeenCalledTimes(1)
+    expect(mockUpdateMaxExperiments.mock.calls[0][0]).toBe(runDir)
     expect(mockUpdateMaxExperiments.mock.calls[0][1]).toBe(100)
   })
 
