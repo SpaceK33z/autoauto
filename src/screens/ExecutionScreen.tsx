@@ -336,6 +336,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   setMaxExpText(text)
                   maxExpTextRef.current = text
                 }
+                setCurrentPhaseLabel(getPhaseLabel(reconstructed.state.phase, reconstructed.state.error))
                 if (reconstructed.state.phase === "crashed") {
                   setLastError(reconstructed.state.error ?? (logTail || "Daemon crashed"))
                   setPhase("error")
@@ -379,6 +380,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             } else {
               setPhase("running")
             }
+            setCurrentPhaseLabel(getPhaseLabel(reconstructed.state.phase, reconstructed.state.error))
             // Sync maxExpText from run-config for settings panel
             const currentMax = await getMaxExperiments(activeRunDir)
             if (!cancelled && currentMax != null) {

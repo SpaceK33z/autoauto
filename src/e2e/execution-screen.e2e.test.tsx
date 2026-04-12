@@ -6,6 +6,7 @@ import { createTestFixture, type TestFixture, type ResultFixture, registerMockPr
 import { resetProjectRoot } from "../lib/programs.ts"
 import type { Screen } from "../lib/programs.ts"
 import { DEFAULT_CONFIG } from "../lib/config.ts"
+import type { DaemonJson } from "../lib/daemon-lifecycle.ts"
 
 const MODEL = DEFAULT_CONFIG.executionModel
 
@@ -302,5 +303,85 @@ describe("ExecutionScreen E2E — narrow tab click switching", () => {
     await ideasHarness.click(bracketPos, finalTitleRow.lineIndex)
     afterClick = await ideasHarness.frame()
     expect(afterClick).toContain("Agent [Ideas]")
+  })
+})
+
+describe("ExecutionScreen E2E — attach phase label updates from Connecting", () => {
+  let attachFixture: TestFixture
+  let attachHarness: TuiHarness | null = null
+
+  beforeAll(async () => {
+    registerMockProviders()
+    attachFixture = await createTestFixture()
+
+    await attachFixture.createProgram("running-prog", {
+      metric_field: "latency_ms",
+      direction: "lower",
+      max_experiments: 10,
+    })
+
+    // Create a run in "idle" phase (daemon actively running experiments)
+    const runDir = await attachFixture.createRun("running-prog", {
+      run_id: "20260401-200000",
+      phase: "idle",
+      experiment_number: 3,
+      best_metric: 85,
+      best_experiment: 2,
+      total_keeps: 2,
+      total_discards: 1,
+      total_crashes: 0,
+      results: RESULTS.slice(0, 3),
+    })
+
+    // Write daemon.json with current process PID + fresh heartbeat
+    // so getDaemonStatus considers the daemon alive
+    const daemonJson: DaemonJson = {
+      run_id: "20260401-200000",
+      pid: process.pid,
+      started_at: new Date().toISOString(),
+      worktree_path: attachFixture.cwd,
+      daemon_id: "test-daemon-id",
+      heartbeat_at: new Date().toISOString(),
+    }
+    await Bun.write(join(runDir, "daemon.json"), JSON.stringify(daemonJson, null, 2) + "\n")
+
+    // Write run-config.json (required by watcher/status checks)
+    await Bun.write(join(runDir, "run-config.json"), JSON.stringify({
+      provider: "claude",
+      model: "sonnet",
+      effort: "high",
+      max_experiments: 10,
+    }, null, 2) + "\n")
+  })
+
+  afterEach(async () => {
+    await attachHarness?.destroy()
+    attachHarness = null
+    resetProjectRoot()
+  })
+
+  afterAll(async () => {
+    await attachFixture.cleanup()
+  })
+
+  test("phase label updates from 'Connecting...' to actual phase after attach", async () => {
+    attachHarness = await renderTui(
+      <ExecutionScreen
+        cwd={attachFixture.cwd}
+        programSlug="running-prog"
+        modelConfig={MODEL}
+        supportModelConfig={MODEL}
+        ideasBacklogEnabled={false}
+        navigate={() => {}}
+        maxExperiments={10}
+        attachRunId="20260401-200000"
+      />,
+      { width: 140, height: 40 },
+    )
+
+    // The phase label should update to "Running experiments..." (the label for "idle" phase)
+    // and NOT stay stuck on "Connecting..."
+    const frame = await attachHarness.waitForText("Running experiments...", 5000)
+    expect(frame).not.toContain("Connecting...")
   })
 })
