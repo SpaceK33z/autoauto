@@ -98,6 +98,7 @@ src/
     CycleField.tsx       # Reusable cycle-through field component
     ModelPicker.tsx      # Model selection UI with provider-specific lists
     RunSettingsOverlay.tsx # Inline max-experiments editor overlay
+    GuidanceOverlay.tsx  # Human guidance textarea overlay (g hotkey)
   screens/
     FirstSetupScreen.tsx # First-time setup (provider/model + auth check)
     HomeScreen.tsx       # Two-panel: programs list + runs table
@@ -134,6 +135,7 @@ src/
     validate-measurement.ts  # Standalone measurement validation script
     experiment.ts          # Experiment agent spawning, context packets, lock detection
     experiment-loop.ts     # Main experiment loop orchestrator
+    guidance.ts            # Human guidance: read/write guidance.md for mid-run steering
     ideas-backlog.ts       # Ideas backlog: append/read per-experiment notes (ideas.md)
     model-options.ts       # Model picker option loading from providers
     format.ts              # Table formatting utilities (padRight, truncate, column allocation)

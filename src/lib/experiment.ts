@@ -20,6 +20,7 @@ import {
   readIdeasBacklogSummary,
   type ExperimentNotes,
 } from "./ideas-backlog.ts"
+import { readGuidance } from "./guidance.ts"
 
 // --- Types ---
 
@@ -40,6 +41,7 @@ export interface ContextPacket {
   last_outcome: string
   discarded_diffs: string
   ideas_backlog: string
+  human_guidance?: string
   secondary_metrics?: Record<string, { direction: "lower" | "higher"; last_kept_value?: number }>
   consecutive_discards: number
   max_consecutive_discards: number
@@ -76,10 +78,11 @@ export async function buildContextPacket(
   config: { metric_field: string; direction: "lower" | "higher"; secondary_metrics?: Record<string, { direction: "lower" | "higher" }> },
   options: { ideasBacklogEnabled?: boolean; consecutiveDiscards?: number; maxConsecutiveDiscards?: number; maxTurns?: number; measurementDiagnostics?: string; previousRunContext?: PreviousRunContext } = {},
 ): Promise<ContextPacket> {
-  const [programMd, resultsRaw, recentGitLog] = await Promise.all([
+  const [programMd, resultsRaw, recentGitLog, humanGuidance] = await Promise.all([
     Bun.file(join(programDir, "program.md")).text(),
     Bun.file(join(runDir, "results.tsv")).text(),
     getRecentLog(cwd, 15),
+    readGuidance(runDir),
   ])
   const ideasBacklog = options.ideasBacklogEnabled === false
     ? ""
@@ -154,6 +157,7 @@ export async function buildContextPacket(
     last_outcome: lastOutcome,
     discarded_diffs: discardedDiffs,
     ideas_backlog: ideasBacklog,
+    human_guidance: humanGuidance || undefined,
     secondary_metrics: secondaryMetrics,
     consecutive_discards: options.consecutiveDiscards ?? 0,
     max_consecutive_discards: options.maxConsecutiveDiscards ?? 10,
@@ -272,6 +276,11 @@ Detailed diagnostic output from the last measurement run. Use this to identify e
 ${packet.measurement_diagnostics}
 \`\`\`
 ` : ""}
+${packet.human_guidance ? `
+## Human Guidance
+The human operator has provided the following direction. Treat this as high-priority steering — it takes precedence over the ideas backlog.
+${packet.human_guidance}
+` : ""}
 ${packet.ideas_backlog ? `
 ## Ideas Backlog
 ${packet.ideas_backlog}
@@ -279,7 +288,7 @@ ${packet.ideas_backlog}
 
 ${getExplorationDirective(packet.consecutive_discards, packet.max_consecutive_discards)}
 
-Review the recent results and discarded experiments${packet.ideas_backlog ? ", ideas backlog" : ""}${packet.previous_results || packet.previous_ideas ? ", and previous run history" : ""} above. Focus on what was tried, why it failed, and what should be tried next.
+Review the recent results and discarded experiments${packet.human_guidance ? ", human guidance" : ""}${packet.ideas_backlog ? ", ideas backlog" : ""}${packet.previous_results || packet.previous_ideas ? ", and previous run history" : ""} above. Focus on what was tried, why it failed, and what should be tried next.
 Implement ONE change, validate, and commit. Then stop.`
 }
 

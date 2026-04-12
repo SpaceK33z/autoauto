@@ -97,6 +97,7 @@ Each experiment agent starts fresh. Instead of chat history, it gets a structure
 - Recent experiment results (status, metric, description)
 - Diffs from recently discarded experiments (so it doesn't retry failed ideas)
 - Git log of kept changes
+- Human guidance (if set — takes priority over ideas backlog)
 - The ideas backlog
 - Previous run context (if carry-forward is enabled)
 
@@ -112,6 +113,16 @@ An optional `ideas.md` file that accumulates notes across experiments:
 - What to avoid
 
 This is the agent's institutional memory. Without it, agents waste cycles retrying discarded approaches — one real-world case saw a test fix go through four different approaches before finding one that held, and the backlog prevented retrying the three that failed.
+
+## Human guidance
+
+While the experiment loop is fully autonomous, you can **steer it mid-run** by providing human guidance. Press `g` in the TUI (or use the `set_guidance` MCP tool) to write a direction for the experiment agent.
+
+Guidance is stored as `guidance.md` in the run directory. The daemon reads it at the start of each experiment iteration and injects it into the context packet as a high-priority `## Human Guidance` section — above the ideas backlog. The agent treats it as steering direction that takes precedence over its own ideas.
+
+This is most useful at **performance plateaus** (multiple consecutive discards), when the agent is **drifting** into unproductive directions, or when you have domain knowledge about what to try next. Inspired by the [guidance.md pattern](https://github.com/karpathy/autoresearch/issues/239) from the autoresearch community.
+
+Guidance is non-blocking — it takes effect on the next experiment without pausing the current one. It persists across TUI detach/reattach and can be cleared at any time.
 
 ## Carry forward (cross-run memory)
 
@@ -207,6 +218,7 @@ All AutoAuto state lives in `.autoauto/` inside your project, which is automatic
           state.json              # Run checkpoint
           results.tsv             # Experiment outcomes (append-only)
           ideas.md                # Ideas backlog
+          guidance.md             # Human steering (written by TUI/MCP)
           stream-001.log          # Per-experiment agent output
           summary.md              # Final report (after finalize)
 ```

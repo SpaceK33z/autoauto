@@ -46,6 +46,8 @@ import {
   forceKillDaemon,
   findActiveRun,
   updateMaxExperiments,
+  readGuidance,
+  writeGuidance,
 } from "./lib/daemon-client.ts"
 import {
   loadProjectConfig,
@@ -141,7 +143,7 @@ export function createMcpServer(cwd: string): McpServer {
         "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
         "Setup workflow: (1) get_setup_guide to learn artifact formats, (2) list_programs to check for duplicates, (3) create_program to write all files, (4) validate_measurement to verify stability.",
         "Run workflow: (1) start_run to launch an experiment loop, (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
-        "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run.",
+        "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run, set_guidance to steer the agent's direction.",
       ].join("\n"),
     },
   )
@@ -1073,6 +1075,82 @@ server.registerTool(
     await updateMaxExperiments(active.runDir, max_experiments)
 
     return jsonText({ run_id: active.runId, max_experiments })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: set_guidance
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "set_guidance",
+  {
+    title: "Set Guidance",
+    description:
+      "Set human steering guidance for an active run. The experiment agent reads this at the start of each iteration and treats it as high-priority direction. Pass empty text to clear guidance.",
+    inputSchema: z.object({
+      name: SlugSchema.describe("Program slug"),
+      text: z.string().max(2000).describe("Guidance text for the experiment agent (empty string to clear, max 2000 chars)"),
+    }),
+  },
+  async ({ name, text: guidanceText }) => {
+    const root = await getProjectRoot(cwd)
+    const programDir = getProgramDir(root, name)
+
+    const active = await findActiveRun(programDir)
+    if (!active) return errorResult(`No active run for '${name}'.`)
+    if (!active.daemonAlive) return errorResult("Daemon is not running. Run may have already completed.")
+
+    await writeGuidance(active.runDir, guidanceText)
+
+    const trimmed = guidanceText.trim()
+    if (!trimmed) {
+      return text(`Guidance cleared for '${name}'. The next experiment will not receive human guidance.`)
+    }
+    return text(`Guidance set for '${name}'. The next experiment will include this in its context.`)
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: get_guidance
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_guidance",
+  {
+    title: "Get Guidance",
+    description:
+      "Get the current human steering guidance for an active or completed run.",
+    inputSchema: z.object({
+      name: SlugSchema.describe("Program slug"),
+      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ name, run_id }) => {
+    let resolved: Awaited<ReturnType<typeof resolveProgram>>
+    try {
+      resolved = await resolveProgram(name)
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+
+    let runDir: string
+    let resolvedRunId: string
+    try {
+      const r = await resolveRunDir(resolved.programDir, run_id)
+      runDir = r.runDir
+      resolvedRunId = r.runId
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+
+    const guidance = await readGuidance(runDir)
+    return jsonText({
+      run_id: resolvedRunId,
+      has_guidance: guidance.length > 0,
+      guidance: guidance || null,
+    })
   },
 )
 

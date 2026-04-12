@@ -68,7 +68,7 @@ All agents use `permissionMode: "bypassPermissions"` and tools: Read, Write, Edi
 
 `src/lib/experiment.ts` — per-iteration agent sessions:
 
-- `buildContextPacket()` / `buildExperimentPrompt()` — assembles one-shot context
+- `buildContextPacket()` / `buildExperimentPrompt()` — assembles one-shot context (includes human guidance from `guidance.md` when present)
 - `runExperimentAgent()` — one-shot agent with streaming callbacks
 - `checkLockViolation()` — detects modifications to `.autoauto/` files
 
@@ -107,6 +107,7 @@ TUI fallback: on home screen mount, if queue has entries, `startNextFromQueue()`
 | `results.tsv` | Daemon (append) | TUI | Experiment outcomes |
 | `stream-NNN.log` | Daemon (append) | TUI | Agent streaming text |
 | `control.json` | TUI | Daemon (on SIGTERM) | Stop/abort commands |
+| `guidance.md` | TUI / MCP | Daemon (per iteration) | Human steering for experiment agent |
 | `queue.json` | TUI + Daemon | TUI + Daemon | Sequential run queue (atomic temp+rename) |
 | `queue.lock` | popQueue() | popQueue() | O_EXCL mutex for concurrent pop prevention |
 
@@ -126,7 +127,7 @@ Three-panel layout in `ExecutionScreen.tsx`:
 
 Two modes: spawn (creates worktree + daemon) and attach (connects to existing daemon).
 
-Keyboard shortcuts are phase-appropriate: during a running experiment `q`/`Ctrl+C`/`s`/`i` are available; after completion the shortcuts switch to `f` (finalize), `i` (ideas), and `Escape` (back).
+Keyboard shortcuts are phase-appropriate: during a running experiment `q`/`Ctrl+C`/`s`/`g`/`i` are available; after completion the shortcuts switch to `f` (finalize), `i` (ideas), and `Escape` (back).
 
 Stop/abort escalation: `q` -> confirmation -> stop-after-current; `Ctrl+C` -> abort; second `Ctrl+C` after 5s -> SIGKILL.
 
