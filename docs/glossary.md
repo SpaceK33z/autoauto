@@ -21,6 +21,7 @@ Quick reference for the core AutoAuto terms.
 | **Repeats** | Number of measurement runs per experiment. AutoAuto compares medians. |
 | **CV%** | Coefficient of variation. Setup-time stability grade for a measurement. |
 | **Context packet** | One-shot experiment input: baseline, recent results, discarded diffs, git history, backlog notes. |
+| **Human guidance** | User-written `guidance.md` in the run directory. Injected into the experiment agent's context as high-priority steering. Set via `g` in the TUI or `set_guidance` MCP tool. |
 | **Ideas backlog** | Optional `ideas.md` file with what was tried, why it worked or failed, and what to try next. |
 | **Carry forward** | Cross-run memory: previous run results and ideas fed into new experiments. Enabled by default; disable with `--no-carry-forward`. |
 | **Previous run context** | Kept experiment summaries + ideas backlog from earlier completed runs of the same program. |

@@ -17,3 +17,4 @@ export {
   readDaemonLogTail,
   type DaemonStatus,
 } from "./daemon-status.ts"
+export { readGuidance, writeGuidance } from "./guidance.ts"

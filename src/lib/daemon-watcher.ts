@@ -1,6 +1,7 @@
 import { watch, statSync, readFileSync, type FSWatcher } from "node:fs"
 import { join } from "node:path"
 import { streamLogName } from "./daemon-callbacks.ts"
+import { readGuidance } from "./guidance.ts"
 import type { RunState, ExperimentResult } from "./run.ts"
 import type { QuotaInfo } from "./agent/types.ts"
 import { readAllResults, readState, getMetricHistory } from "./run.ts"
@@ -13,6 +14,7 @@ export interface WatchCallbacks {
   onStreamReset?: () => void
   onToolStatus?: (status: string | null) => void
   onIdeasChange?: (text: string) => void
+  onGuidanceChange?: (text: string) => void
   onQuotaChange?: (quota: QuotaInfo) => void
   onDaemonDied: () => void
 }
@@ -38,6 +40,7 @@ export function watchRunDir(
   let resultsByteOffset = 0
   let streamByteOffset = 0
   let currentStreamFile = "" // e.g. "stream-001.log"
+  let lastGuidanceText: string | undefined
 
   if (options.startAtEnd) {
     try {
@@ -80,6 +83,12 @@ export function watchRunDir(
         } else if (file === "ideas.md" && callbacks.onIdeasChange) {
           const text = await Bun.file(join(runDir, "ideas.md")).text()
           callbacks.onIdeasChange(text)
+        } else if (file === "guidance.md" && callbacks.onGuidanceChange) {
+          const guidance = await readGuidance(runDir)
+          if (guidance !== lastGuidanceText) {
+            lastGuidanceText = guidance
+            callbacks.onGuidanceChange(guidance)
+          }
         } else if (file === "quota.json" && callbacks.onQuotaChange) {
           const data = await Bun.file(join(runDir, "quota.json")).json() as QuotaInfo
           callbacks.onQuotaChange(data)
@@ -205,6 +214,7 @@ export function watchRunDir(
       scheduleRead("results.tsv")
       if (currentStreamFile) scheduleRead(currentStreamFile)
       if (callbacks.onQuotaChange) scheduleRead("quota.json")
+      if (callbacks.onGuidanceChange) scheduleRead("guidance.md")
     }, 300)
   }
 

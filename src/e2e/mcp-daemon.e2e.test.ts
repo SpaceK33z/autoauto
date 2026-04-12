@@ -7,6 +7,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock, type Mock } from "bun:test"
+import { join } from "node:path"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { createTestFixture, type TestFixture } from "./fixture.ts"
@@ -301,5 +302,97 @@ describe("MCP update_run_limit", () => {
 
     expect(result.isError).toBe(true)
     expect(getTextContent(result)).toContain("No active run")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// set_guidance
+// ---------------------------------------------------------------------------
+
+describe("MCP set_guidance", () => {
+  let fixture: TestFixture
+  let mcp: McpTestContext
+
+  beforeEach(async () => {
+    fixture = await createTestFixture()
+    mcp = await createMcpClient(fixture.cwd)
+    mockFindActiveRun.mockClear()
+  })
+
+  afterEach(async () => {
+    await mcp.cleanup()
+    await fixture.cleanup()
+  })
+
+  test("sets guidance on active run", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+    const runDir = await createRunForMcp(fixture.cwd, "test-prog", { phase: "agent_running" })
+
+    mockFindActiveRun.mockImplementation(() =>
+      Promise.resolve({ runId: "20260412-100000", runDir, daemonAlive: true }),
+    )
+
+    const result = await mcp.client.callTool({
+      name: "set_guidance",
+      arguments: { name: "test-prog", text: "Focus on parser optimizations" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(getTextContent(result)).toContain("Guidance set")
+
+    // Verify file was written
+    const written = await Bun.file(join(runDir, "guidance.md")).text()
+    expect(written.trim()).toBe("Focus on parser optimizations")
+  })
+
+  test("clears guidance with empty text", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+    const runDir = await createRunForMcp(fixture.cwd, "test-prog", { phase: "agent_running" })
+
+    // Write some initial guidance
+    await Bun.write(join(runDir, "guidance.md"), "old guidance\n")
+
+    mockFindActiveRun.mockImplementation(() =>
+      Promise.resolve({ runId: "20260412-100000", runDir, daemonAlive: true }),
+    )
+
+    const result = await mcp.client.callTool({
+      name: "set_guidance",
+      arguments: { name: "test-prog", text: "" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(getTextContent(result)).toContain("Guidance cleared")
+    expect(await Bun.file(join(runDir, "guidance.md")).exists()).toBe(false)
+  })
+
+  test("returns error when no active run", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+    mockFindActiveRun.mockImplementation(() => Promise.resolve(null))
+
+    const result = await mcp.client.callTool({
+      name: "set_guidance",
+      arguments: { name: "test-prog", text: "some guidance" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(getTextContent(result)).toContain("No active run")
+  })
+
+  test("returns error when daemon is not running", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+    const runDir = await createRunForMcp(fixture.cwd, "test-prog", { phase: "agent_running" })
+
+    mockFindActiveRun.mockImplementation(() =>
+      Promise.resolve({ runId: "20260412-100000", runDir, daemonAlive: false }),
+    )
+
+    const result = await mcp.client.callTool({
+      name: "set_guidance",
+      arguments: { name: "test-prog", text: "some guidance" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(getTextContent(result)).toContain("Daemon is not running")
   })
 })

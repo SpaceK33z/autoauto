@@ -29,10 +29,12 @@ import {
   updateMaxExperiments,
   getMaxExperiments,
   readDaemonLogTail,
+  writeGuidance,
   type DaemonWatcher,
 } from "../lib/daemon-client.ts"
 import { RunCompletePrompt } from "../components/RunCompletePrompt.tsx"
 import { RunSettingsOverlay } from "../components/RunSettingsOverlay.tsx"
+import { GuidanceOverlay } from "../components/GuidanceOverlay.tsx"
 import { StatsHeader } from "../components/StatsHeader.tsx"
 import { ResultsTable } from "../components/ResultsTable.tsx"
 import { AgentPanel } from "../components/AgentPanel.tsx"
@@ -258,6 +260,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [quotaInfo, setQuotaInfo] = useState<QuotaInfo | undefined>()
   const [ideasText, setIdeasText] = useState("")
+  const [guidanceText, setGuidanceText] = useState("")
+  const [showGuidance, setShowGuidance] = useState(false)
   const [summaryText, setSummaryText] = useState("")
   const [showIdeas, setShowIdeas] = useState(true)
   const [activeBottomTab, setActiveBottomTab] = useState<"agent" | "ideas">("agent")
@@ -329,6 +333,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 setExperimentNumber(reconstructed.state.experiment_number)
                 setAgentStreamText(reconstructed.streamText)
                 setIdeasText(reconstructed.ideasText)
+                setGuidanceText(reconstructed.guidanceText)
                 setSummaryText(reconstructed.summaryText)
                 setTerminationReason(reconstructed.state.termination_reason ?? null)
                 if (currentMax != null) {
@@ -370,6 +375,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             setExperimentNumber(reconstructed.state.experiment_number)
             setAgentStreamText(reconstructed.streamText)
             setIdeasText(reconstructed.ideasText)
+            setGuidanceText(reconstructed.guidanceText)
             setSummaryText(reconstructed.summaryText)
             if (reconstructed.state.phase === "crashed") {
               setLastError(reconstructed.state.error ?? "Daemon crashed")
@@ -454,6 +460,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             onIdeasChange: (text) => {
               if (cancelled) return
               setIdeasText(text)
+            },
+            onGuidanceChange: (text) => {
+              if (cancelled) return
+              setGuidanceText(text)
             },
             onQuotaChange: (quota) => {
               if (cancelled) return
@@ -547,6 +557,19 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   }, [])
 
   const handleDirtyQuit = useCallback(() => navigate("home"), [navigate])
+
+  const handleGuidanceSave = useCallback((text: string) => {
+    setShowGuidance(false)
+    const trimmed = text.trim()
+    const prev = guidanceText
+    setGuidanceText(trimmed)
+    if (runDir) {
+      writeGuidance(runDir, trimmed).catch((err) => {
+        setGuidanceText(prev)
+        setLastError(formatShellError(err, "Failed to save guidance"))
+      })
+    }
+  }, [runDir, guidanceText])
 
   const handleFinalize = useCallback(async () => {
     if (!runState || !runDir || !programConfig) return
@@ -763,6 +786,14 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       return
     }
 
+    // Guidance overlay — textarea handles input; only intercept Escape
+    if (showGuidance) {
+      if (key.name === "escape") {
+        setShowGuidance(false)
+      }
+      return
+    }
+
     // Stop confirmation dialog
     if (showStopConfirm) {
       if (key.name === "y") {
@@ -829,6 +860,11 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
       if (key.name === "s") {
         setShowSettings(true)
+        return
+      }
+
+      if (key.name === "g" && !readOnly) {
+        setShowGuidance(true)
         return
       }
 
@@ -977,6 +1013,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             />
           )}
 
+          {showGuidance && (
+            <GuidanceOverlay
+              currentGuidance={guidanceText}
+              onSave={handleGuidanceSave}
+            />
+          )}
+
           {showStopConfirm && (
             <box paddingX={1}>
               <text fg={colors.warning} selectable>Stop after current experiment (y) / Abort immediately (a) / Cancel (n)</text>
@@ -996,7 +1039,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           )}
 
           <box paddingX={1} flexShrink={0}>
-            <text fg={colors.textMuted}>Esc: detach · Tab: switch panel · s: settings · q: stop{ideasVisible ? " · [/]: agent/ideas · i: ideas" : ideasText.length > 0 ? " · i: ideas" : ""}</text>
+            <text fg={colors.textMuted}>Esc: detach · Tab: switch panel · s: settings{readOnly ? "" : ` · g: guide${guidanceText ? " (active)" : ""}`} · q: stop{ideasVisible ? " · [/]: agent/ideas · i: ideas" : ideasText.length > 0 ? " · i: ideas" : ""}</text>
           </box>
         </box>
       )}

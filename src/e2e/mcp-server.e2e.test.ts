@@ -909,6 +909,65 @@ describe("MCP validate_measurement", () => {
   })
 }, 90_000)
 
+
+// ---------------------------------------------------------------------------
+// get_guidance
+// ---------------------------------------------------------------------------
+
+describe("MCP get_guidance", () => {
+  let fixture: TestFixture
+  let mcp: McpTestContext
+
+  beforeEach(async () => {
+    fixture = await createTestFixture()
+    mcp = await createMcpTestClient(fixture.cwd)
+  })
+
+  afterEach(async () => {
+    await mcp.cleanup()
+    await fixture.cleanup()
+  })
+
+  test("returns no guidance when file does not exist", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+    await createRunForMcp(fixture.cwd, "test-prog")
+
+    const result = await mcp.client.callTool({
+      name: "get_guidance",
+      arguments: { name: "test-prog" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const data = getJsonContent(result) as { has_guidance: boolean; guidance: string | null }
+    expect(data.has_guidance).toBe(false)
+    expect(data.guidance).toBeNull()
+  })
+
+  test("returns guidance when file exists", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+    const runDir = await createRunForMcp(fixture.cwd, "test-prog")
+    await Bun.write(join(runDir, "guidance.md"), "Focus on parser optimizations\n")
+
+    const result = await mcp.client.callTool({
+      name: "get_guidance",
+      arguments: { name: "test-prog" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const data = getJsonContent(result) as { has_guidance: boolean; guidance: string }
+    expect(data.has_guidance).toBe(true)
+    expect(data.guidance).toBe("Focus on parser optimizations")
+  })
+
+  test("returns error for non-existent program", async () => {
+    const result = await mcp.client.callTool({
+      name: "get_guidance",
+      arguments: { name: "no-such" },
+    })
+    expect(result.isError).toBe(true)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // conversational sessions
 // ---------------------------------------------------------------------------
