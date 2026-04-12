@@ -1,18 +1,21 @@
 /**
  * E2E tests for MCP daemon tools (start_run, stop_run, update_run_limit).
- * These tools interact with daemon processes, so we mock the daemon-client
- * module. Everything else (MCP protocol, filesystem, programs) is real.
- *
- * Separated from mcp-server.e2e.test.ts so the module mock doesn't pollute
- * the zero-mocking filesystem tests.
+ * These tools interact with daemon processes, so we inject mock daemon
+ * dependencies via createMcpServer's daemonDeps parameter instead of using
+ * mock.module (which is process-wide in Bun and causes segfaults when
+ * combined with OpenTUI test renderer).
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock, type Mock } from "bun:test"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { createTestFixture, type TestFixture } from "./fixture.ts"
 import { createProgramForMcp, createRunForMcp, getTextContent, getJsonContent, type McpTestContext } from "./mcp-helpers.ts"
+import { createMcpServer, type McpDaemonDeps } from "../mcp.ts"
+import { resetProjectRoot } from "../lib/programs.ts"
 
 // ---------------------------------------------------------------------------
-// Mock daemon modules BEFORE importing createMcpServer
+// Mock daemon functions — injected via createMcpServer's daemonDeps
 // ---------------------------------------------------------------------------
 
 const mockSpawnDaemon = mock(() =>
@@ -29,34 +32,19 @@ const mockForceKillDaemon = mock(() => Promise.resolve())
 const mockGetDaemonStatus = mock(() => Promise.resolve({ alive: false, starting: false, daemonJson: null }))
 const mockUpdateMaxExperiments = mock(() => Promise.resolve())
 
-mock.module("../lib/daemon-spawn.ts", () => ({
+const daemonDeps: Partial<McpDaemonDeps> = {
   spawnDaemon: mockSpawnDaemon,
-}))
-
-mock.module("../lib/daemon-status.ts", () => ({
   getDaemonStatus: mockGetDaemonStatus,
   sendStop: mockSendStop,
   sendAbort: mockSendAbort,
   forceKillDaemon: mockForceKillDaemon,
-  updateMaxExperiments: mockUpdateMaxExperiments,
   findActiveRun: mockFindActiveRun,
-  reconstructState: mock(() => Promise.resolve(null)),
-  getMaxExperiments: mock(() => Promise.resolve(null)),
-  readDaemonLogTail: mock(() => Promise.resolve("")),
-  getMaxCostUsd: mock(() => Promise.resolve(null)),
-  updateMaxCostUsd: mock(() => Promise.resolve()),
-}))
-
-// Import AFTER mocks are set up — can't reuse createMcpTestClient from helpers
-// because that would import createMcpServer before mock.module takes effect.
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
-import { createMcpServer } from "../mcp.ts"
-import { resetProjectRoot } from "../lib/programs.ts"
+  updateMaxExperiments: mockUpdateMaxExperiments,
+}
 
 async function createMcpClient(cwd: string): Promise<McpTestContext> {
   resetProjectRoot()
-  const server = createMcpServer(cwd)
+  const server = createMcpServer(cwd, daemonDeps)
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: "test-client", version: "1.0.0" })
   await server.connect(serverTransport)

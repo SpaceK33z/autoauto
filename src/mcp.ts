@@ -38,14 +38,25 @@ import {
   type RunState,
 } from "./lib/run.ts"
 import {
-  spawnDaemon,
-  getDaemonStatus,
-  sendStop,
-  sendAbort,
-  forceKillDaemon,
-  findActiveRun,
-  updateMaxExperiments,
+  spawnDaemon as _spawnDaemon,
+  getDaemonStatus as _getDaemonStatus,
+  sendStop as _sendStop,
+  sendAbort as _sendAbort,
+  forceKillDaemon as _forceKillDaemon,
+  findActiveRun as _findActiveRun,
+  updateMaxExperiments as _updateMaxExperiments,
 } from "./lib/daemon-client.ts"
+
+/** Daemon function overrides for testing (avoids process-wide mock.module). */
+export interface McpDaemonDeps {
+  spawnDaemon: typeof _spawnDaemon
+  getDaemonStatus: typeof _getDaemonStatus
+  sendStop: typeof _sendStop
+  sendAbort: typeof _sendAbort
+  forceKillDaemon: typeof _forceKillDaemon
+  findActiveRun: typeof _findActiveRun
+  updateMaxExperiments: typeof _updateMaxExperiments
+}
 import {
   loadProjectConfig,
   saveProjectConfig,
@@ -143,8 +154,16 @@ async function writeScript(path: string, content: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /** Create an MCP server instance bound to the given project root. */
-export function createMcpServer(cwd: string): McpServer {
+export function createMcpServer(cwd: string, daemonDeps?: Partial<McpDaemonDeps>): McpServer {
   registerDefaultProviders()
+
+  const spawnDaemon = daemonDeps?.spawnDaemon ?? _spawnDaemon
+  const getDaemonStatus = daemonDeps?.getDaemonStatus ?? _getDaemonStatus
+  const sendStop = daemonDeps?.sendStop ?? _sendStop
+  const sendAbort = daemonDeps?.sendAbort ?? _sendAbort
+  const forceKillDaemon = daemonDeps?.forceKillDaemon ?? _forceKillDaemon
+  const findActiveRun = daemonDeps?.findActiveRun ?? _findActiveRun
+  const updateMaxExperiments = daemonDeps?.updateMaxExperiments ?? _updateMaxExperiments
 
   async function resolveProgram(name: string): Promise<{ root: string; programDir: string; programConfig: ProgramConfig }> {
     const root = await getProjectRoot(cwd)
