@@ -14,8 +14,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
-import { join, dirname } from "node:path"
-import { fileURLToPath } from "node:url"
+import { join } from "node:path"
 import { mkdir, chmod } from "node:fs/promises"
 import {
   listPrograms,
@@ -49,11 +48,27 @@ import {
 } from "./lib/daemon-client.ts"
 import {
   loadProjectConfig,
+  saveProjectConfig,
+  NOTIFICATION_PRESET_IDS,
+  PROVIDER_CHOICES,
+  type ProjectConfig,
   type ModelSlot,
 } from "./lib/config.ts"
 import { streamLogName } from "./lib/daemon-callbacks.ts"
 import { formatRunDuration, formatChangePct } from "./lib/format.ts"
 import { generateSummaryReport, saveFinalizeReport } from "./lib/finalize.ts"
+import { getSelfCommand } from "./lib/self-command.ts"
+import {
+  deleteSession as deleteAgentSession,
+  listSessions as listAgentSessions,
+  loadSession as loadAgentSession,
+  sendSessionMessage,
+  startSetupSession,
+  startUpdateSession,
+} from "./lib/mcp-agent-sessions.ts"
+import { getProvider } from "./lib/agent/index.ts"
+import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
+import { AUTOAUTO_VERSION } from "./version.ts"
 
 // ---------------------------------------------------------------------------
 // CWD resolution
@@ -64,8 +79,6 @@ function resolveCwd(): string {
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1]
   return process.cwd()
 }
-
-const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "lib", "validate-measurement.ts")
 
 /** Reusable slug schema — prevents path traversal via names like "../../etc" */
 const SlugSchema = z.string().min(1).regex(/^[a-z0-9-]+$/, "Must be lowercase letters, numbers, and hyphens only")
@@ -84,6 +97,17 @@ function jsonText(obj: unknown) {
 
 function errorResult(msg: string) {
   return { content: [{ type: "text" as const, text: msg }], isError: true as const }
+}
+
+function getProviderOrError(provider: typeof PROVIDER_CHOICES[number]) {
+  try {
+    return { provider: getProvider(provider), error: null }
+  } catch (err) {
+    return {
+      provider: null,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
 }
 
 async function readFileOrNull(path: string): Promise<string | null> {
@@ -114,14 +138,14 @@ async function writeScript(path: string, content: string): Promise<void> {
   await chmod(path, 0o755)
 }
 
-const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json()
-
 // ---------------------------------------------------------------------------
 // Server factory
 // ---------------------------------------------------------------------------
 
 /** Create an MCP server instance bound to the given project root. */
 export function createMcpServer(cwd: string): McpServer {
+  registerDefaultProviders()
+
   async function resolveProgram(name: string): Promise<{ root: string; programDir: string; programConfig: ProgramConfig }> {
     const root = await getProjectRoot(cwd)
     const programDir = getProgramDir(root, name)
@@ -134,7 +158,7 @@ export function createMcpServer(cwd: string): McpServer {
   }
 
   const server = new McpServer(
-    { name: "autoauto", version: pkg.version },
+    { name: "autoauto", version: AUTOAUTO_VERSION },
     {
       capabilities: { logging: {} },
       instructions: [
@@ -145,6 +169,171 @@ export function createMcpServer(cwd: string): McpServer {
       ].join("\n"),
     },
   )
+
+const ModelSlotSchema = z.object({
+  provider: z.enum(PROVIDER_CHOICES),
+  model: z.string().min(1),
+  effort: z.enum(["low", "medium", "high", "max"]),
+})
+
+const PartialProjectConfigSchema = z.object({
+  executionModel: ModelSlotSchema.optional(),
+  supportModel: ModelSlotSchema.optional(),
+  executionFallbackModel: z.union([ModelSlotSchema, z.null()]).optional(),
+  ideasBacklogEnabled: z.boolean().optional(),
+  notificationPreset: z.enum(NOTIFICATION_PRESET_IDS).optional(),
+  notificationCommand: z.union([z.string(), z.null()]).optional(),
+})
+
+function mergeProjectConfig(current: ProjectConfig, patch: z.infer<typeof PartialProjectConfigSchema>): ProjectConfig {
+  return {
+    ...current,
+    ...patch,
+    executionModel: patch.executionModel ?? current.executionModel,
+    supportModel: patch.supportModel ?? current.supportModel,
+    executionFallbackModel: patch.executionFallbackModel !== undefined
+      ? patch.executionFallbackModel
+      : current.executionFallbackModel,
+  }
+}
+
+server.registerTool(
+  "get_config",
+  {
+    title: "Get Config",
+    description: "Get the project configuration used for execution, setup/update, fallback, ideas backlog, and notifications.",
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    const root = await getProjectRoot(cwd)
+    const config = await loadProjectConfig(root)
+    return jsonText(config)
+  },
+)
+
+server.registerTool(
+  "set_config",
+  {
+    title: "Set Config",
+    description: "Update project configuration fields. Only provided fields are changed.",
+    inputSchema: PartialProjectConfigSchema,
+  },
+  async (patch) => {
+    const root = await getProjectRoot(cwd)
+    const current = await loadProjectConfig(root)
+    const next = mergeProjectConfig(current, patch)
+    await saveProjectConfig(root, next)
+    return jsonText(next)
+  },
+)
+
+server.registerTool(
+  "list_models",
+  {
+    title: "List Models",
+    description: "List available models for one provider or all providers, including the provider default model when available.",
+    inputSchema: z.object({
+      provider: z.enum(PROVIDER_CHOICES).optional().describe("Optional provider filter"),
+      force_refresh: z.boolean().default(false).describe("Ask the provider to refresh model data"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ provider, force_refresh }) => {
+    const root = await getProjectRoot(cwd)
+    const providers = provider ? [provider] as const : PROVIDER_CHOICES
+    const results = await Promise.all(providers.map(async (providerId) => {
+      const resolved = getProviderOrError(providerId)
+      if (!resolved.provider) {
+        return {
+          provider: providerId,
+          available: false,
+          error: resolved.error,
+          default_model: null,
+          models: [],
+        }
+      }
+
+      try {
+        const [models, defaultModel] = await Promise.all([
+          resolved.provider.listModels?.(root, force_refresh) ?? Promise.resolve([]),
+          resolved.provider.getDefaultModel?.(root) ?? Promise.resolve(null),
+        ])
+        return {
+          provider: providerId,
+          available: true,
+          error: null,
+          default_model: defaultModel,
+          models: models.map((model) => ({
+            provider: model.provider,
+            model: model.model,
+            label: model.label,
+            description: model.description ?? null,
+            is_default: model.isDefault ?? false,
+          })),
+        }
+      } catch (err) {
+        return {
+          provider: providerId,
+          available: false,
+          error: err instanceof Error ? err.message : String(err),
+          default_model: null,
+          models: [],
+        }
+      }
+    }))
+
+    return jsonText(provider ? results[0] : results)
+  },
+)
+
+server.registerTool(
+  "check_auth",
+  {
+    title: "Check Auth",
+    description: "Check authentication status for one provider or all providers.",
+    inputSchema: z.object({
+      provider: z.enum(PROVIDER_CHOICES).optional().describe("Optional provider filter"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ provider }) => {
+    const providers = provider ? [provider] as const : PROVIDER_CHOICES
+    const results = await Promise.all(providers.map(async (providerId) => {
+      const resolved = getProviderOrError(providerId)
+      if (!resolved.provider) {
+        return {
+          provider: providerId,
+          available: false,
+          authenticated: false,
+          error: resolved.error,
+          account: null,
+        }
+      }
+
+      try {
+        const auth = await resolved.provider.checkAuth()
+        return {
+          provider: providerId,
+          available: true,
+          authenticated: auth.authenticated,
+          error: auth.authenticated ? null : auth.error,
+          account: auth.authenticated ? auth.account : null,
+        }
+      } catch (err) {
+        return {
+          provider: providerId,
+          available: false,
+          authenticated: false,
+          error: err instanceof Error ? err.message : String(err),
+          account: null,
+        }
+      }
+    }))
+
+    return jsonText(provider ? results[0] : results)
+  },
+)
 
 // ---------------------------------------------------------------------------
 // Tool: list_programs
@@ -440,6 +629,170 @@ const ConfigSchema = z.object({
 })
 
 server.registerTool(
+  "start_setup_session",
+  {
+    title: "Start Setup Session",
+    description:
+      "Start a conversational setup agent session. Use mode='analyze' for ideation or mode='direct' when you already know the target.",
+    inputSchema: z.object({
+      mode: z.enum(["direct", "analyze"]).describe("Conversation mode"),
+      message: z.string().optional().describe("Optional first message for direct mode"),
+      focus: z.string().optional().describe("Optional area to focus on for analyze mode"),
+      provider: z.enum(["claude", "codex", "opencode"]).optional().describe("Support-model provider override"),
+      model: z.string().optional().describe("Support-model name override"),
+      effort: z.enum(["low", "medium", "high", "max"]).optional().describe("Support-model effort override"),
+    }),
+  },
+  async ({ mode, message, focus, provider, model, effort }) => {
+    try {
+      const result = await startSetupSession(cwd, { mode, message, focus, provider, model, effort })
+      return jsonText({
+        session_id: result.session.id,
+        kind: result.session.kind,
+        provider: result.session.provider,
+        model: result.session.model,
+        effort: result.session.effort,
+        auto_sent: Boolean(result.firstTurn),
+        assistant_message: result.firstTurn?.assistantMessage ?? null,
+        tool_events: result.firstTurn?.toolEvents ?? [],
+        messages: result.firstTurn?.messages ?? result.session.messages,
+      })
+    } catch (err) {
+      return errorResult(`Failed to start setup session: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+)
+
+server.registerTool(
+  "start_update_session",
+  {
+    title: "Start Update Session",
+    description:
+      "Start a conversational update agent session for an existing program. Auto-seeds the agent with the latest run context.",
+    inputSchema: z.object({
+      name: SlugSchema.describe("Program slug"),
+      provider: z.enum(["claude", "codex", "opencode"]).optional().describe("Support-model provider override"),
+      model: z.string().optional().describe("Support-model name override"),
+      effort: z.enum(["low", "medium", "high", "max"]).optional().describe("Support-model effort override"),
+    }),
+  },
+  async ({ name, provider, model, effort }) => {
+    try {
+      const result = await startUpdateSession(cwd, name, { provider, model, effort })
+      return jsonText({
+        session_id: result.session.id,
+        kind: result.session.kind,
+        program_slug: result.session.programSlug,
+        provider: result.session.provider,
+        model: result.session.model,
+        effort: result.session.effort,
+        assistant_message: result.firstTurn.assistantMessage,
+        tool_events: result.firstTurn.toolEvents,
+        messages: result.firstTurn.messages,
+      })
+    } catch (err) {
+      return errorResult(`Failed to start update session: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+)
+
+server.registerTool(
+  "send_session_message",
+  {
+    title: "Send Session Message",
+    description:
+      "Send a user message to a setup/update session and wait for the agent's next reply.",
+    inputSchema: z.object({
+      session_id: z.string().min(1).describe("Session ID from start_setup_session or start_update_session"),
+      message: z.string().min(1).describe("User message to send"),
+    }),
+  },
+  async ({ session_id, message }) => {
+    try {
+      const result = await sendSessionMessage(cwd, session_id, message)
+      return jsonText({
+        session_id,
+        assistant_message: result.assistantMessage,
+        tool_events: result.toolEvents,
+        messages: result.messages,
+      })
+    } catch (err) {
+      return errorResult(`Failed to send session message: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  },
+)
+
+server.registerTool(
+  "get_session",
+  {
+    title: "Get Session",
+    description: "Get the current transcript and metadata for a setup/update session.",
+    inputSchema: z.object({
+      session_id: z.string().min(1).describe("Session ID"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ session_id }) => {
+    const session = await loadAgentSession(cwd, session_id)
+    if (!session) return errorResult(`Session "${session_id}" not found.`)
+    return jsonText({
+      session_id: session.id,
+      kind: session.kind,
+      program_slug: session.programSlug,
+      created_at: session.createdAt,
+      updated_at: session.updatedAt,
+      provider: session.provider,
+      model: session.model,
+      effort: session.effort,
+      messages: session.messages,
+    })
+  },
+)
+
+server.registerTool(
+  "list_sessions",
+  {
+    title: "List Sessions",
+    description: "List persisted setup/update conversation sessions.",
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    const sessions = await listAgentSessions(cwd)
+    return jsonText(sessions.map((session) => ({
+      session_id: session.id,
+      kind: session.kind,
+      program_slug: session.programSlug,
+      updated_at: session.updatedAt,
+      provider: session.provider,
+      model: session.model,
+      effort: session.effort,
+      message_count: session.messages.length,
+    })))
+  },
+)
+
+server.registerTool(
+  "delete_session",
+  {
+    title: "Delete Session",
+    description: "Delete a persisted setup/update conversation session.",
+    inputSchema: z.object({
+      session_id: z.string().min(1).describe("Session ID"),
+      confirm: z.literal(true).describe("Must be true to confirm deletion"),
+    }),
+    annotations: { destructiveHint: true },
+  },
+  async ({ session_id, confirm }) => {
+    if (!confirm) return errorResult("Deletion requires confirm=true.")
+    const session = await loadAgentSession(cwd, session_id)
+    if (!session) return errorResult(`Session "${session_id}" not found.`)
+    await deleteAgentSession(cwd, session_id)
+    return text(`Session '${session_id}' deleted.`)
+  },
+)
+
+server.registerTool(
   "create_program",
   {
     title: "Create Program",
@@ -634,8 +987,9 @@ server.registerTool(
     }
 
     try {
+      const validator = getSelfCommand("__validate_measurement")
       const proc = Bun.spawn(
-        ["bun", "run", VALIDATE_SCRIPT, measureSh, configJson, String(runs)],
+        [validator.command, ...validator.args, measureSh, configJson, String(runs)],
         {
           cwd: root,
           stdout: "pipe",

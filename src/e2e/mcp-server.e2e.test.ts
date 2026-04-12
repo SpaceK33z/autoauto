@@ -15,6 +15,9 @@ import {
   type McpTestContext,
 } from "./mcp-helpers.ts"
 import { createTestFixture, type TestFixture } from "./fixture.ts"
+import { setProvider } from "../lib/agent/index.ts"
+import { MockProvider } from "../lib/agent/mock-provider.ts"
+import { saveProjectConfig } from "../lib/config.ts"
 
 // ---------------------------------------------------------------------------
 // list_programs
@@ -767,3 +770,231 @@ describe("MCP validate_measurement", () => {
     expect(getTextContent(result)).toContain("not found")
   })
 }, 90_000)
+
+// ---------------------------------------------------------------------------
+// conversational sessions
+// ---------------------------------------------------------------------------
+
+describe("MCP conversational sessions", () => {
+  let fixture: TestFixture
+  let mcp: McpTestContext
+
+  beforeEach(async () => {
+    fixture = await createTestFixture()
+    setProvider("claude", new MockProvider([
+      { type: "tool_use", tool: "Read", input: { file_path: "/tmp/test.txt" } },
+      { type: "assistant_complete", text: "Mock reply." },
+      { type: "result", success: true },
+    ]))
+    mcp = await createMcpTestClient(fixture.cwd)
+  })
+
+  afterEach(async () => {
+    await mcp.cleanup()
+    await fixture.cleanup()
+  })
+
+  test("start_setup_session creates a session and returns first reply", async () => {
+    const result = await mcp.client.callTool({
+      name: "start_setup_session",
+      arguments: {
+        mode: "direct",
+        message: "I want to optimize bundle size.",
+      },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const data = getJsonContent(result) as {
+      session_id: string
+      kind: string
+      assistant_message: string
+      tool_events: string[]
+      messages: Array<{ role: string; content: string }>
+    }
+
+    expect(data.kind).toBe("setup")
+    expect(data.assistant_message).toBe("Mock reply.")
+    expect(data.tool_events[0]).toContain("Reading")
+    expect(data.messages).toEqual([
+      { role: "user", content: "I want to optimize bundle size." },
+      { role: "assistant", content: "Mock reply." },
+    ])
+  })
+
+  test("sessions persist across MCP server reconnects", async () => {
+    const started = await mcp.client.callTool({
+      name: "start_setup_session",
+      arguments: { mode: "direct", message: "First turn." },
+    })
+    const { session_id } = getJsonContent(started) as { session_id: string }
+
+    await mcp.cleanup()
+    mcp = await createMcpTestClient(fixture.cwd)
+
+    const replied = await mcp.client.callTool({
+      name: "send_session_message",
+      arguments: {
+        session_id,
+        message: "Second turn.",
+      },
+    })
+
+    expect(replied.isError).toBeFalsy()
+    const session = await mcp.client.callTool({
+      name: "get_session",
+      arguments: { session_id },
+    })
+
+    const data = getJsonContent(session) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    expect(data.messages).toEqual([
+      { role: "user", content: "First turn." },
+      { role: "assistant", content: "Mock reply." },
+      { role: "user", content: "Second turn." },
+      { role: "assistant", content: "Mock reply." },
+    ])
+  })
+
+  test("start_update_session auto-seeds from program context", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+
+    const result = await mcp.client.callTool({
+      name: "start_update_session",
+      arguments: { name: "test-prog" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const data = getJsonContent(result) as {
+      kind: string
+      program_slug: string
+      assistant_message: string
+      messages: Array<{ role: string; content: string }>
+    }
+
+    expect(data.kind).toBe("update")
+    expect(data.program_slug).toBe("test-prog")
+    expect(data.assistant_message).toBe("Mock reply.")
+    expect(data.messages[0]?.role).toBe("user")
+    expect(data.messages[0]?.content).toContain("No previous runs found")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// config / models / auth
+// ---------------------------------------------------------------------------
+
+describe("MCP config and provider metadata", () => {
+  let fixture: TestFixture
+  let mcp: McpTestContext
+
+  beforeEach(async () => {
+    fixture = await createTestFixture()
+    setProvider("claude", new MockProvider(
+      [],
+      { authenticated: true, account: { email: "claude@example.com" } },
+      [{ provider: "claude", model: "sonnet", label: "Sonnet", isDefault: true }],
+    ))
+    setProvider("codex", new MockProvider(
+      [],
+      { authenticated: false, error: "Codex login required" },
+      [{ provider: "codex", model: "default", label: "Codex Default", isDefault: true }],
+    ))
+    setProvider("opencode", new MockProvider(
+      [],
+      { authenticated: true, account: { email: "opencode@example.com" } },
+      [{ provider: "opencode", model: "openai/gpt-5", label: "GPT-5" }],
+    ))
+    mcp = await createMcpTestClient(fixture.cwd)
+  })
+
+  afterEach(async () => {
+    await mcp.cleanup()
+    await fixture.cleanup()
+  })
+
+  test("get_config returns defaults when no config exists", async () => {
+    const result = await mcp.client.callTool({ name: "get_config", arguments: {} })
+    const data = getJsonContent(result) as {
+      executionModel: { provider: string; model: string; effort: string }
+      supportModel: { provider: string; model: string; effort: string }
+      ideasBacklogEnabled: boolean
+    }
+
+    expect(data.executionModel).toEqual({ provider: "claude", model: "sonnet", effort: "high" })
+    expect(data.supportModel).toEqual({ provider: "claude", model: "sonnet", effort: "high" })
+    expect(data.ideasBacklogEnabled).toBe(true)
+  })
+
+  test("set_config merges provided fields", async () => {
+    await saveProjectConfig(fixture.cwd, {
+      executionModel: { provider: "claude", model: "sonnet", effort: "high" },
+      supportModel: { provider: "claude", model: "sonnet", effort: "high" },
+      executionFallbackModel: null,
+      ideasBacklogEnabled: true,
+      notificationPreset: "off",
+      notificationCommand: null,
+    })
+
+    const result = await mcp.client.callTool({
+      name: "set_config",
+      arguments: {
+        supportModel: { provider: "opencode", model: "openai/gpt-5", effort: "high" },
+        executionFallbackModel: { provider: "codex", model: "default", effort: "medium" },
+        ideasBacklogEnabled: false,
+      },
+    })
+
+    const data = getJsonContent(result) as {
+      executionModel: { provider: string; model: string; effort: string }
+      supportModel: { provider: string; model: string; effort: string }
+      executionFallbackModel: { provider: string; model: string; effort: string } | null
+      ideasBacklogEnabled: boolean
+    }
+
+    expect(data.executionModel).toEqual({ provider: "claude", model: "sonnet", effort: "high" })
+    expect(data.supportModel).toEqual({ provider: "opencode", model: "openai/gpt-5", effort: "high" })
+    expect(data.executionFallbackModel).toEqual({ provider: "codex", model: "default", effort: "medium" })
+    expect(data.ideasBacklogEnabled).toBe(false)
+  })
+
+  test("list_models returns models for all providers", async () => {
+    const result = await mcp.client.callTool({ name: "list_models", arguments: {} })
+    const data = getJsonContent(result) as Array<{
+      provider: string
+      available: boolean
+      default_model: string | null
+      models: Array<{ model: string }>
+    }>
+
+    expect(data).toHaveLength(3)
+    expect(data.find((p) => p.provider === "claude")).toMatchObject({
+      available: true,
+      default_model: "sonnet",
+      models: [{ model: "sonnet" }],
+    })
+    expect(data.find((p) => p.provider === "codex")).toMatchObject({
+      available: true,
+      default_model: "default",
+      models: [{ model: "default" }],
+    })
+  })
+
+  test("check_auth returns auth state for all providers", async () => {
+    const result = await mcp.client.callTool({ name: "check_auth", arguments: {} })
+    const data = getJsonContent(result) as Array<{
+      provider: string
+      authenticated: boolean
+      error: string | null
+    }>
+
+    expect(data.find((p) => p.provider === "claude")).toMatchObject({
+      authenticated: true,
+      error: null,
+    })
+    expect(data.find((p) => p.provider === "codex")).toMatchObject({
+      authenticated: false,
+      error: "Codex login required",
+    })
+  })
+})

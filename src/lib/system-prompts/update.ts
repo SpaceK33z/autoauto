@@ -1,8 +1,10 @@
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { getProgramsDir } from "../programs.ts"
+import { formatSelfCommand } from "../self-command-format.ts"
 
 const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "validate-measurement.ts")
+const VALIDATE_COMMAND = formatSelfCommand("__validate_measurement")
 
 export interface UpdatePromptResult {
   systemPrompt: string
@@ -105,6 +107,7 @@ This file contains validation procedures and artifact format reference for the A
 - Programs directory: ${programsDir}
 - Program directory: ${programDir}
 - Validation script: ${VALIDATE_SCRIPT}
+- Validation command: ${VALIDATE_COMMAND}
 
 ## Measurement Validation
 
@@ -114,7 +117,7 @@ After modifying measure.sh, build.sh, or config.json, ALWAYS validate measuremen
 
 Run this exact command via Bash:
 \`\`\`bash
-bun run ${VALIDATE_SCRIPT} ${programDir}/measure.sh ${programDir}/config.json 5
+${VALIDATE_COMMAND} ${programDir}/measure.sh ${programDir}/config.json 5
 \`\`\`
 
 The validation script:

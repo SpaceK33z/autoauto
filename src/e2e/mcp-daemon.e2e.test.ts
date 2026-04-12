@@ -128,6 +128,34 @@ describe("MCP start_run", () => {
     expect(args[3]).toBe(50)
   })
 
+  test("allows start_run immediately after create_program adds .autoauto to .gitignore", async () => {
+    const created = await mcp.client.callTool({
+      name: "create_program",
+      arguments: {
+        name: "fresh-prog",
+        program_md: "# Fresh Program\n\n## Goal\nKeep score low.\n",
+        measure_sh: '#!/bin/bash\necho \'{"score": 1}\'',
+        config: {
+          metric_field: "score",
+          direction: "lower",
+          noise_threshold: 0.01,
+          repeats: 1,
+          max_experiments: 5,
+          quality_gates: {},
+        },
+      },
+    })
+    expect(created.isError).toBeFalsy()
+
+    const result = await mcp.client.callTool({
+      name: "start_run",
+      arguments: { name: "fresh-prog" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(mockSpawnDaemon).toHaveBeenCalledTimes(1)
+  })
+
   test("returns error for non-existent program", async () => {
     const result = await mcp.client.callTool({
       name: "start_run",
