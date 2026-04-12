@@ -28,7 +28,31 @@ import {
   validateProgramConfig,
   type ProgramConfig,
 } from "./lib/programs.ts"
-import { listRuns, isRunActive, deleteProgram } from "./lib/run.ts"
+import {
+  listRuns,
+  isRunActive,
+  deleteProgram,
+  readState,
+  readAllResults,
+  getRunStats,
+  getLatestRun,
+  type RunState,
+} from "./lib/run.ts"
+import {
+  spawnDaemon,
+  getDaemonStatus,
+  sendStop,
+  sendAbort,
+  forceKillDaemon,
+  findActiveRun,
+  updateMaxExperiments,
+} from "./lib/daemon-client.ts"
+import {
+  loadProjectConfig,
+  type ModelSlot,
+} from "./lib/config.ts"
+import { streamLogName } from "./lib/daemon-callbacks.ts"
+import { formatRunDuration, formatChangePct } from "./lib/format.ts"
 
 // ---------------------------------------------------------------------------
 // CWD resolution
@@ -66,6 +90,34 @@ async function readFileOrNull(path: string): Promise<string | null> {
   return null
 }
 
+async function resolveRunDir(
+  programDir: string,
+  runId?: string,
+): Promise<{ runDir: string; runId: string }> {
+  if (runId) {
+    const runDir = join(programDir, "runs", runId)
+    if (!(await Bun.file(join(runDir, "state.json")).exists())) {
+      throw new Error(`Run "${runId}" not found.`)
+    }
+    return { runDir, runId }
+  }
+
+  const latest = await getLatestRun(programDir)
+  if (!latest) throw new Error("No runs found.")
+  return { runDir: latest.run_dir, runId: latest.run_id }
+}
+
+async function resolveProgram(name: string): Promise<{ root: string; programDir: string; programConfig: ProgramConfig }> {
+  const root = await getProjectRoot(CWD)
+  const programDir = getProgramDir(root, name)
+  try {
+    const programConfig = await loadProgramConfig(programDir)
+    return { root, programDir, programConfig }
+  } catch {
+    throw new Error(`Program '${name}' not found.`)
+  }
+}
+
 async function writeScript(path: string, content: string): Promise<void> {
   await Bun.write(path, content)
   await chmod(path, 0o755)
@@ -83,12 +135,10 @@ const server = new McpServer(
     capabilities: { logging: {} },
     instructions: [
       "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
-      "Workflow: (1) get_setup_guide to learn artifact formats,",
-      "(2) list_programs to check for duplicates,",
-      "(3) create_program to write all files,",
-      "(4) validate_measurement to verify stability.",
-      "Use get_program to inspect existing programs, update_program to modify them, delete_program to remove them.",
-    ].join(" "),
+      "Setup workflow: (1) get_setup_guide to learn artifact formats, (2) list_programs to check for duplicates, (3) create_program to write all files, (4) validate_measurement to verify stability.",
+      "Run workflow: (1) start_run to launch an experiment loop, (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied.",
+      "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run.",
+    ].join("\n"),
   },
 )
 
@@ -618,6 +668,406 @@ server.registerTool(
     } catch (err) {
       return errorResult(`Validation failed: ${err}`)
     }
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: start_run
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "start_run",
+  {
+    title: "Start Run",
+    description: [
+      "Start an experiment run for a program.",
+      "Spawns a background daemon that measures a baseline then runs experiments autonomously.",
+      "Returns immediately — use get_run_status to poll for progress.",
+    ].join(" "),
+    inputSchema: z.object({
+      name: z.string().min(1).describe("Program slug"),
+      provider: z.enum(["claude", "codex", "opencode"]).optional().describe("Agent provider (default: from project config)"),
+      model: z.string().optional().describe("Model name, e.g. 'sonnet', 'opus' (default: from project config)"),
+      effort: z.enum(["low", "medium", "high", "max"]).optional().describe("Effort level (default: from project config)"),
+      max_experiments: z.number().int().min(1).optional().describe("Max experiments (default: from program config)"),
+      use_worktree: z.boolean().default(true).describe("Use git worktree isolation (default true)"),
+      carry_forward: z.boolean().default(true).describe("Carry forward results from previous runs (default true)"),
+    }),
+  },
+  async ({ name, provider, model, effort, max_experiments, use_worktree, carry_forward }) => {
+    let resolved: Awaited<ReturnType<typeof resolveProgram>>
+    try {
+      resolved = await resolveProgram(name)
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+    const { root, programConfig } = resolved
+
+    const projectConfig = await loadProjectConfig(root)
+    const modelConfig: ModelSlot = {
+      provider: provider ?? projectConfig.executionModel.provider,
+      model: model ?? projectConfig.executionModel.model,
+      effort: effort ?? projectConfig.executionModel.effort,
+    }
+    const maxExp = max_experiments ?? programConfig.max_experiments ?? 25
+
+    try {
+      const result = await spawnDaemon(
+        root,
+        name,
+        modelConfig,
+        maxExp,
+        projectConfig.ideasBacklogEnabled,
+        use_worktree,
+        carry_forward,
+        "manual",
+        undefined,  // maxCostUsd
+        undefined,  // keepSimplifications
+        projectConfig.executionFallbackModel,
+      )
+
+      return jsonText({
+        run_id: result.runId,
+        daemon_pid: result.pid,
+        status: "started",
+        message: `Run started. Daemon is measuring baseline, then will run up to ${maxExp} experiments. Use get_run_status to check progress.`,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return errorResult(`Failed to start run: ${msg}`)
+    }
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: get_run_status
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_run_status",
+  {
+    title: "Get Run Status",
+    description:
+      "Get the status of the latest (or a specific) run: phase, metrics, progress, cost, and whether the daemon is alive.",
+    inputSchema: z.object({
+      name: z.string().min(1).describe("Program slug"),
+      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ name, run_id }) => {
+    let resolved: Awaited<ReturnType<typeof resolveProgram>>
+    try {
+      resolved = await resolveProgram(name)
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+    const { programDir, programConfig } = resolved
+
+    let runDir: string
+    let resolvedRunId: string
+    try {
+      const r = await resolveRunDir(programDir, run_id)
+      runDir = r.runDir
+      resolvedRunId = r.runId
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+
+    let state: RunState
+    try {
+      state = await readState(runDir)
+    } catch {
+      return errorResult(`Could not read state for run "${resolvedRunId}".`)
+    }
+
+    const stats = getRunStats(state, programConfig.direction)
+    const active = await findActiveRun(programDir)
+    const daemonAlive = active?.runId === resolvedRunId && active.daemonAlive
+    const isComplete = state.phase === "complete" || state.phase === "crashed"
+
+    return jsonText({
+      run_id: resolvedRunId,
+      phase: state.phase,
+      daemon_alive: daemonAlive,
+      experiment_number: state.experiment_number,
+      metric_field: programConfig.metric_field,
+      direction: programConfig.direction,
+      original_baseline: state.original_baseline,
+      current_baseline: state.current_baseline,
+      best_metric: state.best_metric,
+      best_experiment: state.best_experiment,
+      improvement: formatChangePct(state.original_baseline, state.best_metric, programConfig.direction),
+      keeps: stats.total_keeps,
+      discards: stats.total_discards,
+      crashes: stats.total_crashes,
+      keep_rate: `${(stats.keep_rate * 100).toFixed(0)}%`,
+      cost_usd: state.total_cost_usd ?? 0,
+      elapsed: formatRunDuration(state.started_at, isComplete ? state.updated_at : undefined),
+      model: state.model ?? null,
+      provider: state.provider ?? null,
+      termination_reason: state.termination_reason ?? null,
+      error: state.error ?? null,
+    })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: list_runs
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "list_runs",
+  {
+    title: "List Runs",
+    description: "List all runs for a program with summary info (newest first).",
+    inputSchema: z.object({
+      name: z.string().min(1).describe("Program slug"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ name }) => {
+    let resolved: Awaited<ReturnType<typeof resolveProgram>>
+    try {
+      resolved = await resolveProgram(name)
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+    const { programDir, programConfig } = resolved
+
+    const runs = await listRuns(programDir)
+    if (runs.length === 0) return text("No runs found.")
+
+    const result = runs.map((r) => {
+      const s = r.state
+      return {
+        run_id: r.run_id,
+        phase: s?.phase ?? "unknown",
+        experiments: s ? s.total_keeps + s.total_discards + s.total_crashes : 0,
+        best_metric: s?.best_metric ?? null,
+        change: s
+          ? formatChangePct(s.original_baseline, s.best_metric, programConfig.direction)
+          : null,
+      }
+    })
+    return jsonText(result)
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: get_run_results
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_run_results",
+  {
+    title: "Get Run Results",
+    description:
+      "Get the experiment results table for a run: experiment number, status (keep/discard/crash), metric value, change %, commit, and description.",
+    inputSchema: z.object({
+      name: z.string().min(1).describe("Program slug"),
+      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      limit: z.number().int().min(1).optional().describe("Return only the last N results"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ name, run_id, limit }) => {
+    let resolved: Awaited<ReturnType<typeof resolveProgram>>
+    try {
+      resolved = await resolveProgram(name)
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+    const { programDir, programConfig } = resolved
+
+    let runDir: string
+    let resolvedRunId: string
+    try {
+      const r = await resolveRunDir(programDir, run_id)
+      runDir = r.runDir
+      resolvedRunId = r.runId
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+
+    const allResults = await readAllResults(runDir)
+    if (allResults.length === 0) {
+      return text("No results yet. Run may still be in baseline phase.")
+    }
+
+    const originalBaseline =
+      allResults.find((r) => r.experiment_number === 0)?.metric_value ?? allResults[0].metric_value
+
+    let results = allResults
+    if (limit != null) {
+      results = allResults.slice(-limit)
+    }
+
+    return jsonText({
+      run_id: resolvedRunId,
+      metric_field: programConfig.metric_field,
+      direction: programConfig.direction,
+      total_results: allResults.length,
+      results: results.map((r) => ({
+        experiment_number: r.experiment_number,
+        status: r.status,
+        metric_value: r.metric_value,
+        change: r.experiment_number === 0
+          ? null
+          : formatChangePct(originalBaseline, r.metric_value, programConfig.direction),
+        commit: r.commit.slice(0, 7),
+        description: r.description,
+        diff_stats: r.diff_stats ?? null,
+      })),
+    })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: get_experiment_log
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_experiment_log",
+  {
+    title: "Get Experiment Log",
+    description:
+      "Get the agent's streaming output (thinking, tool use, code changes) for a specific experiment.",
+    inputSchema: z.object({
+      name: z.string().min(1).describe("Program slug"),
+      experiment_number: z.union([
+        z.number().int().min(0),
+        z.literal("latest"),
+      ]).describe("Experiment number (0 = baseline) or 'latest'"),
+      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ name, experiment_number, run_id }) => {
+    const root = await getProjectRoot(CWD)
+    const programDir = getProgramDir(root, name)
+
+    if (!(await Bun.file(join(programDir, "config.json")).exists())) {
+      return errorResult(`Program '${name}' not found.`)
+    }
+
+    let runDir: string
+    try {
+      const r = await resolveRunDir(programDir, run_id)
+      runDir = r.runDir
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+
+    let expNum: number
+    if (experiment_number === "latest") {
+      const results = await readAllResults(runDir)
+      if (results.length === 0) return errorResult("No experiments yet.")
+      expNum = results[results.length - 1].experiment_number
+    } else {
+      expNum = experiment_number
+    }
+
+    const logFile = join(runDir, streamLogName(expNum))
+    const f = Bun.file(logFile)
+    if (!(await f.exists())) {
+      return errorResult(`No log found for experiment #${expNum}.`)
+    }
+
+    const logContent = await f.text()
+    return text(logContent || "(empty log)")
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: stop_run
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "stop_run",
+  {
+    title: "Stop Run",
+    description: [
+      "Stop the active run for a program.",
+      "Default: soft stop — waits for the current experiment to finish.",
+      "With abort=true: hard abort — kills agent immediately, records current experiment as crash.",
+    ].join(" "),
+    inputSchema: z.object({
+      name: z.string().min(1).describe("Program slug"),
+      abort: z.boolean().default(false).describe("Hard abort (default: soft stop)"),
+    }),
+  },
+  async ({ name, abort }) => {
+    const root = await getProjectRoot(CWD)
+    const programDir = getProgramDir(root, name)
+
+    const active = await findActiveRun(programDir)
+    if (!active) return errorResult(`No active run for '${name}'.`)
+    if (!active.daemonAlive) return errorResult("Daemon is not running. Run may have already completed.")
+
+    if (abort) {
+      await sendAbort(active.runDir)
+
+      let alive = true
+      const deadline = Date.now() + 10_000
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 500))
+        const status = await getDaemonStatus(active.runDir)
+        if (!status.alive) { alive = false; break }
+      }
+      if (alive) await forceKillDaemon(active.runDir)
+
+      return jsonText({
+        action: "abort",
+        run_id: active.runId,
+        status: "aborted",
+        message: "Run aborted. Current experiment recorded as crash.",
+      })
+    } else {
+      await sendStop(active.runDir)
+
+      let experimentNum = 0
+      try {
+        const state = await readState(active.runDir)
+        experimentNum = state.experiment_number
+      } catch {}
+
+      return jsonText({
+        action: "stop",
+        run_id: active.runId,
+        status: "stopping",
+        message: `Stop signal sent. Experiment #${experimentNum} will finish, then the run will stop. Use get_run_status to check when it's done.`,
+      })
+    }
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: update_run_limit
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "update_run_limit",
+  {
+    title: "Update Run Limit",
+    description:
+      "Update the max experiments cap on an active run. Takes effect at the next iteration boundary.",
+    inputSchema: z.object({
+      name: z.string().min(1).describe("Program slug"),
+      max_experiments: z.number().int().min(1).describe("New max experiments value"),
+    }),
+  },
+  async ({ name, max_experiments }) => {
+    const root = await getProjectRoot(CWD)
+    const programDir = getProgramDir(root, name)
+
+    const active = await findActiveRun(programDir)
+    if (!active) return errorResult(`No active run for '${name}'.`)
+    if (!active.daemonAlive) return errorResult("Daemon is not running. Run may have already completed.")
+
+    await updateMaxExperiments(active.runDir, max_experiments)
+
+    return jsonText({ run_id: active.runId, max_experiments })
   },
 )
 

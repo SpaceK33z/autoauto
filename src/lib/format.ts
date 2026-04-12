@@ -96,3 +96,25 @@ export function truncateStreamText(prev: string, text: string): string {
   const next = prev + text
   return next.length > 8000 ? next.slice(-6000) : next
 }
+
+/** Format duration between two ISO date strings (or from startedAt to now). */
+export function formatRunDuration(startedAt: string, endedAt?: string): string {
+  const start = new Date(startedAt).getTime()
+  const end = endedAt ? new Date(endedAt).getTime() : Date.now()
+  return formatDurationMs(end - start)
+}
+
+/** Format metric change as a signed percentage string. */
+export function formatChangePct(
+  original: number,
+  current: number,
+  direction: "lower" | "higher",
+): string {
+  if (original === 0) return "—"
+  const pct =
+    direction === "lower"
+      ? ((original - current) / Math.abs(original)) * 100
+      : ((current - original) / Math.abs(original)) * 100
+  const sign = pct > 0 ? "+" : ""
+  return `${sign}${pct.toFixed(1)}%`
+}
