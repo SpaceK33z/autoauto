@@ -582,7 +582,11 @@ server.registerTool(
     }),
     annotations: { destructiveHint: true },
   },
-  async ({ name }) => {
+  async ({ name, confirm }) => {
+    if (!confirm) {
+      return errorResult("Deletion requires confirm=true.")
+    }
+
     const root = await getProjectRoot(CWD)
     const programDir = getProgramDir(root, name)
 
