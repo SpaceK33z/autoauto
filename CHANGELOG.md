@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.6.0](https://github.com/SpaceK33z/autoauto/compare/v1.5.0...v1.6.0) (2026-04-12)
+
+
+### Features
+
+* add Task tool to experiment agent for parallel subagent research ([4c1779c](https://github.com/SpaceK33z/autoauto/commit/4c1779c509887eae2c60dc6f02f85a693f1ea877))
+* **agent-panel:** show experiment notes as styled card instead of raw XML ([a1069f5](https://github.com/SpaceK33z/autoauto/commit/a1069f5df85aa55c7026c53ea5d676c0d09e30c5))
+* auto-fallback to alternate model on provider limits ([#32](https://github.com/SpaceK33z/autoauto/issues/32)) ([b98f34b](https://github.com/SpaceK33z/autoauto/commit/b98f34bff6c31b725dee6c184a723e7701665a5e))
+* **execution:** filter ideas panel to selected experiment ([442f551](https://github.com/SpaceK33z/autoauto/commit/442f5513f4ad87a7f56c2a4002e467618bf489b7))
+* **execution:** make narrow-mode Agent/Ideas tab titles clickable ([46ae4b7](https://github.com/SpaceK33z/autoauto/commit/46ae4b7222c27ffebf74a26460dd85706a0133fe))
+* expand CLI with 6 new commands for agent-friendly control ([#30](https://github.com/SpaceK33z/autoauto/issues/30)) ([d159237](https://github.com/SpaceK33z/autoauto/commit/d1592371d588653d65bb7f3cbf509aaa493c0f16))
+* **guidance:** add human steering for mid-run experiment direction ([#37](https://github.com/SpaceK33z/autoauto/issues/37)) ([a0aa923](https://github.com/SpaceK33z/autoauto/commit/a0aa923ee346c19c7d6d017ac7a74c512de9b4b3))
+* **home:** add double-click to open programs and runs ([025e647](https://github.com/SpaceK33z/autoauto/commit/025e6470c5758b7d84414d7f82b64c0503edd351))
+* **mcp:** add agent sessions and config tools ([#36](https://github.com/SpaceK33z/autoauto/issues/36)) ([cd9e647](https://github.com/SpaceK33z/autoauto/commit/cd9e64714952d94d3b8fe2feb75df6be3643fe94))
+* **mcp:** add MCP server for external coding agents ([#35](https://github.com/SpaceK33z/autoauto/issues/35)) ([aa55e46](https://github.com/SpaceK33z/autoauto/commit/aa55e461289e7cf8be55cb63b7ce4f8fd3ca1c59))
+* **mcp:** add resources for setup guide and program details ([ebc8d9d](https://github.com/SpaceK33z/autoauto/commit/ebc8d9d5685aa5ef5bc983c69a27f6fbf5e11267))
+* **measure:** add Mann-Whitney U statistical significance testing ([#38](https://github.com/SpaceK33z/autoauto/issues/38)) ([b363c39](https://github.com/SpaceK33z/autoauto/commit/b363c39b56426e61f7bc43ecc4da6ee601aef22c))
+* proactive quota usage warnings from Claude SDK rate limit events ([#34](https://github.com/SpaceK33z/autoauto/issues/34)) ([a62bb98](https://github.com/SpaceK33z/autoauto/commit/a62bb9834c41d5c00da1ce1d4232071ef3f4bb24))
+* **ui:** add hint prop to CycleField component ([1454385](https://github.com/SpaceK33z/autoauto/commit/14543854b3e5e164eb108adcaaa1425d1d1ff209))
+
+
+### Bug Fixes
+
+* abort active run when deleting its queue entry ([e7353d8](https://github.com/SpaceK33z/autoauto/commit/e7353d87ecb51fcaff8592d5a5fd8f0813f9e3ec))
+* **app:** use q instead of Esc to quit from home screen ([e423da3](https://github.com/SpaceK33z/autoauto/commit/e423da32a3e1e9f550745b3fa4f11bd2145513ef))
+* **daemon:** clean up stuck runs from crashed daemons ([a1e5e67](https://github.com/SpaceK33z/autoauto/commit/a1e5e6739dca6cc50c00d8cb6e3fbeb7e0f127f5))
+* **execution:** single-click row selection with toggle to deselect ([af5ead1](https://github.com/SpaceK33z/autoauto/commit/af5ead13c8ff73da68e18d2624366e404b98852d))
+* **execution:** update phase label on attach instead of staying on "Connecting..." ([d77c4de](https://github.com/SpaceK33z/autoauto/commit/d77c4de0a073119d7ed4e986b9147291cf10f8b4))
+* **finalize:** handle removed worktree for queue-sourced runs ([4e3d6b7](https://github.com/SpaceK33z/autoauto/commit/4e3d6b7bdb5df57ff19b5a32195bf58ea8af5d18))
+* **finalize:** teach agent to navigate worktrees when target branch is checked out elsewhere ([4bf38fe](https://github.com/SpaceK33z/autoauto/commit/4bf38fe60f9cc6b110e147bcebd0cc1afad14de0))
+* **prompt:** improve experiment agent orientation and backlog awareness ([f6e38e9](https://github.com/SpaceK33z/autoauto/commit/f6e38e9260925f4fb7f1c6374d1222a0c3473239))
+* **queue:** require manual start instead of auto-starting on HomeScreen mount ([2d39b89](https://github.com/SpaceK33z/autoauto/commit/2d39b8970d785298bbb39d8ecb44cce2479e13e4))
+* resolve merge conflict in queue E2E tests ([43836d3](https://github.com/SpaceK33z/autoauto/commit/43836d3cd0c7df32201dd563f3d9df01bb11208b))
+* surface clear error messages when daemon fails to start ([#29](https://github.com/SpaceK33z/autoauto/issues/29)) ([963aea0](https://github.com/SpaceK33z/autoauto/commit/963aea04c109cf117445e95e6ead19043ef6d232))
+* treat baseline abort as clean termination instead of crash ([939736b](https://github.com/SpaceK33z/autoauto/commit/939736b8d0c03ef9252d49a00332bed1c1540f53))
+* **ui:** check terminal phase when attaching to alive daemon ([152ea8d](https://github.com/SpaceK33z/autoauto/commit/152ea8d47f14a760cf17a68da7de45af1740b603))
+* **ui:** remove duplicate experiment heading in detail view ([c3a96d5](https://github.com/SpaceK33z/autoauto/commit/c3a96d5121e743ab7cf88c62319af808c5fffa8e))
+* **ui:** rewrite setting descriptions to communicate trade-offs ([d1d686a](https://github.com/SpaceK33z/autoauto/commit/d1d686a9061b133f9de772249db0660b0adea005))
+
+
+### Performance Improvements
+
+* **prompts:** encourage parallel tool calls in experiment agent ([072bef3](https://github.com/SpaceK33z/autoauto/commit/072bef33d53c52446305d8ea116bc685b47c2abb))
+
 ## [1.5.0](https://github.com/SpaceK33z/autoauto/compare/v1.4.0...v1.5.0) (2026-04-10)
 
 
