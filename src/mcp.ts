@@ -71,6 +71,7 @@ const VALIDATE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "lib", "va
 
 /** Reusable slug schema — prevents path traversal via names like "../../etc" */
 const SlugSchema = z.string().min(1).regex(/^[a-z0-9-]+$/, "Must be lowercase letters, numbers, and hyphens only")
+const RunIdSchema = z.string().regex(/^[A-Za-z0-9._-]+$/, "Invalid run_id format")
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -758,7 +759,7 @@ server.registerTool(
       "Get the status of the latest (or a specific) run: phase, metrics, progress, cost, and whether the daemon is alive.",
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
-      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
     }),
     annotations: { readOnlyHint: true },
   },
@@ -873,7 +874,7 @@ server.registerTool(
       "Get the experiment results table for a run: experiment number, status (keep/discard/crash), metric value, change %, commit, and description.",
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
-      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
       limit: z.number().int().min(1).optional().describe("Return only the last N results"),
     }),
     annotations: { readOnlyHint: true },
@@ -946,7 +947,7 @@ server.registerTool(
         z.number().int().min(0),
         z.literal("latest"),
       ]).describe("Experiment number (0 = baseline) or 'latest'"),
-      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
     }),
     annotations: { readOnlyHint: true },
   },
@@ -1123,7 +1124,7 @@ server.registerTool(
       "Get the current human steering guidance for an active or completed run.",
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
-      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
     }),
     annotations: { readOnlyHint: true },
   },
@@ -1169,7 +1170,7 @@ server.registerTool(
     ].join(" "),
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
-      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
       generate: z.boolean().default(false).describe("Generate stats summary if none exists (only for completed/crashed runs)"),
     }),
     annotations: { readOnlyHint: false },

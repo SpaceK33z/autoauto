@@ -561,9 +561,15 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   const handleGuidanceSave = useCallback((text: string) => {
     setShowGuidance(false)
     const trimmed = text.trim()
+    const prev = guidanceText
     setGuidanceText(trimmed)
-    if (runDir) writeGuidance(runDir, trimmed).catch(() => {})
-  }, [runDir])
+    if (runDir) {
+      writeGuidance(runDir, trimmed).catch((err) => {
+        setGuidanceText(prev)
+        setLastError(formatShellError(err, "Failed to save guidance"))
+      })
+    }
+  }, [runDir, guidanceText])
 
   const handleFinalize = useCallback(async () => {
     if (!runState || !runDir || !programConfig) return

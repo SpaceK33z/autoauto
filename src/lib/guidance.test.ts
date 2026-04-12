@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { readGuidance, writeGuidance } from "./guidance.ts"
@@ -22,7 +22,7 @@ describe("guidance", () => {
       expect(result).toBe("Focus on parser optimizations")
 
       // File on disk should have trailing newline
-      const raw = await readFile(join(runDir, "guidance.md"), "utf-8")
+      const raw = await Bun.file(join(runDir, "guidance.md")).text()
       expect(raw).toBe("Focus on parser optimizations\n")
     } finally {
       await rm(runDir, { recursive: true, force: true })

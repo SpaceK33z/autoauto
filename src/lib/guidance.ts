@@ -22,12 +22,12 @@ export async function writeGuidance(runDir: string, text: string): Promise<void>
   if (!trimmed) {
     try {
       await unlink(guidancePath)
-    } catch {
-      // File may not exist
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
     return
   }
-  const tmpPath = guidancePath + ".tmp"
+  const tmpPath = `${guidancePath}.${process.pid}.${Date.now()}.tmp`
   await Bun.write(tmpPath, trimmed + "\n")
   await rename(tmpPath, guidancePath)
 }
