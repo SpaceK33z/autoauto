@@ -80,13 +80,17 @@ export async function getDefaultModel(providerId: AgentProviderID, cwd: string):
 }
 
 export async function checkModelCompatibility(slot: ModelSlot, cwd: string): Promise<ModelCompatibilityResult> {
-  // OpenCode requires provider/model format — fail fast without needing a server call
+  const { options, defaultModel } = await loadProviderModelCatalog(slot.provider, cwd).catch(() => ({
+    options: [] as AgentModelOption[],
+    defaultModel: null as string | null,
+  }))
+  const availableModels = options.map((option) => option.model)
+
+  // OpenCode requires provider/model format
   if (slot.provider === "opencode" && !slot.model.includes("/")) {
-    return { compatible: false, defaultModel: null, availableModels: [] }
+    return { compatible: false, defaultModel, availableModels }
   }
 
-  const { options, defaultModel } = await loadProviderModelCatalog(slot.provider, cwd)
-  const availableModels = options.map((option) => option.model)
   const compatible = slot.provider === "codex"
     ? !isKnownCodexModelMismatch(slot.model)
     : availableModels.includes(slot.model)

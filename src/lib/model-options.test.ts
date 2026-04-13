@@ -11,12 +11,14 @@ describe("checkModelCompatibility", () => {
     ]))
   })
 
-  test("rejects opencode model without provider/model format", async () => {
+  test("rejects opencode model without provider/model format but still lists available models", async () => {
     const result = await checkModelCompatibility(
       { provider: "opencode", model: "glm-5.1", effort: "high" },
       "/tmp",
     )
     expect(result.compatible).toBe(false)
+    expect(result.availableModels).toContain("zhipu/glm-5.1")
+    expect(result.defaultModel).toBe("zhipu/glm-5.1")
   })
 
   test("accepts opencode model with provider/model format", async () => {
