@@ -130,7 +130,7 @@ export function HomeScreen({ cwd, navigate, onSelectProgram, onSelectRun, onUpda
 
   useEffect(() => {
     onPanelChange?.(focusedPanel)
-  }, [focusedPanel])
+  }, [focusedPanel, onPanelChange])
 
   useEffect(() => {
     loadHomeData(cwd)
