@@ -17,6 +17,7 @@ import type { ContainerProvider } from "./types.ts"
 export type ContainerProviderFactory = (config: Record<string, unknown>) => Promise<ContainerProvider>
 
 export const MODAL_PROVIDER_ID = "modal"
+export const DOCKER_PROVIDER_ID = "docker"
 
 const registry = new Map<string, ContainerProviderFactory>()
 
@@ -37,5 +38,9 @@ export function registerDefaultContainerProviders(): void {
   registerContainerProvider(MODAL_PROVIDER_ID, async (config) => {
     const { createModalProvider } = await import("./modal.ts")
     return createModalProvider(config)
+  })
+  registerContainerProvider(DOCKER_PROVIDER_ID, async (config) => {
+    const { createDockerProvider } = await import("./docker.ts")
+    return createDockerProvider(config)
   })
 }

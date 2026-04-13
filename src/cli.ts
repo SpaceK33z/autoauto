@@ -335,7 +335,7 @@ async function cmdStart(args: ParsedArgs) {
     out("  --no-carry-forward                  Don't carry forward from previous runs")
     out("  --no-ideas-backlog                  Disable ideas backlog")
     out("  --no-wait                           Don't wait for baseline to complete")
-    out("  --sandbox                           Run in Modal sandbox")
+    out("  --sandbox [docker|modal]             Run in container sandbox (default: docker)")
     out("  --json                              Output as JSON")
     out("  --cwd                               Override working directory")
     return
@@ -362,24 +362,35 @@ async function cmdStart(args: ParsedArgs) {
   const ideasBacklogEnabled = await resolveIdeasBacklog(root, args.flags)
   const useWorktree = !hasFlag(args.flags, "in-place")
   const carryForward = !hasFlag(args.flags, "no-carry-forward")
-  const useSandbox = hasFlag(args.flags, "sandbox")
+  // --sandbox with no value defaults to "docker"; --sandbox docker|modal selects explicitly
+  const sandboxFlag = args.flags.sandbox
+  const sandboxProvider = sandboxFlag === true ? "docker" : typeof sandboxFlag === "string" ? sandboxFlag : undefined
 
   // Spawn daemon (local or sandbox)
   let result: { runId: string; runDir: string; worktreePath: string | null; pid: number }
   try {
-    if (useSandbox) {
-      const { checkModalAuth } = await import("./lib/container-provider/modal.ts")
-      const auth = checkModalAuth()
-      if (!auth.ok) die(auth.error!)
+    if (sandboxProvider) {
+      // Validate and check auth for the chosen provider
+      if (sandboxProvider === "docker") {
+        const { checkDockerAuth } = await import("./lib/container-provider/docker.ts")
+        const auth = await checkDockerAuth()
+        if (!auth.ok) die(auth.error!)
+      } else if (sandboxProvider === "modal") {
+        const { checkModalAuth } = await import("./lib/container-provider/modal.ts")
+        const auth = checkModalAuth()
+        if (!auth.ok) die(auth.error!)
+      } else {
+        die(`Unknown sandbox provider: "${sandboxProvider}". Use "docker" or "modal".`)
+      }
 
-      const { getContainerProviderFactory, MODAL_PROVIDER_ID } = await import("./lib/container-provider/index.ts")
-      const factory = getContainerProviderFactory(MODAL_PROVIDER_ID)
-      if (!factory) die("Modal provider not registered")
+      const { getContainerProviderFactory } = await import("./lib/container-provider/index.ts")
+      const factory = getContainerProviderFactory(sandboxProvider)
+      if (!factory) die(`${sandboxProvider} provider not registered`)
 
       const { SandboxRunBackend } = await import("./lib/run-backend/sandbox.ts")
-      const backend = new SandboxRunBackend((config) => factory(config ?? {}))
+      const backend = new SandboxRunBackend((config) => factory(config ?? {}), sandboxProvider)
 
-      if (!json) out(`Starting sandbox run for ${slug}...`)
+      if (!json) out(`Starting ${sandboxProvider} sandbox run for ${slug}...`)
       const handle = await backend.spawn({
         mainRoot: root,
         programSlug: slug,

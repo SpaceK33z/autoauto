@@ -213,9 +213,11 @@ class SandboxRunHandle implements RunHandle {
 
 export class SandboxRunBackend implements RunBackend {
   private providerFactory: (config?: Record<string, unknown>) => Promise<ContainerProvider>
+  private providerName: string
 
-  constructor(providerFactory: (config?: Record<string, unknown>) => Promise<ContainerProvider>) {
+  constructor(providerFactory: (config?: Record<string, unknown>) => Promise<ContainerProvider>, providerName?: string) {
     this.providerFactory = providerFactory
+    this.providerName = providerName ?? "sandbox"
   }
 
   async spawn(input: SpawnRunInput): Promise<RunHandle> {
@@ -332,7 +334,7 @@ export class SandboxRunBackend implements RunBackend {
 
     // Persist sandbox identity for reconnection after TUI disconnect
     const sandboxInfo = {
-      provider: "sandbox",
+      provider: this.providerName,
       program_slug: input.programSlug,
       run_id: runId,
       created_at: new Date().toISOString(),
@@ -354,13 +356,23 @@ export class SandboxRunBackend implements RunBackend {
       const sandboxInfoPath = join(runDir, "sandbox.json")
       if (await Bun.file(sandboxInfoPath).exists()) {
         try {
-          const sandboxInfo = await Bun.file(sandboxInfoPath).json() as { program_slug?: string; run_id?: string }
-          // Use lightweight lookup — does NOT create a new sandbox
-          const { lookupModalSandbox } = await import("../container-provider/modal.ts")
-          const handle = await lookupModalSandbox({
+          const sandboxInfo = await Bun.file(sandboxInfoPath).json() as { provider?: string; program_slug?: string; run_id?: string }
+          const metadata = {
             run_id: sandboxInfo.run_id ?? lockData.run_id,
             program_slug: sandboxInfo.program_slug ?? "",
-          })
+          }
+
+          // Dispatch to the correct provider's lookup function
+          let handle: import("../container-provider/types.ts").ContainerHandle | null = null
+          if (sandboxInfo.provider === "docker") {
+            const { lookupDockerContainer } = await import("../container-provider/docker.ts")
+            handle = await lookupDockerContainer(metadata)
+          } else {
+            // Default to Modal for backwards compatibility (old sandbox.json files)
+            const { lookupModalSandbox } = await import("../container-provider/modal.ts")
+            handle = await lookupModalSandbox(metadata)
+          }
+
           return {
             runId: lockData.run_id,
             runDir,

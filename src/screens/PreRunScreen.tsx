@@ -20,7 +20,22 @@ import {
   PROVIDER_CHOICES,
   PROVIDER_LABELS,
 } from "../lib/config.ts"
-import { MODAL_PROVIDER_ID } from "../lib/container-provider/index.ts"
+import { MODAL_PROVIDER_ID, DOCKER_PROVIDER_ID } from "../lib/container-provider/index.ts"
+
+const SANDBOX_CHOICES = ["off", DOCKER_PROVIDER_ID, MODAL_PROVIDER_ID] as const
+type SandboxChoice = typeof SANDBOX_CHOICES[number]
+
+const SANDBOX_LABELS: Record<SandboxChoice, string> = {
+  off: "Off",
+  [DOCKER_PROVIDER_ID]: "Docker",
+  [MODAL_PROVIDER_ID]: "Modal",
+}
+
+const SANDBOX_DESCRIPTIONS: Record<SandboxChoice, string> = {
+  off: "Experiments run locally on this machine",
+  [DOCKER_PROVIDER_ID]: "Experiments run in a local Docker container \u2014 consistent environment, no cloud account",
+  [MODAL_PROVIDER_ID]: "Experiments run in a remote Modal sandbox \u2014 your computer stays free",
+}
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
 import { colors } from "../lib/theme.ts"
@@ -79,13 +94,14 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const [useWorktree, setUseWorktree] = useState(true)
   const [keepSimplifications, setKeepSimplifications] = useState(true)
   const [carryForward, setCarryForward] = useState(true)
-  const [useSandbox, setUseSandbox] = useState(false)
+  const [sandboxChoice, setSandboxChoice] = useState<SandboxChoice>("off")
   const [sandboxAuthError, setSandboxAuthError] = useState<string | null>(null)
   const [hasPreviousRuns, setHasPreviousRuns] = useState(false)
   const [pickingModel, setPickingModel] = useState(false)
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
   const [avgDurationMs, setAvgDurationMs] = useState<number | null>(null)
   const [cachedQuota, setCachedQuota] = useState<QuotaInfo | null>(null)
+  const useSandbox = sandboxChoice !== "off"
   const fieldCount = hasPreviousRuns ? BASE_FIELD_COUNT + 1 : BASE_FIELD_COUNT
 
   useEffect(() => {
@@ -125,7 +141,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     if (isNaN(parsed) || parsed < 1) return null
     const costParsed = parseFloat(maxCostText)
     const maxCostUsd = !isNaN(costParsed) && costParsed > 0 ? costParsed : undefined
-    return { modelConfig: modelSlot, maxExperiments: parsed, maxCostUsd, useWorktree: useSandbox ? false : useWorktree, carryForward, keepSimplifications, useSandbox, sandboxProvider: useSandbox ? MODAL_PROVIDER_ID : undefined }
+    return { modelConfig: modelSlot, maxExperiments: parsed, maxCostUsd, useWorktree: useSandbox ? false : useWorktree, carryForward, keepSimplifications, useSandbox, sandboxProvider: useSandbox ? sandboxChoice : undefined }
   }
 
   function handleStart() {
@@ -148,22 +164,40 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     })
   }
 
-  function handleToggleSandbox() {
-    if (useSandbox) {
-      setUseSandbox(false)
+  function handleCycleSandbox(direction: -1 | 1) {
+    const next = cycleChoice(SANDBOX_CHOICES as unknown as readonly SandboxChoice[], sandboxChoice, direction)
+
+    if (next === "off") {
+      setSandboxChoice("off")
       setSandboxAuthError(null)
       return
     }
-    // Check auth before enabling
-    import("../lib/container-provider/modal.ts").then(({ checkModalAuth }) => {
-      const auth = checkModalAuth()
-      if (!auth.ok) {
-        setSandboxAuthError(auth.error ?? "Auth check failed")
-        return
-      }
-      setSandboxAuthError(null)
-      setUseSandbox(true)
-    })
+
+    if (next === DOCKER_PROVIDER_ID) {
+      import("../lib/container-provider/docker.ts").then(({ checkDockerAuth }) => {
+        checkDockerAuth().then((auth) => {
+          if (!auth.ok) {
+            setSandboxAuthError(auth.error ?? "Docker auth failed")
+            return
+          }
+          setSandboxAuthError(null)
+          setSandboxChoice(DOCKER_PROVIDER_ID)
+        })
+      })
+      return
+    }
+
+    if (next === MODAL_PROVIDER_ID) {
+      import("../lib/container-provider/modal.ts").then(({ checkModalAuth }) => {
+        const auth = checkModalAuth()
+        if (!auth.ok) {
+          setSandboxAuthError(auth.error ?? "Modal auth failed")
+          return
+        }
+        setSandboxAuthError(null)
+        setSandboxChoice(MODAL_PROVIDER_ID)
+      })
+    }
   }
 
   function handleCycleEffort(direction: -1 | 1) {
@@ -194,7 +228,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (selected === 2) { handleCycleProvider(1); return }
       if (selected === 3) { setPickingModel(true); return }
       if (selected === 4) { handleCycleEffort(1); return }
-      if (selected === 5) { handleToggleSandbox(); return }
+      if (selected === 5) { handleCycleSandbox(1); return }
       if (selected === 6 && !useSandbox) { setUseWorktree((v) => !v); return }
       if (selected === 7) { setKeepSimplifications((v) => !v); return }
       if (selected === 8 && hasPreviousRuns) { setCarryForward((v) => !v); return }
@@ -227,9 +261,8 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (key.name === "left" || key.name === "h") handleCycleEffort(-1)
       if (key.name === "right" || key.name === "l") handleCycleEffort(1)
     } else if (selected === 5) {
-      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
-        handleToggleSandbox()
-      }
+      if (key.name === "left" || key.name === "h") handleCycleSandbox(-1)
+      if (key.name === "right" || key.name === "l") handleCycleSandbox(1)
     } else if (selected === 6 && !useSandbox) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setUseWorktree((v) => !v)
@@ -310,7 +343,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
       <box height={1} />
 
-      <CycleField label="Sandbox" value={useSandbox ? "Modal" : "Off"} description={useSandbox ? "Experiments run in a remote Modal sandbox — your computer stays free" : "Experiments run locally on this machine"} isFocused={selected === 5} />
+      <CycleField label="Sandbox" value={SANDBOX_LABELS[sandboxChoice]} description={SANDBOX_DESCRIPTIONS[sandboxChoice]} isFocused={selected === 5} />
       {sandboxAuthError && (
         <text fg={colors.error}>{`  ⚠ ${sandboxAuthError}`}</text>
       )}
