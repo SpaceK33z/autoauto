@@ -176,6 +176,51 @@ export async function getDiffStats(cwd: string, fromSha: string, toSha: string):
   }
 }
 
+// --- Git Bundle Operations ---
+
+/** Creates a git bundle from a repository. If ref is provided, bundles that ref; otherwise bundles all refs. */
+export async function bundleCreate(cwd: string, bundlePath: string, ref?: string): Promise<void> {
+  try {
+    if (ref) {
+      await $`git bundle create ${bundlePath} ${ref}`.cwd(cwd).quiet()
+    } else {
+      await $`git bundle create ${bundlePath} --all`.cwd(cwd).quiet()
+    }
+  } catch (err) {
+    throw new Error(formatShellError(err, "git bundle create"), { cause: err })
+  }
+}
+
+/** Unbundles a git bundle. Clones into targetDir if it doesn't exist or isn't a repo, otherwise fetches. */
+export async function bundleUnbundle(targetDir: string, bundlePath: string): Promise<void> {
+  try {
+    const isRepo = (await $`git rev-parse --is-inside-work-tree`.cwd(targetDir).nothrow().quiet()).exitCode === 0
+    if (isRepo) {
+      // Force-update heads and tags in a single fetch to avoid conflicts with checked-out branches
+      await $`git fetch ${bundlePath} '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'`.cwd(targetDir).nothrow().quiet()
+    } else {
+      await $`git clone ${bundlePath} ${targetDir}`.quiet()
+    }
+  } catch (err) {
+    // If targetDir doesn't exist, cwd() throws ENOENT — fall back to clone
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      try {
+        await $`git clone ${bundlePath} ${targetDir}`.quiet()
+        return
+      } catch (cloneErr) {
+        throw new Error(formatShellError(cloneErr, "git bundle unbundle"), { cause: cloneErr })
+      }
+    }
+    throw new Error(formatShellError(err, "git bundle unbundle"), { cause: err })
+  }
+}
+
+/** Verifies a git bundle is valid. Returns true if valid, false otherwise. */
+export async function bundleVerify(bundlePath: string): Promise<boolean> {
+  const result = await $`git bundle verify ${bundlePath}`.nothrow().quiet()
+  return result.exitCode === 0
+}
+
 /** Returns formatted diff summaries for discarded commits, capped at maxLength chars. */
 export async function getDiscardedDiffs(
   cwd: string,

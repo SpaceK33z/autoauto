@@ -237,9 +237,8 @@ export function parseDiscardedShas(raw: string, count = 5): string[] {
 
 // --- Results Reading ---
 
-/** Parses the entire results.tsv into a typed array. */
-export async function readAllResults(runDir: string): Promise<ExperimentResult[]> {
-  const raw = await Bun.file(join(runDir, "results.tsv")).text()
+/** Parses TSV text (with header) into a typed array. Usable without file I/O. */
+export function parseTsvRows(raw: string): ExperimentResult[] {
   const lines = raw.trim().split("\n")
   if (lines.length <= 1) return [] // only header
 
@@ -249,6 +248,12 @@ export async function readAllResults(runDir: string): Promise<ExperimentResult[]
     if (row) results.push(row)
   }
   return results
+}
+
+/** Parses the entire results.tsv into a typed array. */
+export async function readAllResults(runDir: string): Promise<ExperimentResult[]> {
+  const raw = await Bun.file(join(runDir, "results.tsv")).text()
+  return parseTsvRows(raw)
 }
 
 /** Extracts metric values from keep results for sparkline/chart rendering. */

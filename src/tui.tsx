@@ -2,9 +2,11 @@
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
+import { registerDefaultContainerProviders } from "./lib/container-provider/index.ts"
 import { App } from "./App.tsx"
 
 registerDefaultProviders()
+registerDefaultContainerProviders()
 
 const renderer = await createCliRenderer({ exitOnCtrlC: false })
 

@@ -20,6 +20,7 @@ import {
   PROVIDER_CHOICES,
   PROVIDER_LABELS,
 } from "../lib/config.ts"
+import { MODAL_PROVIDER_ID } from "../lib/container-provider/index.ts"
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
 import { colors } from "../lib/theme.ts"
@@ -31,6 +32,8 @@ export interface PreRunOverrides {
   useWorktree: boolean
   carryForward: boolean
   keepSimplifications: boolean
+  useSandbox: boolean
+  sandboxProvider?: string
 }
 
 interface PreRunScreenProps {
@@ -65,8 +68,8 @@ function QuotaWarning({ quota }: { quota: QuotaInfo }) {
   )
 }
 
-// 0=maxExperiments, 1=maxCostUsd, 2=provider, 3=model, 4=effort, 5=runMode, 6=keepSimplifications, 7=carryForward (if previous runs exist)
-const BASE_FIELD_COUNT = 7
+// 0=maxExperiments, 1=maxCostUsd, 2=provider, 3=model, 4=effort, 5=sandbox, 6=runMode, 7=keepSimplifications, 8=carryForward (if previous runs exist)
+const BASE_FIELD_COUNT = 8
 
 export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, onStart, onAddToQueue, programHasQueueEntries = false }: PreRunScreenProps) {
   const [selected, setSelected] = useState(0)
@@ -76,6 +79,8 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const [useWorktree, setUseWorktree] = useState(true)
   const [keepSimplifications, setKeepSimplifications] = useState(true)
   const [carryForward, setCarryForward] = useState(true)
+  const [useSandbox, setUseSandbox] = useState(false)
+  const [sandboxAuthError, setSandboxAuthError] = useState<string | null>(null)
   const [hasPreviousRuns, setHasPreviousRuns] = useState(false)
   const [pickingModel, setPickingModel] = useState(false)
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
@@ -120,7 +125,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     if (isNaN(parsed) || parsed < 1) return null
     const costParsed = parseFloat(maxCostText)
     const maxCostUsd = !isNaN(costParsed) && costParsed > 0 ? costParsed : undefined
-    return { modelConfig: modelSlot, maxExperiments: parsed, maxCostUsd, useWorktree, carryForward, keepSimplifications }
+    return { modelConfig: modelSlot, maxExperiments: parsed, maxCostUsd, useWorktree: useSandbox ? false : useWorktree, carryForward, keepSimplifications, useSandbox, sandboxProvider: useSandbox ? MODAL_PROVIDER_ID : undefined }
   }
 
   function handleStart() {
@@ -143,6 +148,24 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     })
   }
 
+  function handleToggleSandbox() {
+    if (useSandbox) {
+      setUseSandbox(false)
+      setSandboxAuthError(null)
+      return
+    }
+    // Check auth before enabling
+    import("../lib/container-provider/modal.ts").then(({ checkModalAuth }) => {
+      const auth = checkModalAuth()
+      if (!auth.ok) {
+        setSandboxAuthError(auth.error ?? "Auth check failed")
+        return
+      }
+      setSandboxAuthError(null)
+      setUseSandbox(true)
+    })
+  }
+
   function handleCycleEffort(direction: -1 | 1) {
     if (!isEffortConfigurable(modelSlot)) return
     const validEfforts = getEffortChoicesForSlot(modelSlot)
@@ -159,8 +182,8 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       handleStart()
       return
     }
-    // "a" adds to queue, but not when on text-input fields (0=maxExp, 1=budget)
-    if (key.name === "a" && selected !== 0 && selected !== 1) {
+    // "a" adds to queue, but not when on text-input fields (0=maxExp, 1=budget) or sandbox is on
+    if (key.name === "a" && selected !== 0 && selected !== 1 && !useSandbox) {
       handleAddToQueue()
       return
     }
@@ -171,9 +194,10 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (selected === 2) { handleCycleProvider(1); return }
       if (selected === 3) { setPickingModel(true); return }
       if (selected === 4) { handleCycleEffort(1); return }
-      if (selected === 5) { setUseWorktree((v) => !v); return }
-      if (selected === 6) { setKeepSimplifications((v) => !v); return }
-      if (selected === 7 && hasPreviousRuns) { setCarryForward((v) => !v); return }
+      if (selected === 5) { handleToggleSandbox(); return }
+      if (selected === 6 && !useSandbox) { setUseWorktree((v) => !v); return }
+      if (selected === 7) { setKeepSimplifications((v) => !v); return }
+      if (selected === 8 && hasPreviousRuns) { setCarryForward((v) => !v); return }
       return
     }
 
@@ -204,13 +228,17 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (key.name === "right" || key.name === "l") handleCycleEffort(1)
     } else if (selected === 5) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
+        handleToggleSandbox()
+      }
+    } else if (selected === 6 && !useSandbox) {
+      if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setUseWorktree((v) => !v)
       }
-    } else if (selected === 6) {
+    } else if (selected === 7) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setKeepSimplifications((v) => !v)
       }
-    } else if (selected === 7 && hasPreviousRuns) {
+    } else if (selected === 8 && hasPreviousRuns) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") {
         setCarryForward((v) => !v)
       }
@@ -223,7 +251,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const maxExp = parseInt(maxExpText, 10)
   const hasMaxExp = !isNaN(maxExp) && maxExp > 0
   const effortDisplay = formatEffortSlot(modelSlot)
-  const footerHint = onAddToQueue
+  const footerHint = onAddToQueue && !useSandbox
     ? programHasQueueEntries
       ? "  a: add to queue | Enter: toggle field | Escape: back | Tab: next"
       : "  s: start | a: add to queue | Enter: toggle field | Escape: back | Tab: next"
@@ -282,7 +310,15 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
       <box height={1} />
 
-      <CycleField label="Run Mode" value={useWorktree ? "Worktree" : "In-place"} hint={useWorktree ? "(recommended)" : undefined} description={useWorktree ? "Your checkout stays usable while experiments run in an isolated copy" : undefined} isFocused={selected === 5} />
+      <CycleField label="Sandbox" value={useSandbox ? "Modal" : "Off"} description={useSandbox ? "Experiments run in a remote Modal sandbox — your computer stays free" : "Experiments run locally on this machine"} isFocused={selected === 5} />
+      {sandboxAuthError && (
+        <text fg={colors.error}>{`  ⚠ ${sandboxAuthError}`}</text>
+      )}
+      {useSandbox && (
+        <text fg={colors.textMuted}>{"  Sandbox runs cannot be queued yet"}</text>
+      )}
+
+      <CycleField label="Run Mode" value={useSandbox ? "In-place (sandbox)" : useWorktree ? "Worktree" : "In-place"} hint={!useSandbox && useWorktree ? "(recommended)" : undefined} description={useSandbox ? "Sandbox runs always use in-place mode — the sandbox itself is the isolation boundary" : useWorktree ? "Your checkout stays usable while experiments run in an isolated copy" : undefined} isFocused={selected === 6} />
       {!useWorktree && (
         <box flexDirection="column">
           <text fg={colors.error}>{"  \u26A0 DANGER: Runs git reset --hard in your main checkout."}</text>
@@ -291,10 +327,10 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
         </box>
       )}
 
-      <CycleField label="Keep Simplifications" value={keepSimplifications ? "On" : "Off"} hint={keepSimplifications ? "(recommended)" : undefined} description={keepSimplifications ? "Free wins: keeps code-reducing changes even if the metric stays flat" : "Strict mode: only keep changes that measurably improve the metric"} isFocused={selected === 6} />
+      <CycleField label="Keep Simplifications" value={keepSimplifications ? "On" : "Off"} hint={keepSimplifications ? "(recommended)" : undefined} description={keepSimplifications ? "Free wins: keeps code-reducing changes even if the metric stays flat" : "Strict mode: only keep changes that measurably improve the metric"} isFocused={selected === 7} />
 
       {hasPreviousRuns && (
-        <CycleField label="Previous Run Context" value={carryForward ? "On" : "Off"} description={carryForward ? "Avoids repeating failed approaches, but may bias toward previous patterns" : "Fresh perspective for breaking out of local optima, but may re-try failed approaches"} isFocused={selected === 7} />
+        <CycleField label="Previous Run Context" value={carryForward ? "On" : "Off"} description={carryForward ? "Avoids repeating failed approaches, but may bias toward previous patterns" : "Fresh perspective for breaking out of local optima, but may re-try failed approaches"} isFocused={selected === 8} />
       )}
 
       <box height={1} />

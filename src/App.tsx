@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import {
   useKeyboard,
   useRenderer,
@@ -17,6 +17,10 @@ import { loadProjectConfig, configExists, DEFAULT_CONFIG, type ProjectConfig } f
 import { isRunActive } from "./lib/run.ts"
 import { deleteDraft, type DraftSession } from "./lib/drafts.ts"
 import { readQueue, appendToQueue, startNextFromQueue, programHasQueueEntries } from "./lib/queue.ts"
+import { LocalRunBackend } from "./lib/run-backend/local.ts"
+import { SandboxRunBackend } from "./lib/run-backend/sandbox.ts"
+import { getContainerProviderFactory } from "./lib/container-provider/index.ts"
+import type { RunBackend } from "./lib/run-backend/types.ts"
 
 const cwd = process.cwd()
 
@@ -35,6 +39,16 @@ export function App() {
   const [showPostUpdatePrompt, setShowPostUpdatePrompt] = useState(false)
   const [draftName, setDraftName] = useState<string | null>(null)
   const [queueHasProgram, setQueueHasProgram] = useState(false)
+
+  const runBackend: RunBackend = useMemo(() => {
+    if (preRunOverrides?.useSandbox && preRunOverrides.sandboxProvider) {
+      const factory = getContainerProviderFactory(preRunOverrides.sandboxProvider)
+      if (factory) {
+        return new SandboxRunBackend(() => factory({}))
+      }
+    }
+    return new LocalRunBackend()
+  }, [preRunOverrides?.useSandbox, preRunOverrides?.sandboxProvider])
 
   useEffect(() => {
     getProjectRoot(cwd).then(setProjectRoot).catch(() => {})
@@ -268,6 +282,9 @@ export function App() {
             readOnly={attachReadOnly}
             autoFinalize={autoFinalize}
             fallbackModel={projectConfig.executionFallbackModel}
+            runBackend={runBackend}
+            isSandbox={preRunOverrides?.useSandbox ?? false}
+            sandboxProvider={preRunOverrides?.sandboxProvider}
             onUpdateProgram={(slug) => {
               setPreRunOverrides(null)
               setAttachRunId(null)
