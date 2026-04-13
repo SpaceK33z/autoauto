@@ -62,6 +62,7 @@ export interface McpDaemonDeps {
 import {
   loadProjectConfig,
   saveProjectConfig,
+  configExists,
   NOTIFICATION_PRESET_IDS,
   PROVIDER_CHOICES,
   type ProjectConfig,
@@ -194,6 +195,7 @@ export function createMcpServer(cwd: string, daemonDeps?: Partial<McpDaemonDeps>
       capabilities: { logging: {}, resources: {} },
       instructions: [
         "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
+        "First-time check: Call get_config first. If _meta.is_default_config is true, the user has never configured AutoAuto — guide them to choose execution and support models (set_config), then verify auth (check_auth) for the selected providers before proceeding. Use list_models to show available options.",
         "Setup workflow: (1) get_setup_guide to learn principles and workflow, (2) list_programs to check for duplicates, (3) create_program to write all files (get user confirmation first!), (4) validate_measurement to verify stability, (5) review config with user based on validation results.",
         "Run workflow: (1) start_run to launch an experiment loop (give cost/time estimate first), (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
         "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run, set_guidance to steer the agent's direction.",
@@ -534,8 +536,17 @@ server.registerTool(
   },
   async () => {
     const root = await getProjectRoot(cwd)
-    const config = await loadProjectConfig(root)
-    return jsonText(config)
+    const [config, exists] = await Promise.all([
+      loadProjectConfig(root),
+      configExists(root),
+    ])
+    return jsonText({
+      ...config,
+      _meta: {
+        config_exists: exists,
+        is_default_config: !exists,
+      },
+    })
   },
 )
 
@@ -759,10 +770,21 @@ server.registerTool(
   async () => {
     const root = await getProjectRoot(cwd)
     const programsDir = getProgramsDir(root)
+    const hasConfig = await configExists(root)
+
+    const firstTimeWarning = hasConfig ? "" : `## ⚠ First-Time Setup Required
+
+No project configuration found. Before creating programs, you must:
+1. **Choose models**: Call \`set_config\` with \`executionModel\` (experiment agent — cheaper models like Sonnet work well) and \`supportModel\` (setup/finalize agent — use a smarter model like Opus). Use \`list_models\` to see available options.
+2. **Verify authentication**: Call \`check_auth\` to confirm the selected providers are authenticated.
+
+---
+
+`
 
     const guide = `# AutoAuto Program Setup — Quick Guide
 
-## What You're Creating
+${firstTimeWarning}## What You're Creating
 
 An optimization program: a repeatable experiment loop that an AI agent runs autonomously. Each program has 3-4 files in ${programsDir}/<slug>/:
 - **program.md** — Goal, scope, rules, and steps
