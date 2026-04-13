@@ -147,12 +147,14 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
   function handleStart() {
     if (programHasQueueEntries) return
+    if (sandboxAuthError) return
     const overrides = buildOverrides()
     if (overrides) onStart(overrides)
   }
 
   function handleAddToQueue() {
     if (!onAddToQueue) return
+    if (sandboxAuthError) return
     const overrides = buildOverrides()
     if (overrides) onAddToQueue(overrides)
   }
@@ -169,9 +171,9 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
   function handleCycleSandbox(direction: -1 | 1) {
     const next = cycleChoice(SANDBOX_CHOICES, sandboxChoice, direction)
+    setSandboxChoice(next)
 
     if (next === "off") {
-      setSandboxChoice("off")
       setSandboxAuthError(null)
       return
     }
@@ -181,10 +183,9 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
         checkDockerAuth().then((auth) => {
           if (!auth.ok) {
             setSandboxAuthError(auth.error ?? "Docker auth failed")
-            return
+          } else {
+            setSandboxAuthError(null)
           }
-          setSandboxAuthError(null)
-          setSandboxChoice(DOCKER_PROVIDER_ID)
         })
       })
       return
@@ -195,10 +196,9 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
         const auth = checkModalAuth()
         if (!auth.ok) {
           setSandboxAuthError(auth.error ?? "Modal auth failed")
-          return
+        } else {
+          setSandboxAuthError(null)
         }
-        setSandboxAuthError(null)
-        setSandboxChoice(MODAL_PROVIDER_ID)
       })
     }
   }
