@@ -67,7 +67,13 @@ async function handleCat(args: string[]): Promise<void> {
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--offset" && i + 1 < args.length) {
-      offset = parseInt(args[++i], 10)
+      const parsed = parseInt(args[++i], 10)
+      if (isNaN(parsed) || parsed < 0) {
+        process.stderr.write(`Invalid offset: ${args[i]}\n`)
+        process.exitCode = 1
+        return
+      }
+      offset = parsed
     } else if (!filePath) {
       filePath = args[i]
     }

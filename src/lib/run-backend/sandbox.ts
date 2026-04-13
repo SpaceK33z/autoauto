@@ -126,15 +126,19 @@ class SandboxRunHandle implements RunHandle {
         const localBundlePath = join(this.runDir, "results.bundle")
         await Bun.write(localBundlePath, bundleBytes)
 
+        let applied = false
         try {
           const state = await Bun.file(join(this.runDir, "state.json")).json() as RunState
           if (state.worktree_path) {
             await bundleUnbundle(state.worktree_path, localBundlePath)
+            applied = true
           }
         } catch { /* state may not be materialized yet — bundle will be applied during finalization */ }
 
-        const { unlink } = await import("node:fs/promises")
-        await unlink(localBundlePath).catch(() => {})
+        if (applied) {
+          const { unlink } = await import("node:fs/promises")
+          await unlink(localBundlePath).catch(() => {})
+        }
       }
     } catch {
       // Git bundle is best-effort — run artifacts are the priority
@@ -255,12 +259,20 @@ export class SandboxRunBackend implements RunBackend {
       }
     }
 
-    // --- Pre-flight: verify measure.sh produces valid JSON (best-effort) ---
-    const remoteMeasurePath = remotePath(".autoauto", "programs", input.programSlug, "measure.sh")
-    const measureExists = await provider.exec(["test", "-f", remoteMeasurePath], { cwd: REMOTE_WORKSPACE })
+    // --- Pre-flight: verify measure script produces valid JSON (best-effort) ---
+    const remoteMeasureSh = remotePath(".autoauto", "programs", input.programSlug, "measure.sh")
+    const remoteMeasureNoExt = remotePath(".autoauto", "programs", input.programSlug, "measure")
+    const shExists = await provider.exec(["test", "-f", remoteMeasureSh], { cwd: REMOTE_WORKSPACE })
+    const remoteMeasurePath = shExists.exitCode === 0
+      ? remoteMeasureSh
+      : remoteMeasureNoExt
+    const measureExists = shExists.exitCode === 0
+      ? shExists
+      : await provider.exec(["test", "-f", remoteMeasureNoExt], { cwd: REMOTE_WORKSPACE })
     if (measureExists.exitCode === 0) {
+      await provider.exec(["chmod", "+x", remoteMeasurePath], { cwd: REMOTE_WORKSPACE })
       const preflight = await provider.exec(
-        ["bash", "-c", `chmod +x ${remoteMeasurePath} && ./${remoteMeasurePath}`],
+        ["bash", remoteMeasurePath],
         { cwd: REMOTE_WORKSPACE, timeout: 120_000 },
       )
       if (preflight.exitCode !== 0) {

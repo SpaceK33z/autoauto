@@ -44,7 +44,7 @@ export function App() {
     if (preRunOverrides?.useSandbox && preRunOverrides.sandboxProvider) {
       const factory = getContainerProviderFactory(preRunOverrides.sandboxProvider)
       if (factory) {
-        return new SandboxRunBackend(() => factory({}), preRunOverrides.sandboxProvider)
+        return new SandboxRunBackend((config) => factory(config ?? {}), preRunOverrides.sandboxProvider)
       }
     }
     return new LocalRunBackend()

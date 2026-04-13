@@ -438,7 +438,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             keepSimplifications,
             fallbackModel,
           })
-          if (cancelled) return
+          if (cancelled) {
+            await handle.terminate().catch(() => {})
+            return
+          }
 
           runHandleRef.current = handle
           activeRunDir = handle.runDir
@@ -477,9 +480,12 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                 } else {
                   // For sandbox: materialize artifacts before showing complete UI
                   if (isSandbox && runHandleRef.current) {
-                    runHandleRef.current.materializeArtifacts().catch(() => {})
+                    runHandleRef.current.materializeArtifacts()
+                      .catch(() => {})
+                      .then(() => { if (!cancelled) setPhase("complete") })
+                  } else {
+                    setPhase("complete")
                   }
-                  setPhase("complete")
                 }
                 watcherRef.current?.stop()
               }

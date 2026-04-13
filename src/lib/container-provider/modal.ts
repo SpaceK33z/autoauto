@@ -145,10 +145,13 @@ export class ModalContainerProvider implements ContainerProvider {
 
       if (await result.wait() !== 0) {
         // Fallback: init + unbundle for repos with unusual ref layouts
-        await this.sandbox.exec(
+        const fallback = await this.sandbox.exec(
           ["sh", "-c", `rm -rf ${remoteDir}/.git && cd ${remoteDir} && git init && git bundle unbundle ${remoteBundlePath} && git checkout HEAD`],
           { stdout: "pipe", stderr: "pipe" },
         )
+        if (await fallback.wait() !== 0) {
+          throw new Error("Failed to restore repository from git bundle")
+        }
       }
 
       // 4. Clean up remote bundle

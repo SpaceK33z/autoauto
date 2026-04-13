@@ -1777,14 +1777,20 @@ async function cmdSandbox(args: ParsedArgs) {
       out("Dependencies installed")
     } else {
       out(`Install failed (exit ${installResult.exitCode})`)
-      out(new TextDecoder().decode(installResult.stderr))
+      out(new TextDecoder().decode(installResult.stdout.length > 0 ? installResult.stdout : installResult.stderr))
+      throw new Error(`bun install failed (exit ${installResult.exitCode})`)
     }
 
-    out("Running measure.sh...")
-    const measurePath = `/workspace/.autoauto/programs/${slug}/measure.sh`
+    out("Running measure script...")
+    // Support both measure.sh and extensionless measure
+    const measureSh = `/workspace/.autoauto/programs/${slug}/measure.sh`
+    const measureNoExt = `/workspace/.autoauto/programs/${slug}/measure`
+    const shCheck = await provider.exec(["test", "-f", measureSh])
+    const measurePath = shCheck.exitCode === 0 ? measureSh : measureNoExt
+    await provider.exec(["chmod", "+x", measurePath])
     const result = await provider.exec(
-      ["bash", "-c", `chmod +x ${measurePath} && cd /workspace && ${measurePath}`],
-      { timeout: 120_000 },
+      ["bash", measurePath],
+      { cwd: "/workspace", timeout: 120_000 },
     )
     if (result.exitCode === 0) {
       out("measure.sh OK (exit 0)")

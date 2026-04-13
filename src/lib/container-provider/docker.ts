@@ -63,18 +63,23 @@ export class DockerContainerProvider implements ContainerProvider {
     const args = this.buildExecArgs(command, opts)
     const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
 
-    const [stdoutBuf, stderrBuf] = await Promise.all([
-      new Response(proc.stdout).arrayBuffer(),
-      new Response(proc.stderr).arrayBuffer(),
+    const stdoutPromise = new Response(proc.stdout).arrayBuffer()
+    const stderrPromise = new Response(proc.stderr).arrayBuffer()
+
+    // Start timeout before awaiting streams so hung processes are killed
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const exitCode = await Promise.race([
+      proc.exited,
+      ...(opts?.timeout ? [new Promise<number>((resolve) => {
+        timer = setTimeout(() => {
+          proc.kill()
+          resolve(124)
+        }, opts.timeout)
+      })] : []),
     ])
+    if (timer) clearTimeout(timer)
 
-    if (opts?.timeout) {
-      const timer = setTimeout(() => proc.kill(), opts.timeout)
-      await proc.exited
-      clearTimeout(timer)
-    }
-
-    const exitCode = await proc.exited
+    const [stdoutBuf, stderrBuf] = await Promise.all([stdoutPromise, stderrPromise])
     return {
       exitCode,
       stdout: new Uint8Array(stdoutBuf),

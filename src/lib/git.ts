@@ -197,7 +197,7 @@ export async function bundleUnbundle(targetDir: string, bundlePath: string): Pro
     const isRepo = (await $`git rev-parse --is-inside-work-tree`.cwd(targetDir).nothrow().quiet()).exitCode === 0
     if (isRepo) {
       // Force-update heads and tags in a single fetch to avoid conflicts with checked-out branches
-      await $`git fetch ${bundlePath} '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'`.cwd(targetDir).nothrow().quiet()
+      await $`git fetch --update-head-ok ${bundlePath} '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'`.cwd(targetDir).quiet()
     } else {
       await $`git clone ${bundlePath} ${targetDir}`.quiet()
     }

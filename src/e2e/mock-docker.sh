@@ -107,15 +107,13 @@ run)
     printf '%s\n' "${envs[@]}" > "$cdir/env"
   fi
 
-  # Generate a unique 64-char hex container ID from a counter
+  # Generate a unique 64-char hex container ID from a counter (zero-padded for unique short IDs)
   counter=$(($(cat "$DOCKER_MOCK_DIR/.counter" 2>/dev/null || echo 0) + 1))
   echo "$counter" > "$DOCKER_MOCK_DIR/.counter"
-  hex=$(printf '%x' "$counter")
-  pad_len=$((64 - ${#hex}))
-  container_id="${hex}$(printf '%0*d' "$pad_len" 0)"
+  short_id="$(printf '%012x' "$counter")"
+  container_id="${short_id}$(printf '%052x' "$counter")"
 
   # Store ID → name mappings (both short 12-char and full 64-char)
-  short_id="${container_id:0:12}"
   mkdir -p "$DOCKER_MOCK_DIR/ids"
   echo "$name" > "$DOCKER_MOCK_DIR/ids/$short_id"
   echo "$name" > "$DOCKER_MOCK_DIR/ids/$container_id"
@@ -153,7 +151,15 @@ exec)
   fi
   mkdir -p "$exec_cwd"
 
-  # Set env vars for the command
+  # Load container-level env from `docker run --env`
+  if [ -f "$DOCKER_MOCK_DIR/containers/$container_name/env" ]; then
+    while IFS= read -r ev; do
+      [ -n "$ev" ] || continue
+      export "$ev"
+    done < "$DOCKER_MOCK_DIR/containers/$container_name/env"
+  fi
+
+  # Apply per-exec overrides from `docker exec --env`
   if [ ${#envvars[@]} -gt 0 ]; then
     for ev in "${envvars[@]}"; do
       export "$ev"

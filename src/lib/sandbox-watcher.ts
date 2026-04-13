@@ -183,9 +183,14 @@ export function watchSandboxRunDir(
 
   async function scheduleNext() {
     if (stopped) return
-    await pollOnce()
-    if (!stopped) {
-      timer = setTimeout(scheduleNext, pollIntervalMs)
+    try {
+      await pollOnce()
+    } catch {
+      // Keep polling after transient read/parse/callback failures
+    } finally {
+      if (!stopped) {
+        timer = setTimeout(scheduleNext, pollIntervalMs)
+      }
     }
   }
 
