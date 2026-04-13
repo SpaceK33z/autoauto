@@ -33,6 +33,7 @@ import {
   deleteProgram,
   readState,
   readAllResults,
+  parseTsvRows,
   getRunStats,
   getLatestRun,
   type RunState,
@@ -83,6 +84,9 @@ import {
 import { getProvider } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
 import { assertCompatibleModelSlot, resolveCompatibleModelSlot } from "./lib/model-options.ts"
+import { SandboxRunBackend } from "./lib/run-backend/sandbox.ts"
+import { getContainerProviderFactory, registerDefaultContainerProviders, lookupContainerByInfo } from "./lib/container-provider/index.ts"
+import type { ContainerProvider } from "./lib/container-provider/types.ts"
 import { AUTOAUTO_VERSION } from "./version.ts"
 
 // ---------------------------------------------------------------------------
@@ -147,7 +151,9 @@ async function resolveRunDir(
 ): Promise<{ runDir: string; runId: string }> {
   if (runId) {
     const runDir = join(programDir, "runs", runId)
-    if (!(await Bun.file(join(runDir, "state.json")).exists())) {
+    const hasState = await Bun.file(join(runDir, "state.json")).exists()
+    const hasSandbox = !hasState && await Bun.file(join(runDir, "sandbox.json")).exists()
+    if (!hasState && !hasSandbox) {
       throw new Error(`Run "${runId}" not found.`)
     }
     return { runDir, runId }
@@ -170,6 +176,7 @@ async function writeScript(path: string, content: string): Promise<void> {
 /** Create an MCP server instance bound to the given project root. */
 export function createMcpServer(cwd: string, daemonDeps?: Partial<McpDaemonDeps>): McpServer {
   registerDefaultProviders()
+  registerDefaultContainerProviders()
 
   const spawnDaemon = daemonDeps?.spawnDaemon ?? _spawnDaemon
   const getDaemonStatus = daemonDeps?.getDaemonStatus ?? _getDaemonStatus
@@ -178,6 +185,42 @@ export function createMcpServer(cwd: string, daemonDeps?: Partial<McpDaemonDeps>
   const forceKillDaemon = daemonDeps?.forceKillDaemon ?? _forceKillDaemon
   const findActiveRun = daemonDeps?.findActiveRun ?? _findActiveRun
   const updateMaxExperiments = daemonDeps?.updateMaxExperiments ?? _updateMaxExperiments
+
+  const REMOTE_WORKSPACE = "/workspace"
+  const _decoder = new TextDecoder()
+
+  interface SandboxConnection {
+    provider: ContainerProvider
+    remoteRunDir: string
+  }
+
+  /** Connect to an active sandbox container for a run. Returns null if not a sandbox run or container is dead. */
+  async function connectToSandbox(runDir: string): Promise<SandboxConnection | null> {
+    try {
+      const info = await Bun.file(join(runDir, "sandbox.json")).json() as { provider?: string; program_slug?: string; run_id?: string }
+      const handle = await lookupContainerByInfo(info)
+      if (!handle) return null
+
+      const provider = await handle.attach()
+      const remoteRunDir = [REMOTE_WORKSPACE, ".autoauto", "programs", info.program_slug, "runs", info.run_id].join("/")
+      return { provider, remoteRunDir }
+    } catch {
+      return null
+    }
+  }
+
+  /** Read a text file from a run — tries sandbox container first, then local filesystem. */
+  async function readRunFile(runDir: string, filename: string, sandbox: SandboxConnection | null): Promise<string | null> {
+    if (sandbox) {
+      try {
+        const bytes = await sandbox.provider.readFile(`${sandbox.remoteRunDir}/${filename}`)
+        return _decoder.decode(bytes)
+      } catch { /* fall through to local */ }
+    }
+    const f = Bun.file(join(runDir, filename))
+    if (await f.exists()) return f.text()
+    return null
+  }
 
   async function resolveProgram(name: string): Promise<{ root: string; programDir: string; programConfig: ProgramConfig }> {
     const root = await getProjectRoot(cwd)
@@ -198,7 +241,7 @@ export function createMcpServer(cwd: string, daemonDeps?: Partial<McpDaemonDeps>
         "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
         "First-time check: Call get_config first. If _meta.is_default_config is true, the user has never configured AutoAuto — guide them to choose execution and support models (set_config), then verify auth (check_auth) for the selected providers before proceeding. Use list_models to show available options.",
         "Setup workflow: (1) get_setup_guide to learn principles and workflow, (2) list_programs to check for duplicates, (3) create_program to write all files (get user confirmation first!), (4) validate_measurement to verify stability, (5) review config with user based on validation results.",
-        "Run workflow: (1) start_run to launch an experiment loop (give cost/time estimate first), (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
+        "Run workflow: (1) start_run to launch an experiment loop (give cost/time estimate first; use backend='docker' or 'modal' for container sandbox runs), (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
         "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run, set_guidance to steer the agent's direction.",
         "Resources: read autoauto://setup-guide for the full setup reference (artifact formats, validation procedures, anti-gaming rules, config tuning). Read autoauto://program/{name} for a program's full details.",
       ].join("\n"),
@@ -1314,6 +1357,7 @@ server.registerTool(
       "Spawns a background daemon that measures a baseline then runs experiments autonomously.",
       "Returns immediately — use get_run_status to poll for progress.",
       "IMPORTANT: Before starting, give the user a cost/time estimate (~$0.05-0.20/experiment, ~12 experiments/hour at 5-min eval).",
+      "Use backend='docker' or 'modal' to run in a container sandbox instead of locally.",
     ].join(" "),
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
@@ -1321,11 +1365,12 @@ server.registerTool(
       model: z.string().optional().describe("Model name, e.g. 'sonnet', 'opus' (default: from project config)"),
       effort: z.enum(["low", "medium", "high", "max"]).optional().describe("Effort level (default: from project config)"),
       max_experiments: z.number().int().min(1).optional().describe("Max experiments (default: from program config)"),
-      use_worktree: z.boolean().default(true).describe("Use git worktree isolation (default true)"),
+      use_worktree: z.boolean().default(true).describe("Use git worktree isolation (default true, ignored for sandbox backends)"),
       carry_forward: z.boolean().default(true).describe("Carry forward results from previous runs (default true)"),
+      backend: z.enum(["local", "docker", "modal"]).default("local").describe("Run backend: 'local' (default), 'docker' (local Docker container), or 'modal' (Modal cloud sandbox)"),
     }),
   },
-  async ({ name, provider, model, effort, max_experiments, use_worktree, carry_forward }) => {
+  async ({ name, provider, model, effort, max_experiments, use_worktree, carry_forward, backend }) => {
     let resolved: Awaited<ReturnType<typeof resolveProgram>>
     try {
       resolved = await resolveProgram(name)
@@ -1353,30 +1398,63 @@ server.registerTool(
     }
     const maxExp = max_experiments ?? programConfig.max_experiments ?? 10
 
-    try {
-      const result = await spawnDaemon(
-        root,
-        name,
-        modelConfig,
-        maxExp,
-        projectConfig.ideasBacklogEnabled,
-        use_worktree,
-        carry_forward,
-        "manual",
-        programConfig.max_cost_usd,
-        programConfig.keep_simplifications,
-        projectConfig.executionFallbackModel,
-      )
+    if (backend === "local") {
+      try {
+        const result = await spawnDaemon(
+          root,
+          name,
+          modelConfig,
+          maxExp,
+          projectConfig.ideasBacklogEnabled,
+          use_worktree,
+          carry_forward,
+          "manual",
+          programConfig.max_cost_usd,
+          programConfig.keep_simplifications,
+          projectConfig.executionFallbackModel,
+        )
 
-      return jsonText({
-        run_id: result.runId,
-        daemon_pid: result.pid,
-        status: "started",
-        message: `Run started. Daemon is measuring baseline, then will run up to ${maxExp} experiments. Use get_run_status to check progress.`,
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return errorResult(`Failed to start run: ${msg}`)
+        return jsonText({
+          run_id: result.runId,
+          backend: "local",
+          daemon_pid: result.pid,
+          status: "started",
+          message: `Run started. Daemon is measuring baseline, then will run up to ${maxExp} experiments. Use get_run_status to check progress.`,
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return errorResult(`Failed to start run: ${msg}`)
+      }
+    } else {
+      // Sandbox backend (docker or modal)
+      const factory = getContainerProviderFactory(backend)
+      if (!factory) return errorResult(`Container provider '${backend}' is not registered.`)
+
+      const sandboxBackend = new SandboxRunBackend((config) => factory(config ?? {}), backend)
+      try {
+        const handle = await sandboxBackend.spawn({
+          mainRoot: root,
+          programSlug: name,
+          modelConfig,
+          maxExperiments: maxExp,
+          ideasBacklogEnabled: projectConfig.ideasBacklogEnabled,
+          carryForward: carry_forward,
+          source: "manual",
+          maxCostUsd: programConfig.max_cost_usd,
+          keepSimplifications: programConfig.keep_simplifications,
+          fallbackModel: projectConfig.executionFallbackModel,
+        })
+
+        return jsonText({
+          run_id: handle.runId,
+          backend,
+          status: "started",
+          message: `Sandbox run started in ${backend} container. Daemon is measuring baseline, then will run up to ${maxExp} experiments. Use get_run_status to check progress.`,
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return errorResult(`Failed to start sandbox run: ${msg}`)
+      }
     }
   },
 )
@@ -1417,21 +1495,39 @@ server.registerTool(
     }
 
     let state: RunState
+    let daemonAlive: boolean
+
+    const sandbox = await connectToSandbox(runDir)
     try {
-      state = await readState(runDir)
-    } catch {
-      return errorResult(`Could not read state for run "${resolvedRunId}".`)
+      if (sandbox) {
+        const stateText = await readRunFile(runDir, "state.json", sandbox)
+        if (!stateText) {
+          return errorResult(`Could not read state for sandbox run "${resolvedRunId}" (container may still be starting).`)
+        }
+        state = JSON.parse(stateText)
+        const exitCode = await sandbox.provider.poll().catch(() => 1)
+        daemonAlive = exitCode === null
+      } else {
+        try {
+          state = await readState(runDir)
+        } catch {
+          return errorResult(`Could not read state for run "${resolvedRunId}".`)
+        }
+        const active = await findActiveRun(programDir)
+        daemonAlive = active?.runId === resolvedRunId && active.daemonAlive
+      }
+    } finally {
+      sandbox?.provider.detach()
     }
 
     const stats = getRunStats(state, programConfig.direction)
-    const active = await findActiveRun(programDir)
-    const daemonAlive = active?.runId === resolvedRunId && active.daemonAlive
     const isComplete = state.phase === "complete" || state.phase === "crashed"
 
     return jsonText({
       run_id: resolvedRunId,
       phase: state.phase,
       daemon_alive: daemonAlive,
+      ...(sandbox ? { backend: "sandbox" } : {}),
       experiment_number: state.experiment_number,
       metric_field: programConfig.metric_field,
       direction: programConfig.direction,
@@ -1532,7 +1628,17 @@ server.registerTool(
       return errorResult(err instanceof Error ? err.message : String(err))
     }
 
-    const allResults = await readAllResults(runDir)
+    const sandbox = await connectToSandbox(runDir)
+    let allResultsRaw: string | null = null
+    if (sandbox) {
+      try {
+        allResultsRaw = await readRunFile(runDir, "results.tsv", sandbox)
+      } finally {
+        sandbox.provider.detach()
+      }
+    }
+    const allResults = allResultsRaw ? parseTsvRows(allResultsRaw) : await readAllResults(runDir)
+
     if (allResults.length === 0) {
       return text("No results yet. Run may still be in baseline phase.")
     }
@@ -1603,23 +1709,26 @@ server.registerTool(
       return errorResult(err instanceof Error ? err.message : String(err))
     }
 
-    let expNum: number
-    if (experiment_number === "latest") {
-      const results = await readAllResults(runDir)
-      if (results.length === 0) return errorResult("No experiments yet.")
-      expNum = results[results.length - 1].experiment_number
-    } else {
-      expNum = experiment_number
-    }
+    const sandbox = await connectToSandbox(runDir)
+    try {
+      let expNum: number
+      if (experiment_number === "latest") {
+        const resultsText = await readRunFile(runDir, "results.tsv", sandbox)
+        const results = resultsText ? parseTsvRows(resultsText) : await readAllResults(runDir)
+        if (results.length === 0) return errorResult("No experiments yet.")
+        expNum = results[results.length - 1].experiment_number
+      } else {
+        expNum = experiment_number
+      }
 
-    const logFile = join(runDir, streamLogName(expNum))
-    const f = Bun.file(logFile)
-    if (!(await f.exists())) {
-      return errorResult(`No log found for experiment #${expNum}.`)
+      const logContent = await readRunFile(runDir, streamLogName(expNum), sandbox)
+      if (logContent == null) {
+        return errorResult(`No log found for experiment #${expNum}.`)
+      }
+      return text(logContent || "(empty log)")
+    } finally {
+      sandbox?.provider.detach()
     }
-
-    const logContent = await f.text()
-    return text(logContent || "(empty log)")
   },
 )
 
@@ -1647,41 +1756,83 @@ server.registerTool(
 
     const active = await findActiveRun(programDir)
     if (!active) return errorResult(`No active run for '${name}'.`)
-    if (!active.daemonAlive) return errorResult("Daemon is not running. Run may have already completed.")
 
-    if (abort) {
-      await sendAbort(active.runDir)
+    const sandbox = await connectToSandbox(active.runDir)
+    if (!active.daemonAlive && !sandbox) return errorResult("Daemon is not running. Run may have already completed.")
 
-      let alive = true
-      const deadline = Date.now() + 10_000
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 500))
-        const status = await getDaemonStatus(active.runDir)
-        if (!status.alive) { alive = false; break }
-      }
-      if (alive) await forceKillDaemon(active.runDir)
-
-      return jsonText({
-        action: "abort",
-        run_id: active.runId,
-        status: "aborted",
-        message: "Run aborted. Current experiment recorded as crash.",
-      })
-    } else {
-      await sendStop(active.runDir)
-
-      let experimentNum = 0
+    if (sandbox) {
       try {
-        const state = await readState(active.runDir)
-        experimentNum = state.experiment_number
-      } catch {}
+        const controlJson = JSON.stringify({ action: abort ? "abort" : "stop", timestamp: new Date().toISOString() })
+        await sandbox.provider.writeFile(`${sandbox.remoteRunDir}/control.json`, controlJson)
 
-      return jsonText({
-        action: "stop",
-        run_id: active.runId,
-        status: "stopping",
-        message: `Stop signal sent. Experiment #${experimentNum} will finish, then the run will stop. Use get_run_status to check when it's done.`,
-      })
+        if (abort) {
+          let alive = true
+          const deadline = Date.now() + 10_000
+          while (Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 500))
+            const exitCode = await sandbox.provider.poll().catch(() => 1)
+            if (exitCode !== null) { alive = false; break }
+          }
+          if (alive) await sandbox.provider.terminate()
+
+          return jsonText({
+            action: "abort",
+            run_id: active.runId,
+            status: "aborted",
+            message: "Sandbox run aborted. Current experiment recorded as crash.",
+          })
+        } else {
+          let experimentNum = 0
+          try {
+            const stateText = await readRunFile(active.runDir, "state.json", sandbox)
+            if (stateText) experimentNum = (JSON.parse(stateText) as RunState).experiment_number
+          } catch { /* ignore */ }
+
+          return jsonText({
+            action: "stop",
+            run_id: active.runId,
+            status: "stopping",
+            message: `Stop signal sent. Experiment #${experimentNum} will finish, then the run will stop. Use get_run_status to check when it's done.`,
+          })
+        }
+      } finally {
+        sandbox.provider.detach()
+      }
+    } else {
+      if (abort) {
+        await sendAbort(active.runDir)
+
+        let alive = true
+        const deadline = Date.now() + 10_000
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 500))
+          const status = await getDaemonStatus(active.runDir)
+          if (!status.alive) { alive = false; break }
+        }
+        if (alive) await forceKillDaemon(active.runDir)
+
+        return jsonText({
+          action: "abort",
+          run_id: active.runId,
+          status: "aborted",
+          message: "Run aborted. Current experiment recorded as crash.",
+        })
+      } else {
+        await sendStop(active.runDir)
+
+        let experimentNum = 0
+        try {
+          const state = await readState(active.runDir)
+          experimentNum = state.experiment_number
+        } catch {}
+
+        return jsonText({
+          action: "stop",
+          run_id: active.runId,
+          status: "stopping",
+          message: `Stop signal sent. Experiment #${experimentNum} will finish, then the run will stop. Use get_run_status to check when it's done.`,
+        })
+      }
     }
   },
 )
@@ -1707,9 +1858,23 @@ server.registerTool(
 
     const active = await findActiveRun(programDir)
     if (!active) return errorResult(`No active run for '${name}'.`)
-    if (!active.daemonAlive) return errorResult("Daemon is not running. Run may have already completed.")
 
-    await updateMaxExperiments(active.runDir, max_experiments)
+    const sandbox = await connectToSandbox(active.runDir)
+    if (!active.daemonAlive && !sandbox) return errorResult("Daemon is not running. Run may have already completed.")
+
+    if (sandbox) {
+      try {
+        const configPath = `${sandbox.remoteRunDir}/run-config.json`
+        const bytes = await sandbox.provider.readFile(configPath)
+        const config = JSON.parse(_decoder.decode(bytes))
+        config.max_experiments = max_experiments
+        await sandbox.provider.writeFile(configPath, JSON.stringify(config, null, 2) + "\n")
+      } finally {
+        sandbox.provider.detach()
+      }
+    } else {
+      await updateMaxExperiments(active.runDir, max_experiments)
+    }
 
     return jsonText({ run_id: active.runId, max_experiments })
   },
@@ -1736,9 +1901,19 @@ server.registerTool(
 
     const active = await findActiveRun(programDir)
     if (!active) return errorResult(`No active run for '${name}'.`)
-    if (!active.daemonAlive) return errorResult("Daemon is not running. Run may have already completed.")
 
-    await writeGuidance(active.runDir, guidanceText)
+    const sandbox = await connectToSandbox(active.runDir)
+    if (!active.daemonAlive && !sandbox) return errorResult("Daemon is not running. Run may have already completed.")
+
+    if (sandbox) {
+      try {
+        await sandbox.provider.writeFile(`${sandbox.remoteRunDir}/guidance.md`, guidanceText.trim())
+      } finally {
+        sandbox.provider.detach()
+      }
+    } else {
+      await writeGuidance(active.runDir, guidanceText)
+    }
 
     const trimmed = guidanceText.trim()
     if (!trimmed) {
@@ -1782,7 +1957,16 @@ server.registerTool(
       return errorResult(err instanceof Error ? err.message : String(err))
     }
 
-    const guidance = await readGuidance(runDir)
+    let guidance: string
+    const sandbox = await connectToSandbox(runDir)
+    if (sandbox) {
+      const guidanceText = await readRunFile(runDir, "guidance.md", sandbox)
+      sandbox.provider.detach()
+      guidance = guidanceText?.trim() ?? ""
+    } else {
+      guidance = await readGuidance(runDir)
+    }
+
     return jsonText({
       run_id: resolvedRunId,
       has_guidance: guidance.length > 0,
@@ -1830,58 +2014,66 @@ server.registerTool(
       return errorResult(err instanceof Error ? err.message : String(err))
     }
 
-    const summaryPath = join(runDir, "summary.md")
-    const hasSummary = await Bun.file(summaryPath).exists()
+    const sandbox = await connectToSandbox(runDir)
+    try {
+      const summaryText = await readRunFile(runDir, "summary.md", sandbox)
+      const stateText = await readRunFile(runDir, "state.json", sandbox)
 
-    if (hasSummary) {
-      const summaryText = await Bun.file(summaryPath).text()
-      const state = await readState(runDir)
-      const stats = getRunStats(state, programConfig.direction)
-      return jsonText({
-        run_id: resolvedRunId,
-        has_summary: true,
-        generated: false,
-        summary: summaryText,
-        stats: {
-          total_experiments: stats.total_experiments,
-          total_keeps: stats.total_keeps,
-          improvement_pct: stats.improvement_pct,
-        },
-      })
-    }
-
-    if (generate) {
-      const state = await readState(runDir)
-      if (state.phase !== "complete" && state.phase !== "crashed") {
-        return errorResult("Can only generate summary for completed or crashed runs.")
+      if (summaryText) {
+        if (!stateText) return errorResult(`Could not read state for run "${resolvedRunId}".`)
+        const state = JSON.parse(stateText) as RunState
+        const stats = getRunStats(state, programConfig.direction)
+        return jsonText({
+          run_id: resolvedRunId,
+          has_summary: true,
+          generated: false,
+          summary: summaryText,
+          stats: {
+            total_experiments: stats.total_experiments,
+            total_keeps: stats.total_keeps,
+            improvement_pct: stats.improvement_pct,
+          },
+        })
       }
 
-      const results = await readAllResults(runDir)
-      const summaryText = generateSummaryReport(state, results, programConfig, "")
-      await saveFinalizeReport(runDir, summaryText)
+      if (generate) {
+        if (!stateText) return errorResult(`Could not read state for run "${resolvedRunId}".`)
+        const state = JSON.parse(stateText) as RunState
 
-      const stats = getRunStats(state, programConfig.direction)
+        if (state.phase !== "complete" && state.phase !== "crashed") {
+          return errorResult("Can only generate summary for completed or crashed runs.")
+        }
+
+        const resultsText = await readRunFile(runDir, "results.tsv", sandbox)
+        const results = resultsText ? parseTsvRows(resultsText) : await readAllResults(runDir)
+        const generatedSummary = generateSummaryReport(state, results, programConfig, "")
+        await saveFinalizeReport(runDir, generatedSummary)
+
+        const stats = getRunStats(state, programConfig.direction)
+        return jsonText({
+          run_id: resolvedRunId,
+          has_summary: true,
+          generated: true,
+          summary: generatedSummary,
+          stats: {
+            total_experiments: stats.total_experiments,
+            total_keeps: stats.total_keeps,
+            improvement_pct: stats.improvement_pct,
+          },
+        })
+      }
+
       return jsonText({
         run_id: resolvedRunId,
-        has_summary: true,
-        generated: true,
-        summary: summaryText,
-        stats: {
-          total_experiments: stats.total_experiments,
-          total_keeps: stats.total_keeps,
-          improvement_pct: stats.improvement_pct,
-        },
+        has_summary: false,
+        generated: false,
+        summary: null,
+        stats: null,
+        hint: "Use generate=true to create a stats summary for completed runs.",
       })
+    } finally {
+      sandbox?.provider.detach()
     }
-
-    return jsonText({
-      run_id: resolvedRunId,
-      has_summary: false,
-      generated: false,
-      summary: null,
-      stats: null,
-      hint: "Use generate=true to create a stats summary for completed runs.",
-    })
   },
 )
 

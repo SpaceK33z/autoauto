@@ -97,8 +97,8 @@ Interactive setup and update conversations powered by a support-model agent.
 
 ### Running experiments
 
-1. `start_run` — spawns a background daemon that measures baseline then runs experiments autonomously
-2. `get_run_status` — poll for progress (phase, metrics, keep rate, cost)
+1. `start_run` — spawns a background daemon that measures baseline then runs experiments autonomously. Use `backend="docker"` or `backend="modal"` to run in a container sandbox instead of locally.
+2. `get_run_status` — poll for progress (phase, metrics, keep rate, cost). Works for both local and sandbox runs — reads from the container when the run is sandbox-based.
 3. `get_run_results` — inspect individual experiment outcomes
 4. `get_experiment_log` — read agent output for a specific experiment
 5. `stop_run` — stop when satisfied (or let it hit the max experiments cap)
@@ -351,10 +351,16 @@ Auto-seeds the agent with the latest run's context (results, summary, metrics).
 | `model` | string? | Model name (default: from project config) |
 | `effort` | string? | Effort level (default: from project config) |
 | `max_experiments` | integer? | Override max experiments |
-| `use_worktree` | boolean | Use git worktree isolation (default true) |
+| `use_worktree` | boolean | Use git worktree isolation (default true, ignored for sandbox backends) |
 | `carry_forward` | boolean | Carry forward context from previous runs (default true) |
+| `backend` | `local` \| `docker` \| `modal` | Run backend (default `local`). `docker` runs in a local Docker container, `modal` runs in a Modal cloud sandbox. |
 
-**Output:** `{run_id, daemon_pid, status}`. The daemon runs in the background — use `get_run_status` to poll.
+**Output:** `{run_id, backend, status}`. The daemon runs in the background — use `get_run_status` to poll.
+
+**Sandbox backends:** When using `docker` or `modal`, AutoAuto provisions a container, uploads the repo, installs dependencies, runs a pre-flight measurement check, then starts the daemon inside the container. All monitoring tools (`get_run_status`, `get_run_results`, `get_experiment_log`, `stop_run`, etc.) automatically detect sandbox runs and read/write through the container.
+
+- **Docker** requires a running Docker daemon and `ANTHROPIC_API_KEY` set locally.
+- **Modal** requires `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, and `ANTHROPIC_API_KEY` set locally. Sandboxes default to 2 CPUs, 4 GiB RAM, and 24-hour timeout.
 
 ---
 

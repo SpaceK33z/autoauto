@@ -346,6 +346,7 @@ async function cmdStart(args: ParsedArgs) {
     out("  --no-carry-forward                  Don't carry forward from previous runs")
     out("  --no-ideas-backlog                  Disable ideas backlog")
     out("  --no-wait                           Don't wait for baseline to complete")
+    out("  --sandbox [docker|modal]             Run in container sandbox (default: docker)")
     out("  --json                              Output as JSON")
     out("  --cwd                               Override working directory")
     return
@@ -372,12 +373,50 @@ async function cmdStart(args: ParsedArgs) {
   const ideasBacklogEnabled = await resolveIdeasBacklog(root, args.flags)
   const useWorktree = !hasFlag(args.flags, "in-place")
   const carryForward = !hasFlag(args.flags, "no-carry-forward")
+  // --sandbox with no value defaults to "docker"; --sandbox docker|modal selects explicitly
+  const sandboxFlag = args.flags.sandbox
+  const sandboxProvider = sandboxFlag === true ? "docker" : typeof sandboxFlag === "string" ? sandboxFlag : undefined
 
-  // Spawn daemon
+  // Spawn daemon (local or sandbox)
   let result: { runId: string; runDir: string; worktreePath: string | null; pid: number }
   try {
-    const projConfig = await loadProjectConfig(root)
-    result = await spawnDaemon(root, slug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward, "manual", undefined, undefined, projConfig.executionFallbackModel)
+    if (sandboxProvider) {
+      // Validate and check auth for the chosen provider
+      if (sandboxProvider === "docker") {
+        const { checkDockerAuth } = await import("./lib/container-provider/docker.ts")
+        const auth = await checkDockerAuth()
+        if (!auth.ok) die(auth.error!)
+      } else if (sandboxProvider === "modal") {
+        const { checkModalAuth } = await import("./lib/container-provider/modal.ts")
+        const auth = checkModalAuth()
+        if (!auth.ok) die(auth.error!)
+      } else {
+        die(`Unknown sandbox provider: "${sandboxProvider}". Use "docker" or "modal".`)
+      }
+
+      const { getContainerProviderFactory } = await import("./lib/container-provider/index.ts")
+      const factory = getContainerProviderFactory(sandboxProvider)
+      if (!factory) die(`${sandboxProvider} provider not registered`)
+
+      const { SandboxRunBackend } = await import("./lib/run-backend/sandbox.ts")
+      const backend = new SandboxRunBackend((config) => factory(config ?? {}), sandboxProvider)
+
+      if (!json) out(`Starting ${sandboxProvider} sandbox run for ${slug}...`)
+      const handle = await backend.spawn({
+        mainRoot: root,
+        programSlug: slug,
+        modelConfig,
+        maxExperiments,
+        ideasBacklogEnabled,
+        useWorktree: false,
+        carryForward,
+        source: "manual",
+      })
+      result = { runId: handle.runId, runDir: handle.runDir, worktreePath: null, pid: 0 }
+    } else {
+      const projConfig = await loadProjectConfig(root)
+      result = await spawnDaemon(root, slug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward, "manual", undefined, undefined, projConfig.executionFallbackModel)
+    }
   } catch (err) {
     const msg = formatShellError(err)
     if (msg.includes("uncommitted changes")) die(msg)
@@ -1696,6 +1735,88 @@ async function cmdValidate(args: ParsedArgs) {
 
 // --- Main Router ---
 
+async function cmdSandbox(args: ParsedArgs) {
+  const sub = args.positional[0]
+
+  if (hasFlag(args.flags, "help") || !sub) {
+    out("Usage: autoauto sandbox test --program <slug>")
+    out("")
+    out("Test sandbox provisioning for a program.")
+    out("Creates a Modal sandbox, uploads the repo, installs deps,")
+    out("and runs measure.sh to verify everything works.")
+    out("")
+    out("Flags:")
+    out("  --program <slug>  Program to test (required)")
+    out("  --cwd             Override working directory")
+    return
+  }
+
+  if (sub !== "test") die(`Unknown sandbox subcommand: ${sub}`)
+
+  const slug = getFlag(args.flags, "program")
+  if (!slug) die("--program <slug> is required")
+
+  const root = await resolveRoot(args.flags)
+  const programDir = getProgramDir(root, slug)
+
+  try { await loadProgramConfig(programDir) }
+  catch { die(`Program "${slug}" not found.`) }
+
+  const { checkModalAuth } = await import("./lib/container-provider/modal.ts")
+  const auth = checkModalAuth()
+  if (!auth.ok) die(auth.error!)
+
+  const { getContainerProviderFactory, MODAL_PROVIDER_ID } = await import("./lib/container-provider/index.ts")
+  const factory = getContainerProviderFactory(MODAL_PROVIDER_ID)
+  if (!factory) die("Modal provider not registered")
+
+  out("Creating Modal sandbox...")
+  const provider = await factory({})
+  out("Sandbox created")
+
+  try {
+    out("Uploading repository...")
+    await provider.uploadRepo(root, "/workspace")
+    out("Upload complete")
+
+    out("Installing dependencies...")
+    const installResult = await provider.exec(
+      ["bash", "-c", "export PATH=$HOME/.bun/bin:$PATH && cd /workspace && bun install --frozen-lockfile 2>&1 || bun install 2>&1"],
+      { timeout: 180_000 },
+    )
+    if (installResult.exitCode === 0) {
+      out("Dependencies installed")
+    } else {
+      out(`Install failed (exit ${installResult.exitCode})`)
+      out(new TextDecoder().decode(installResult.stdout.length > 0 ? installResult.stdout : installResult.stderr))
+      throw new Error(`bun install failed (exit ${installResult.exitCode})`)
+    }
+
+    out("Running measure script...")
+    // Support both measure.sh and extensionless measure
+    const measureSh = `/workspace/.autoauto/programs/${slug}/measure.sh`
+    const measureNoExt = `/workspace/.autoauto/programs/${slug}/measure`
+    const shCheck = await provider.exec(["test", "-f", measureSh])
+    const measurePath = shCheck.exitCode === 0 ? measureSh : measureNoExt
+    await provider.exec(["chmod", "+x", measurePath])
+    const result = await provider.exec(
+      ["bash", measurePath],
+      { cwd: "/workspace", timeout: 120_000 },
+    )
+    if (result.exitCode === 0) {
+      out("measure.sh OK (exit 0)")
+      out(new TextDecoder().decode(result.stdout))
+    } else {
+      out(`measure.sh FAILED (exit ${result.exitCode})`)
+      out(new TextDecoder().decode(result.stderr))
+    }
+  } finally {
+    out("Terminating sandbox...")
+    await provider.terminate()
+    out("Done")
+  }
+}
+
 const COMMANDS: Record<string, (args: ParsedArgs) => Promise<void>> = {
   list: cmdList,
   show: cmdShow,
@@ -1710,6 +1831,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<void>> = {
   delete: cmdDelete,
   config: cmdConfig,
   queue: cmdQueue,
+  sandbox: cmdSandbox,
 }
 
 export async function run(argv: string[]) {
@@ -1722,6 +1844,12 @@ export async function run(argv: string[]) {
   if (argv[0] === "__validate_measurement") {
     const { startValidateMeasurement } = await import("./lib/validate-measurement.ts")
     await startValidateMeasurement(argv.slice(1))
+    return
+  }
+
+  if (argv[0] === "_sandbox-helper") {
+    const { runSandboxHelper } = await import("./lib/sandbox-helper.ts")
+    await runSandboxHelper(argv.slice(1))
     return
   }
 
@@ -1738,6 +1866,10 @@ export async function run(argv: string[]) {
   }
 
   registerDefaultProviders()
+
+  const { registerDefaultContainerProviders } = await import("./lib/container-provider/index.ts")
+  registerDefaultContainerProviders()
+
   const args = parseArgs(argv)
   const handler = COMMANDS[args.command]
 
@@ -1758,6 +1890,7 @@ export async function run(argv: string[]) {
     out("  delete <slug>                 Delete a program or run")
     out("  config                        Show/update project configuration")
     out("  queue [list|add|remove|clear] Manage run queue")
+    out("  sandbox test --program <slug> Test sandbox provisioning")
     out("  mcp                           Start MCP server (stdio transport)")
     out("")
     out("Global flags:")

@@ -100,7 +100,7 @@ describe("PreRunScreen E2E", () => {
   test("toggles worktree mode", async () => {
     harness = await renderPreRun()
     await harness.waitForText("Max Experiments")
-    for (let i = 0; i < 5; i++) await harness.tab()
+    for (let i = 0; i < 6; i++) await harness.tab()
     let frame = await harness.frame()
     expect(frame).toContain("Worktree")
     await harness.press("l")
