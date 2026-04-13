@@ -8,6 +8,16 @@ import { act } from "react"
 
 export const noop = () => {}
 
+// Bun runs multiple test files concurrently. OpenTUI's renderer uses React act(),
+// which is process-global and cannot overlap across concurrent harnesses.
+let actQueue = Promise.resolve()
+
+function runSerialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = actQueue.then(fn, fn)
+  actQueue = run.then(() => undefined, () => undefined)
+  return run
+}
+
 export interface TuiHarness {
   /** Render one frame and return the captured text */
   frame: () => Promise<string>
@@ -39,87 +49,111 @@ export async function renderTui(
   element: React.JSX.Element,
   options?: { width?: number; height?: number },
 ): Promise<TuiHarness> {
-  const setup = await testRender(element, {
-    width: options?.width ?? 120,
-    height: options?.height ?? 30,
-    useKittyKeyboard: {},
-  })
+  const setup = await runSerialized(async () => {
+    const rendered = await testRender(element, {
+      width: options?.width ?? 120,
+      height: options?.height ?? 30,
+      useKittyKeyboard: {},
+    })
 
-  // Initial render
-  await act(async () => {
-    await setup.renderOnce()
+    // Initial render
+    await act(async () => {
+      await rendered.renderOnce()
+    })
+
+    return rendered
   })
 
   async function frame(): Promise<string> {
-    await act(async () => {
-      await setup.renderOnce()
+    return runSerialized(async () => {
+      await act(async () => {
+        await setup.renderOnce()
+      })
+      return setup.captureCharFrame()
     })
-    return setup.captureCharFrame()
   }
 
   async function flush(ms = 100): Promise<string> {
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, ms))
-      await setup.renderOnce()
+    return runSerialized(async () => {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, ms))
+        await setup.renderOnce()
+      })
+      return setup.captureCharFrame()
     })
-    return setup.captureCharFrame()
   }
 
   async function press(key: string): Promise<void> {
-    await act(async () => {
-      await setup.mockInput.pressKeys([key])
-      await setup.renderOnce()
+    await runSerialized(async () => {
+      await act(async () => {
+        await setup.mockInput.pressKeys([key])
+        await setup.renderOnce()
+      })
     })
   }
 
   async function enter(): Promise<void> {
-    await act(async () => {
-      setup.mockInput.pressEnter()
-      await setup.renderOnce()
+    await runSerialized(async () => {
+      await act(async () => {
+        setup.mockInput.pressEnter()
+        await setup.renderOnce()
+      })
     })
   }
 
   async function escape(): Promise<void> {
     // Use CSI u encoding for escape — \x1b[27u — which is reliably parsed
     // in Kitty keyboard mode without ambiguous timeout handling.
-    await act(async () => {
-      await setup.mockInput.pressKeys(["\x1b[27u"])
-      await setup.renderOnce()
+    await runSerialized(async () => {
+      await act(async () => {
+        await setup.mockInput.pressKeys(["\x1b[27u"])
+        await setup.renderOnce()
+      })
     })
   }
 
   async function tab(): Promise<void> {
-    await act(async () => {
-      setup.mockInput.pressTab()
-      await setup.renderOnce()
+    await runSerialized(async () => {
+      await act(async () => {
+        setup.mockInput.pressTab()
+        await setup.renderOnce()
+      })
     })
   }
 
   async function backspace(): Promise<void> {
-    await act(async () => {
-      setup.mockInput.pressBackspace()
-      await setup.renderOnce()
+    await runSerialized(async () => {
+      await act(async () => {
+        setup.mockInput.pressBackspace()
+        await setup.renderOnce()
+      })
     })
   }
 
   async function type(text: string): Promise<void> {
-    await act(async () => {
-      await setup.mockInput.typeText(text)
-      await setup.renderOnce()
+    await runSerialized(async () => {
+      await act(async () => {
+        await setup.mockInput.typeText(text)
+        await setup.renderOnce()
+      })
     })
   }
 
   async function arrow(dir: "up" | "down" | "left" | "right"): Promise<void> {
-    await act(async () => {
-      setup.mockInput.pressArrow(dir)
-      await setup.renderOnce()
+    await runSerialized(async () => {
+      await act(async () => {
+        setup.mockInput.pressArrow(dir)
+        await setup.renderOnce()
+      })
     })
   }
 
   async function click(x: number, y: number): Promise<void> {
-    await act(async () => {
-      await setup.mockMouse.click(x, y)
-      await setup.renderOnce()
+    await runSerialized(async () => {
+      await act(async () => {
+        await setup.mockMouse.click(x, y)
+        await setup.renderOnce()
+      })
     })
   }
 
@@ -127,9 +161,11 @@ export async function renderTui(
     const start = Date.now()
     while (Date.now() - start < timeoutMs) {
       // Flush pending React state updates (from async useEffect callbacks)
-      await act(async () => {
-        await new Promise((r) => setTimeout(r, 50))
-        await setup.renderOnce()
+      await runSerialized(async () => {
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 50))
+          await setup.renderOnce()
+        })
       })
       const output = setup.captureCharFrame()
       if (output.includes(text)) return output
@@ -141,8 +177,10 @@ export async function renderTui(
   }
 
   async function destroy(): Promise<void> {
-    await act(async () => {
-      setup.renderer.destroy()
+    await runSerialized(async () => {
+      await act(async () => {
+        setup.renderer.destroy()
+      })
     })
   }
 

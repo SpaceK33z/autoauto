@@ -37,11 +37,11 @@ export type Screen = "home" | "setup" | "settings" | "program-detail" | "pre-run
 
 export const AUTOAUTO_DIR = ".autoauto"
 
-let cachedRoot: string | undefined
+const cachedRoots = new Map<string, string>()
 
 /** Reset the cached project root (for tests). */
 export function resetProjectRoot(): void {
-  cachedRoot = undefined
+  cachedRoots.clear()
 }
 
 function assertFiniteNumber(value: unknown, path: string): asserts value is number {
@@ -156,15 +156,16 @@ export function validateProgramConfig(raw: unknown): ProgramConfig {
 
 /** Returns the main git repo root, resolving through worktrees. */
 export async function getProjectRoot(cwd: string): Promise<string> {
+  const cachedRoot = cachedRoots.get(cwd)
   if (cachedRoot) return cachedRoot
   const result = await $`git rev-parse --show-superproject-working-tree`.cwd(cwd).nothrow().quiet()
   const superproject = result.stdout.toString().trim()
   if (superproject) {
-    cachedRoot = superproject
+    cachedRoots.set(cwd, superproject)
     return superproject
   }
   const toplevel = (await $`git rev-parse --show-toplevel`.cwd(cwd).text()).trim()
-  cachedRoot = toplevel
+  cachedRoots.set(cwd, toplevel)
   return toplevel
 }
 
