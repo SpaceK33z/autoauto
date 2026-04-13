@@ -20,6 +20,24 @@ import type {
 
 const decoder = new TextDecoder()
 
+/** Docker binary path — override with setDockerBin() for testing. */
+let _dockerBin = "docker"
+
+/** Override the docker binary path (e.g. to a mock script for testing). */
+export function setDockerBin(bin: string): void { _dockerBin = bin }
+
+/** Reset the docker binary to the default "docker". */
+export function resetDockerBin(): void { _dockerBin = "docker" }
+
+/** Env var keys forwarded into sandbox containers. Shared with modal.ts. */
+const CONTAINER_ENV_KEYS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"] as const
+
+/** Read a subprocess stream to string, trimming whitespace. */
+async function readStream(stream: ReadableStream<Uint8Array> | null): Promise<string> {
+  if (!stream) return ""
+  return decoder.decode(new Uint8Array(await new Response(stream).arrayBuffer())).trim()
+}
+
 export class DockerContainerProvider implements ContainerProvider {
   private containerId: string
   private containerName: string
@@ -29,8 +47,8 @@ export class DockerContainerProvider implements ContainerProvider {
     this.containerName = containerName
   }
 
-  async exec(command: string[], opts?: ExecOptions): Promise<ExecResult> {
-    const args = ["docker", "exec"]
+  private buildExecArgs(command: string[], opts?: ExecOptions): string[] {
+    const args = [_dockerBin, "exec"]
     if (opts?.cwd) args.push("--workdir", opts.cwd)
     if (opts?.env) {
       for (const [k, v] of Object.entries(opts.env)) {
@@ -38,12 +56,24 @@ export class DockerContainerProvider implements ContainerProvider {
       }
     }
     args.push(this.containerId, ...command)
+    return args
+  }
 
+  async exec(command: string[], opts?: ExecOptions): Promise<ExecResult> {
+    const args = this.buildExecArgs(command, opts)
     const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
+
     const [stdoutBuf, stderrBuf] = await Promise.all([
       new Response(proc.stdout).arrayBuffer(),
       new Response(proc.stderr).arrayBuffer(),
     ])
+
+    if (opts?.timeout) {
+      const timer = setTimeout(() => proc.kill(), opts.timeout)
+      await proc.exited
+      clearTimeout(timer)
+    }
+
     const exitCode = await proc.exited
     return {
       exitCode,
@@ -53,15 +83,7 @@ export class DockerContainerProvider implements ContainerProvider {
   }
 
   async execStreaming(command: string[], opts?: ExecOptions): Promise<StreamingProcess> {
-    const args = ["docker", "exec"]
-    if (opts?.cwd) args.push("--workdir", opts.cwd)
-    if (opts?.env) {
-      for (const [k, v] of Object.entries(opts.env)) {
-        args.push("--env", `${k}=${v}`)
-      }
-    }
-    args.push(this.containerId, ...command)
-
+    const args = this.buildExecArgs(command, opts)
     const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
 
     return {
@@ -84,7 +106,6 @@ export class DockerContainerProvider implements ContainerProvider {
   }
 
   async writeFile(remotePath: string, data: Uint8Array | string): Promise<void> {
-    // Ensure parent directory exists
     const dir = dirname(remotePath)
     if (dir !== "/" && dir !== ".") {
       await this.exec(["mkdir", "-p", dir])
@@ -94,14 +115,17 @@ export class DockerContainerProvider implements ContainerProvider {
     const tmpFile = join(tmpdir(), `autoauto-docker-write-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     try {
       await Bun.write(tmpFile, data)
-      const proc = Bun.spawn(["docker", "cp", tmpFile, `${this.containerId}:${remotePath}`], {
+      const proc = Bun.spawn([_dockerBin, "cp", tmpFile, `${this.containerId}:${remotePath}`], {
         stdout: "pipe",
         stderr: "pipe",
       })
-      const exitCode = await proc.exited
+      // Read stderr before awaiting exit to avoid stream-closed race
+      const [stderrText, exitCode] = await Promise.all([
+        readStream(proc.stderr),
+        proc.exited,
+      ])
       if (exitCode !== 0) {
-        const stderr = decoder.decode(new Uint8Array(await new Response(proc.stderr).arrayBuffer())).trim()
-        throw new Error(`docker cp write failed: ${stderr}`)
+        throw new Error(`docker cp write failed: ${stderrText}`)
       }
     } finally {
       await unlink(tmpFile).catch(() => {})
@@ -109,48 +133,44 @@ export class DockerContainerProvider implements ContainerProvider {
   }
 
   async uploadRepo(localDir: string, remoteDir: string): Promise<void> {
-    // Ensure remote dir exists
     await this.exec(["mkdir", "-p", remoteDir])
 
-    // docker cp localDir/. container:remoteDir — native directory copy
     const proc = Bun.spawn(
-      ["docker", "cp", `${localDir}/.`, `${this.containerId}:${remoteDir}`],
+      [_dockerBin, "cp", `${localDir}/.`, `${this.containerId}:${remoteDir}`],
       { stdout: "pipe", stderr: "pipe" },
     )
-    const exitCode = await proc.exited
+    const [stderrText, exitCode] = await Promise.all([
+      readStream(proc.stderr),
+      proc.exited,
+    ])
     if (exitCode !== 0) {
-      const stderr = decoder.decode(new Uint8Array(await new Response(proc.stderr).arrayBuffer())).trim()
-      throw new Error(`docker cp upload failed: ${stderr}`)
+      throw new Error(`docker cp upload failed: ${stderrText}`)
     }
   }
 
   async poll(): Promise<number | null> {
+    // Single inspect call for both running state and exit code
     const proc = Bun.spawn(
-      ["docker", "inspect", "--format", "{{.State.Running}}", this.containerId],
+      [_dockerBin, "inspect", "--format", "{{.State.Running}} {{.State.ExitCode}}", this.containerId],
       { stdout: "pipe", stderr: "pipe" },
     )
-    const stdout = decoder.decode(new Uint8Array(await new Response(proc.stdout).arrayBuffer())).trim()
-    const exitCode = await proc.exited
+    const [stdout, exitCode] = await Promise.all([
+      readStream(proc.stdout),
+      proc.exited,
+    ])
 
-    // Container removed or not found
-    if (exitCode !== 0) return 1
+    if (exitCode !== 0) return 1 // container removed or not found
 
-    if (stdout === "true") return null
+    const [running, codeStr] = stdout.split(" ")
+    if (running === "true") return null
 
-    // Container stopped — get its exit code
-    const codeProc = Bun.spawn(
-      ["docker", "inspect", "--format", "{{.State.ExitCode}}", this.containerId],
-      { stdout: "pipe", stderr: "pipe" },
-    )
-    const codeStr = decoder.decode(new Uint8Array(await new Response(codeProc.stdout).arrayBuffer())).trim()
-    await codeProc.exited
     const code = parseInt(codeStr, 10)
     return isNaN(code) ? 1 : code
   }
 
   async terminate(): Promise<void> {
     const proc = Bun.spawn(
-      ["docker", "rm", "-f", this.containerId],
+      [_dockerBin, "rm", "-f", this.containerId],
       { stdout: "pipe", stderr: "pipe" },
     )
     await proc.exited
@@ -190,13 +210,14 @@ export async function lookupDockerContainer(
   if (!name) return null
 
   try {
-    // Check if container exists and is running
     const proc = Bun.spawn(
-      ["docker", "inspect", "--format", "{{.Id}} {{.State.Running}}", name],
+      [_dockerBin, "inspect", "--format", "{{.Id}} {{.State.Running}}", name],
       { stdout: "pipe", stderr: "pipe" },
     )
-    const stdout = decoder.decode(new Uint8Array(await new Response(proc.stdout).arrayBuffer())).trim()
-    const exitCode = await proc.exited
+    const [stdout, exitCode] = await Promise.all([
+      readStream(proc.stdout),
+      proc.exited,
+    ])
 
     if (exitCode !== 0) return null
 
@@ -220,24 +241,24 @@ WORKDIR /workspace
 
 /** Ensure the autoauto-runner Docker image exists, building it if needed. */
 async function ensureImage(): Promise<void> {
-  // Check if image already exists
   const check = Bun.spawn(
-    ["docker", "image", "inspect", "autoauto-runner:latest"],
+    [_dockerBin, "image", "inspect", "autoauto-runner:latest"],
     { stdout: "pipe", stderr: "pipe" },
   )
   if ((await check.exited) === 0) return
 
-  // Build from inline Dockerfile
   const build = Bun.spawn(
-    ["docker", "build", "-t", "autoauto-runner:latest", "-"],
+    [_dockerBin, "build", "-t", "autoauto-runner:latest", "-"],
     { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
   )
   build.stdin.write(DOCKERFILE)
   build.stdin.end()
-  const exitCode = await build.exited
+  const [stderrText, exitCode] = await Promise.all([
+    readStream(build.stderr),
+    build.exited,
+  ])
   if (exitCode !== 0) {
-    const stderr = decoder.decode(new Uint8Array(await new Response(build.stderr).arrayBuffer())).trim()
-    throw new Error(`Failed to build autoauto-runner image: ${stderr}`)
+    throw new Error(`Failed to build autoauto-runner image: ${stderrText}`)
   }
 }
 
@@ -252,15 +273,17 @@ export async function createDockerProvider(config: Record<string, unknown>): Pro
 
   const slug = config.programSlug as string | undefined
   const runId = config.runId as string | undefined
-  const name = slug && runId ? `autoauto-${slug}-${runId}` : `autoauto-${Date.now()}`
+  const name = (slug && runId)
+    ? buildContainerName({ program_slug: slug, run_id: runId })!
+    : `autoauto-${Date.now()}`
 
   // Pre-clean any stale container with the same name
-  const rmProc = Bun.spawn(["docker", "rm", "-f", name], { stdout: "pipe", stderr: "pipe" })
+  const rmProc = Bun.spawn([_dockerBin, "rm", "-f", name], { stdout: "pipe", stderr: "pipe" })
   await rmProc.exited
 
   // Collect env secrets
   const envFlags: string[] = []
-  for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"]) {
+  for (const key of CONTAINER_ENV_KEYS) {
     if (process.env[key]) envFlags.push("--env", `${key}=${process.env[key]}`)
   }
 
@@ -270,7 +293,7 @@ export async function createDockerProvider(config: Record<string, unknown>): Pro
   if (runId) labelFlags.push("--label", `run_id=${runId}`)
 
   const runArgs = [
-    "docker", "run", "-d",
+    _dockerBin, "run", "-d",
     "--name", name,
     ...labelFlags,
     ...envFlags,
@@ -279,12 +302,14 @@ export async function createDockerProvider(config: Record<string, unknown>): Pro
   ]
 
   const proc = Bun.spawn(runArgs, { stdout: "pipe", stderr: "pipe" })
-  const stdout = decoder.decode(new Uint8Array(await new Response(proc.stdout).arrayBuffer())).trim()
-  const exitCode = await proc.exited
+  const [stdout, stderrText, exitCode] = await Promise.all([
+    readStream(proc.stdout),
+    readStream(proc.stderr),
+    proc.exited,
+  ])
 
   if (exitCode !== 0) {
-    const stderr = decoder.decode(new Uint8Array(await new Response(proc.stderr).arrayBuffer())).trim()
-    throw new Error(`Failed to start Docker container: ${stderr}`)
+    throw new Error(`Failed to start Docker container: ${stderrText}`)
   }
 
   const containerId = stdout.slice(0, 12) // short ID
@@ -296,7 +321,7 @@ export async function createDockerProvider(config: Record<string, unknown>): Pro
  */
 export async function checkDockerAuth(): Promise<{ ok: boolean; error?: string }> {
   try {
-    const proc = Bun.spawn(["docker", "info"], { stdout: "pipe", stderr: "pipe" })
+    const proc = Bun.spawn([_dockerBin, "info"], { stdout: "pipe", stderr: "pipe" })
     const exitCode = await Promise.race([
       proc.exited,
       new Promise<number>((resolve) => setTimeout(() => {

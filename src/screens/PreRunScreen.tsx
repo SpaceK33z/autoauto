@@ -22,8 +22,8 @@ import {
 } from "../lib/config.ts"
 import { MODAL_PROVIDER_ID, DOCKER_PROVIDER_ID } from "../lib/container-provider/index.ts"
 
-const SANDBOX_CHOICES = ["off", DOCKER_PROVIDER_ID, MODAL_PROVIDER_ID] as const
-type SandboxChoice = typeof SANDBOX_CHOICES[number]
+type SandboxChoice = "off" | "docker" | "modal"
+const SANDBOX_CHOICES: readonly SandboxChoice[] = ["off", DOCKER_PROVIDER_ID, MODAL_PROVIDER_ID]
 
 const SANDBOX_LABELS: Record<SandboxChoice, string> = {
   off: "Off",
@@ -165,7 +165,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   }
 
   function handleCycleSandbox(direction: -1 | 1) {
-    const next = cycleChoice(SANDBOX_CHOICES as unknown as readonly SandboxChoice[], sandboxChoice, direction)
+    const next = cycleChoice(SANDBOX_CHOICES, sandboxChoice, direction)
 
     if (next === "off") {
       setSandboxChoice("off")
