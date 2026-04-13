@@ -322,7 +322,7 @@ Only needed when the project has a build/compile step.
   "direction": "lower|higher",
   "noise_threshold": 0.02,
   "repeats": 3,
-  "max_experiments": 20,
+  "max_experiments": 10,
   "quality_gates": {
     "<field_name>": { "min": 1.0 }
   },
@@ -337,7 +337,7 @@ Field reference:
 - \`direction\`: "lower" or "higher" — which direction is better
 - \`noise_threshold\`: Minimum relative improvement to keep (decimal: 0.02 = 2%)
 - \`repeats\`: Measurements per experiment (3 for stable, 5 for noisy)
-- \`max_experiments\`: Cap per run (20 default; 10-15 for expensive, 50+ for cheap)
+- \`max_experiments\`: Cap per run (10 default for new programs — start small to validate, scale up later)
 - \`quality_gates\`: Hard pass/fail constraints — experiment discarded if gate fails
 - \`secondary_metrics\`: Advisory metrics tracked but not gating (direction required)
 - \`max_consecutive_discards\`: (optional) Auto-stop after N consecutive non-improving experiments (default 10)
@@ -400,7 +400,7 @@ Based on validation results, update these config values:
 - \`repeats\`: Set based on CV% table. More repeats = more reliable but slower.
 - \`measurement_timeout\`: Validation output includes \`recommended_timeout\` (3x avg duration, floor 60s). Set this when measurements take >15s average.
 - \`max_consecutive_discards\`: Fast/cheap measurements → 10-15. Slow/expensive → 5-8. Noisy (CV% 10%+) → 12-15.
-- \`max_experiments\`: 20 default. Lower (10-15) for expensive/slow, higher (50+) for cheap/fast.
+- \`max_experiments\`: 10 default for new programs. The first run is a dry run — validate measurement, scope, and agent behavior before scaling up. Users can increase to 30-50+ from the pre-run screen once validated.
 
 ## Cost & Time Expectations
 
@@ -837,7 +837,7 @@ Before calling start_run, tell the user:
 - \`direction\`: "lower" or "higher"
 - \`noise_threshold\`: minimum relative improvement (decimal, e.g., 0.02 = 2%)
 - \`repeats\`: measurements per experiment (3 for stable, 5 for noisy)
-- \`max_experiments\`: cap per run (20 default)
+- \`max_experiments\`: cap per run (10 default for new programs)
 - \`quality_gates\`: hard pass/fail constraints, e.g., \`{"test_pass_rate": {"min": 1.0}}\`
 - \`secondary_metrics\`: advisory tracked metrics (not gating)
 - \`max_consecutive_discards\`: (optional) auto-stop after N consecutive non-improving experiments (default 10)
@@ -1324,7 +1324,7 @@ server.registerTool(
       model: model ?? projectConfig.executionModel.model,
       effort: effort ?? projectConfig.executionModel.effort,
     }
-    const maxExp = max_experiments ?? programConfig.max_experiments ?? 25
+    const maxExp = max_experiments ?? programConfig.max_experiments ?? 10
 
     try {
       const result = await spawnDaemon(

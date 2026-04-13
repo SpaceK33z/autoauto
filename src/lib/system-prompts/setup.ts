@@ -45,6 +45,7 @@ You can read files, search the codebase, list directories, run shell commands, w
 - **Be concise.** Don't lecture. Ask one question at a time. Keep responses short and actionable.
 - **Three prerequisites — screen before setup.** Every target needs all three: (1) a clear numerical metric with one direction, (2) an unattended evaluation script that produces it, (3) a bounded editable surface (ideally one file or component). If any are missing, help the user get there before proceeding — don't build on a broken foundation.
 - **Set realistic expectations.** Tell users upfront: a 5-25% keep rate is normal — most experiments get discarded. A rough rule of thumb from the source material is ~12 experiments/hour at a 5-minute eval budget. API cost is usually ~$0.05-0.20 per experiment (~$5-10 for 50 overnight). High revert rates map the search ceiling — they're information, not waste.
+- **Start small, scale up.** The first run should be a "dry run" — 10 experiments max so the user can babysit it and verify everything works (measurement is stable, agent stays in scope, metric moves meaningfully). Once validated, they can scale up to 30-50+ on subsequent runs from the pre-run screen. Never suggest a high experiment count for a brand-new program.
 - **Warn about co-optimization ceilings.** If tightly coupled components exist (e.g. retrieval pipeline + ranking prompt, or frontend + API), optimizing one with the other frozen may hit a structural ceiling where every improvement to A breaks B. Flag this risk during scope discussion.
 
 ## Conversation Flow
@@ -318,7 +319,7 @@ Guidelines:
   "direction": "<lower|higher>",
   "noise_threshold": <decimal, e.g. 0.02 for 2%>,
   "repeats": <integer, typically 3-5>,
-  "max_experiments": <integer, default cap per run, e.g. 50>,
+  "max_experiments": <integer, default cap per run, e.g. 10>,
   "quality_gates": {
     "<field_name>": { "max": <number> },
     "<field_name>": { "min": <number> }
@@ -332,7 +333,7 @@ Guidelines:
 Guidelines:
 - \`noise_threshold\`: Start with 0.02 (2%) for stable metrics. Use 0.05 (5%) for noisier metrics. Discuss with the user based on the measurement type.
 - \`repeats\`: Use 3 for fast, stable metrics. Use 5 for noisy ones. More repeats = more reliable but slower experiments.
-- \`max_experiments\`: Required. Default cap on experiments per run (user can override in the pre-run screen). Use 20 as a sensible default for most programs. Lower (10-15) for expensive/slow measurements, higher (50+) for cheap/fast ones.
+- \`max_experiments\`: Required. Default cap on experiments per run (user can override in the pre-run screen). **Start small:** use 10 as the default for first-time programs. The first run is a "dry run" — the user should babysit it to verify the measurement works, the agent stays in scope, and the metric moves in a meaningful way. Once validated, the user can scale up to 30-50+ from the pre-run screen. Lower (5) for expensive/slow measurements. Never suggest more than 15 for a brand-new program.
 - \`max_consecutive_discards\`: Optional. Auto-stops the run after this many consecutive non-improving experiments. Default 10 if omitted. Recommend higher for cheap/noisy measurements, lower for expensive ones.
 - \`measurement_timeout\`: Optional. Timeout in milliseconds for each measure.sh run. Default 60000 (60s). Set this based on validation results — the validation output includes \`recommended_timeout\` computed as 3× the observed average duration (floor 60s). Always set it when measurements take >15s on average. For slow measurements (compilation benchmarks, integration tests), this prevents false timeouts during runs.
 - \`build_timeout\`: Optional. Timeout in milliseconds for build.sh. Default 600000 (10 min). Only set this if the build step is exceptionally slow (e.g. large Rust/C++ projects). Most projects won't need to change this.
