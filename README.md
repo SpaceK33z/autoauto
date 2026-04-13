@@ -145,6 +145,8 @@ Hit run and AutoAuto:
 
 Each experiment agent gets a **context packet** — not the full chat history, but a structured summary: current baseline, recent results, git log of kept changes, diffs from recently discarded attempts, and an ideas backlog of what's been tried. This prevents repeating failed approaches while keeping context small.
 
+You can **steer the loop mid-run** by pressing `g` to set human guidance. The next experiment agent receives your direction as high-priority context — useful when the agent is stuck, drifting, or you have a hunch about what to try next. Guidance persists across terminal detach/reattach and can be cleared at any time.
+
 The live TUI dashboard shows:
 
 - **Stats header** — experiment count, keeps/discards, baseline vs best with improvement %, cost, and a sparkline
@@ -188,6 +190,7 @@ After the loop completes (or you stop it), a Finalize Agent reviews the accumula
           state.json                  # Run state checkpoint
           results.tsv                 # Append-only experiment outcomes
           ideas.md                    # Ideas backlog (optional)
+          guidance.md                 # Human steering (written by TUI/MCP)
           stream-001.log              # Per-experiment agent output
           ...
   worktrees/

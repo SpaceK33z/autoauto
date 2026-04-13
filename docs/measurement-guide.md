@@ -110,6 +110,12 @@ A "3% improvement" is meaningless if your measurement varies by 5% between runs.
 
 **During execution:** Each experiment is measured N times (configurable `repeats`), and AutoAuto uses the median. This filters outliers.
 
+**Statistical significance.** With 2+ repeats, AutoAuto runs a Mann-Whitney U test (non-parametric, no normality assumption) on the raw baseline and experiment samples. The p-value is shown in the results table alongside each experiment's status.
+
+The p-value can override the noise threshold in both directions: if a change falls within the threshold but Mann-Whitney shows the difference is statistically significant (p < 0.05), the experiment is kept (if improved) or discarded as regressed (if worsened). This prevents discarding small-but-real improvements that the threshold would otherwise filter out.
+
+Minimum achievable p-value depends on your repeat count: 0.1 at 3 repeats, ~0.029 at 4 repeats, ~0.008 at 5 repeats. With 3 repeats, the p-value override can never trigger (minimum p=0.10 > 0.05), so you need **4+ repeats** for statistical significance to influence decisions. Use 5+ repeats for strong statistical power. When the p-value hits the floor for the sample size, it's displayed as `p≤0.10` instead of `p=0.10` to indicate this is the strongest possible signal, not a weak one.
+
 **Common causes of high variance:**
 - Cold starts (add warm-up runs)
 - Background processes (close other apps, use a dedicated machine)

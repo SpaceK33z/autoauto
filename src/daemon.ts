@@ -229,6 +229,7 @@ export async function startDaemon(args = process.argv.slice(2)) {
         phase: "idle",
         original_baseline: baseline.median_metric,
         current_baseline: baseline.median_metric,
+        baseline_samples: baseline.metric_values,
         best_metric: baseline.median_metric,
         original_baseline_sha: fullSha,
         last_known_good_sha: fullSha,

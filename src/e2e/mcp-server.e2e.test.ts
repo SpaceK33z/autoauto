@@ -154,13 +154,101 @@ describe("MCP get_setup_guide", () => {
     await fixture.cleanup()
   })
 
-  test("returns setup guide text", async () => {
+  test("returns concise setup guide with resource pointer", async () => {
     const result = await mcp.client.callTool({ name: "get_setup_guide", arguments: {} })
     const text = getTextContent(result)
-    expect(text).toContain("AutoAuto Program Setup Guide")
+    expect(text).toContain("Quick Guide")
+    expect(text).toContain("Mandatory Workflow")
+    expect(text).toContain("autoauto://setup-guide")
+    // Still standalone — contains essential info
     expect(text).toContain("measure.sh")
     expect(text).toContain("config.json")
-    expect(text).toContain("quality_gates")
+    // Emphasizes user confirmation
+    expect(text).toContain("Do NOT call create_program until the user explicitly confirms")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// MCP Resources
+// ---------------------------------------------------------------------------
+
+describe("MCP resources", () => {
+  let fixture: TestFixture
+  let mcp: McpTestContext
+
+  beforeEach(async () => {
+    fixture = await createTestFixture()
+    mcp = await createMcpTestClient(fixture.cwd)
+  })
+
+  afterEach(async () => {
+    await mcp.cleanup()
+    await fixture.cleanup()
+  })
+
+  test("lists setup-guide as a static resource", async () => {
+    const result = await mcp.client.listResources()
+    const setupGuide = result.resources.find((r) => r.uri === "autoauto://setup-guide")
+    expect(setupGuide).toBeDefined()
+    expect(setupGuide!.name).toBe("setup-guide")
+    expect(setupGuide!.mimeType).toBe("text/markdown")
+  })
+
+  test("reads setup-guide resource with critical checkpoints", async () => {
+    const result = await mcp.client.readResource({ uri: "autoauto://setup-guide" })
+    expect(result.contents).toHaveLength(1)
+    const text = result.contents[0].text as string
+    expect(text).toContain("Critical Checkpoints")
+    expect(text).toContain("User Confirmation")
+    expect(text).toContain("Quality Gates Discussion")
+    expect(text).toContain("Config Review After Validation")
+    expect(text).toContain("Cost/Time Estimate")
+    // Full artifact formats
+    expect(text).toContain("program.md")
+    expect(text).toContain("measure.sh")
+    expect(text).toContain("config.json")
+    // Validation interpretation table
+    expect(text).toContain("Deterministic")
+    expect(text).toContain("noise_threshold")
+  })
+
+  test("lists program resource template", async () => {
+    const result = await mcp.client.listResourceTemplates()
+    const template = result.resourceTemplates.find((t) => t.uriTemplate === "autoauto://program/{name}")
+    expect(template).toBeDefined()
+    expect(template!.name).toBe("program")
+  })
+
+  test("lists programs via resource template", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog", {
+      programMd: "# Test\n\n## Goal\nOptimize score.\n",
+    })
+    const result = await mcp.client.listResources()
+    const prog = result.resources.find((r) => r.uri === "autoauto://program/test-prog")
+    expect(prog).toBeDefined()
+    expect(prog!.name).toBe("test-prog")
+  })
+
+  test("reads program resource with full details", async () => {
+    await createProgramForMcp(fixture.cwd, "my-prog", {
+      programMd: "# My Program\n\n## Goal\nTest goal.\n",
+      measureSh: '#!/bin/bash\necho \'{"score": 42}\'',
+      buildSh: "#!/bin/bash\nnpm run build",
+    })
+    const result = await mcp.client.readResource({ uri: "autoauto://program/my-prog" })
+    expect(result.contents).toHaveLength(1)
+    const text = result.contents[0].text as string
+    expect(text).toContain("# Program: my-prog")
+    expect(text).toContain("My Program")
+    expect(text).toContain("config.json")
+    expect(text).toContain("measure.sh")
+    expect(text).toContain("build.sh")
+    expect(text).toContain("npm run build")
+  })
+
+  test("returns not-found for non-existent program resource", async () => {
+    const result = await mcp.client.readResource({ uri: "autoauto://program/nonexistent" })
+    expect(result.contents[0].text).toContain("not found")
   })
 })
 
@@ -820,6 +908,65 @@ describe("MCP validate_measurement", () => {
     expect(getTextContent(result)).toContain("not found")
   })
 }, 90_000)
+
+
+// ---------------------------------------------------------------------------
+// get_guidance
+// ---------------------------------------------------------------------------
+
+describe("MCP get_guidance", () => {
+  let fixture: TestFixture
+  let mcp: McpTestContext
+
+  beforeEach(async () => {
+    fixture = await createTestFixture()
+    mcp = await createMcpTestClient(fixture.cwd)
+  })
+
+  afterEach(async () => {
+    await mcp.cleanup()
+    await fixture.cleanup()
+  })
+
+  test("returns no guidance when file does not exist", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+    await createRunForMcp(fixture.cwd, "test-prog")
+
+    const result = await mcp.client.callTool({
+      name: "get_guidance",
+      arguments: { name: "test-prog" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const data = getJsonContent(result) as { has_guidance: boolean; guidance: string | null }
+    expect(data.has_guidance).toBe(false)
+    expect(data.guidance).toBeNull()
+  })
+
+  test("returns guidance when file exists", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+    const runDir = await createRunForMcp(fixture.cwd, "test-prog")
+    await Bun.write(join(runDir, "guidance.md"), "Focus on parser optimizations\n")
+
+    const result = await mcp.client.callTool({
+      name: "get_guidance",
+      arguments: { name: "test-prog" },
+    })
+
+    expect(result.isError).toBeFalsy()
+    const data = getJsonContent(result) as { has_guidance: boolean; guidance: string }
+    expect(data.has_guidance).toBe(true)
+    expect(data.guidance).toBe("Focus on parser optimizations")
+  })
+
+  test("returns error for non-existent program", async () => {
+    const result = await mcp.client.callTool({
+      name: "get_guidance",
+      arguments: { name: "no-such" },
+    })
+    expect(result.isError).toBe(true)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // conversational sessions

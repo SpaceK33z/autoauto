@@ -11,7 +11,7 @@
  *            autoauto mcp [--cwd <project-root>]
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import { join } from "node:path"
@@ -45,6 +45,8 @@ import {
   forceKillDaemon as _forceKillDaemon,
   findActiveRun as _findActiveRun,
   updateMaxExperiments as _updateMaxExperiments,
+  readGuidance,
+  writeGuidance,
 } from "./lib/daemon-client.ts"
 
 /** Daemon function overrides for testing (avoids process-wide mock.module). */
@@ -93,6 +95,7 @@ function resolveCwd(): string {
 
 /** Reusable slug schema — prevents path traversal via names like "../../etc" */
 const SlugSchema = z.string().min(1).regex(/^[a-z0-9-]+$/, "Must be lowercase letters, numbers, and hyphens only")
+const RunIdSchema = z.string().regex(/^[A-Za-z0-9._-]+$/, "Invalid run_id format")
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,6 +128,15 @@ async function readFileOrNull(path: string): Promise<string | null> {
   const f = Bun.file(path)
   if (await f.exists()) return f.text()
   return null
+}
+
+async function readProgramFiles(programDir: string) {
+  const [programMd, measureSh, buildSh] = await Promise.all([
+    readFileOrNull(join(programDir, "program.md")),
+    readFileOrNull(join(programDir, "measure.sh")),
+    readFileOrNull(join(programDir, "build.sh")),
+  ])
+  return { programMd, measureSh, buildSh }
 }
 
 async function resolveRunDir(
@@ -179,15 +191,311 @@ export function createMcpServer(cwd: string, daemonDeps?: Partial<McpDaemonDeps>
   const server = new McpServer(
     { name: "autoauto", version: AUTOAUTO_VERSION },
     {
-      capabilities: { logging: {} },
+      capabilities: { logging: {}, resources: {} },
       instructions: [
         "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
-        "Setup workflow: (1) get_setup_guide to learn artifact formats, (2) list_programs to check for duplicates, (3) create_program to write all files, (4) validate_measurement to verify stability.",
-        "Run workflow: (1) start_run to launch an experiment loop, (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
-        "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run.",
+        "Setup workflow: (1) get_setup_guide to learn principles and workflow, (2) list_programs to check for duplicates, (3) create_program to write all files (get user confirmation first!), (4) validate_measurement to verify stability, (5) review config with user based on validation results.",
+        "Run workflow: (1) start_run to launch an experiment loop (give cost/time estimate first), (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
+        "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run, set_guidance to steer the agent's direction.",
+        "Resources: read autoauto://setup-guide for the full setup reference (artifact formats, validation procedures, anti-gaming rules, config tuning). Read autoauto://program/{name} for a program's full details.",
       ].join("\n"),
     },
   )
+
+// ---------------------------------------------------------------------------
+// Resource: autoauto://setup-guide
+// ---------------------------------------------------------------------------
+
+server.registerResource(
+  "setup-guide",
+  "autoauto://setup-guide",
+  {
+    description:
+      "Full setup reference for creating AutoAuto programs: artifact formats, validation procedures, anti-gaming rules, config tuning, quality gate design, and cost estimates. Read this before creating or updating programs.",
+    mimeType: "text/markdown",
+  },
+  async () => {
+    const root = await getProjectRoot(cwd)
+    const programsDir = getProgramsDir(root)
+
+    return {
+      contents: [
+        {
+          uri: "autoauto://setup-guide",
+          mimeType: "text/markdown",
+          text: `# AutoAuto Setup Reference
+
+## Critical Checkpoints
+
+These are mandatory steps that must not be skipped:
+
+1. **User Confirmation**: NEVER create a program without the user's explicit "yes." Present all artifacts (program.md, measure.sh, config.json) as code blocks and ask the user to confirm before calling create_program.
+2. **Quality Gates Discussion**: Ask the user what metrics must not regress while optimizing the primary metric. Don't silently set empty quality gates — discuss first, then use empty gates only if the user agrees none are needed.
+3. **Config Review After Validation**: After validate_measurement returns CV% and recommendations, present the recommended config changes to the user and get approval before updating. Never silently leave config at defaults.
+4. **Cost/Time Estimate**: Before calling start_run, tell the user: expected cost (~$0.05-0.20/experiment), time (~12 experiments/hour at 5-min eval), and keep rate (5-25% is normal). Get acknowledgment.
+
+## Program Directory Structure
+
+Programs live in: ${programsDir}/<slug>/
+\`\`\`
+${programsDir}/<slug>/
+├── program.md      # Goal, scope, rules, steps
+├── measure.sh      # Measurement script (chmod +x)
+├── build.sh        # Optional build step (chmod +x)
+└── config.json     # Metric configuration
+\`\`\`
+
+## Artifact Formats
+
+### program.md
+
+\`\`\`markdown
+# Program: <Human-Readable Name>
+
+## Goal
+<One clear sentence describing what to optimize and in what direction.>
+
+## Scope
+- Files: <specific files or glob patterns the experiment agent may modify>
+- Off-limits: <files, directories, or systems the agent must NOT touch>
+
+## Rules
+<Numbered list of constraints. Be specific.>
+1. Do not remove features or functionality
+2. Do not modify test fixtures or test data
+3. Do not change the public API surface
+4. <domain-specific constraints>
+
+## Steps
+1. ANALYZE: Read the codebase within scope, review results.tsv for past experiments
+2. PLAN: Choose ONE specific, targeted change
+3. IMPLEMENT: Make the change, keeping the diff small and focused
+4. TEST: Verify the change doesn't break anything
+5. COMMIT: Stage and commit with message format: "<type>(scope): description"
+\`\`\`
+
+### measure.sh
+
+\`\`\`bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# <Brief description of what this measures>
+# Output: JSON object with metric fields
+
+<measurement logic — assumes project is already built>
+
+# Output MUST be a single JSON object on stdout, nothing else
+echo '{"<metric_field>": <value>}'
+\`\`\`
+
+Requirements:
+- Shebang + \`set -euo pipefail\`
+- stdout: exactly ONE JSON object, nothing else (logs go to stderr)
+- Exit 0 on success, nonzero on failure
+- Must complete in <30 seconds ideally
+- Must be deterministic: lock random seeds, avoid network calls
+- All quality gate and secondary metric fields must be present as finite numbers
+- NEVER hardcode absolute home paths — use relative paths or \`$HOME\`
+- measure.sh can write \`.autoauto-diagnostics\` sidecar file for rich context to the agent
+
+### build.sh (optional)
+
+\`\`\`bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build step — runs ONCE before measurement runs
+# MUST install dependencies (npm ci, bun install, etc.)
+<build logic>
+\`\`\`
+
+Only needed when the project has a build/compile step.
+
+### config.json
+
+\`\`\`json
+{
+  "metric_field": "<key from measure.sh JSON output>",
+  "direction": "lower|higher",
+  "noise_threshold": 0.02,
+  "repeats": 3,
+  "max_experiments": 20,
+  "quality_gates": {
+    "<field_name>": { "min": 1.0 }
+  },
+  "secondary_metrics": {
+    "<field_name>": { "direction": "lower|higher" }
+  }
+}
+\`\`\`
+
+Field reference:
+- \`metric_field\`: Key in measure.sh JSON output to optimize
+- \`direction\`: "lower" or "higher" — which direction is better
+- \`noise_threshold\`: Minimum relative improvement to keep (decimal: 0.02 = 2%)
+- \`repeats\`: Measurements per experiment (3 for stable, 5 for noisy)
+- \`max_experiments\`: Cap per run (20 default; 10-15 for expensive, 50+ for cheap)
+- \`quality_gates\`: Hard pass/fail constraints — experiment discarded if gate fails
+- \`secondary_metrics\`: Advisory metrics tracked but not gating (direction required)
+- \`max_consecutive_discards\`: (optional) Auto-stop after N consecutive non-improving experiments (default 10)
+- \`measurement_timeout\`: (optional) Timeout in ms for each measure.sh run (default 60000)
+- \`build_timeout\`: (optional) Timeout in ms for build.sh (default 600000)
+- \`max_cost_usd\`: (optional) Cost cap per run
+
+## Quality Gate Design
+
+- Suggest gates based on what could realistically break when optimizing the primary metric
+- Test pass rate is a common default gate: \`"test_pass_rate": { "min": 1.0 }\`
+- Keep gates focused — too many gates leads to "checklist gaming"
+- Prefer binary pass/fail over threshold-based gates
+- Not every program needs gates — say so if none are needed, but always discuss it
+
+## Anti-Gaming Rules
+
+Think about how the agent could game the metric and add rules against it:
+- Bundle size → agent might delete features or replace libraries with stubs
+- Test coverage → agent might add trivial tests
+- Latency → agent might remove error handling or validation
+- Line count → agent might minify code or remove comments
+- Performance benchmarks → agent might optimize only for the benchmark input shape (won't generalize)
+
+## Validation Interpretation
+
+After running validate_measurement, interpret the CV% results:
+
+| CV% | Assessment | Recommended Config |
+|-----|-----------|-------------------|
+| < 1% | Deterministic | noise_threshold=0.01, repeats=1 (but use repeats=3 minimum for tool-based metrics like benchmarks) |
+| 1-5% | Excellent | noise_threshold=0.02, repeats=3 |
+| 5-15% | Acceptable | noise_threshold=max(CV%*1.5/100, 0.05), repeats=5 |
+| 15-30% | Noisy | noise_threshold=max(CV%*2/100, 0.10), repeats=7. Try to reduce noise first. |
+| >= 30% | Unstable | Do NOT proceed — fix the measurement first |
+
+**Important**: noise_threshold must EXCEED the noise floor. Never set it lower than the observed CV%.
+
+### Discrete & Near-Ceiling Metrics
+
+If the metric is near its theoretical max/min (e.g., Lighthouse score at 98/100), the smallest possible improvement is a tiny percentage. Calculate: \`minimum_step / baseline_value\`. Set noise_threshold to at most HALF that ratio.
+
+Example: Lighthouse composite at 98 → minimum improvement is 1/98 ≈ 1.02% → noise_threshold ≤ 0.005. Use repeats ≥ 3.
+
+## Common Noise Causes & Fixes
+
+1. **Cold starts** — First run is slower. Fix: add warmup run in measure.sh.
+2. **Background processes** — CPU contention. Fix: close resource-heavy apps or measure relative to baseline.
+3. **Network calls** — Variable latency. Fix: mock or cache external calls.
+4. **Non-deterministic code** — Random seeds, shuffled data. Fix: lock seeds, fix ordering.
+5. **Caching** — First run populates caches. Fix: always warm or always clear cache.
+6. **Shared state** — Previous run affects next. Fix: clean up between runs.
+7. **Short measurement duration** — Timer resolution issues. Fix: increase sample size.
+
+## Config Tuning After Validation
+
+Based on validation results, update these config values:
+
+- \`noise_threshold\`: Set based on CV% table above. Present to user with reasoning.
+- \`repeats\`: Set based on CV% table. More repeats = more reliable but slower.
+- \`measurement_timeout\`: Validation output includes \`recommended_timeout\` (3x avg duration, floor 60s). Set this when measurements take >15s average.
+- \`max_consecutive_discards\`: Fast/cheap measurements → 10-15. Slow/expensive → 5-8. Noisy (CV% 10%+) → 12-15.
+- \`max_experiments\`: 20 default. Lower (10-15) for expensive/slow, higher (50+) for cheap/fast.
+
+## Cost & Time Expectations
+
+Share these with the user before starting a run:
+- 5-25% keep rate is normal (most experiments get discarded)
+- High revert rates map the search ceiling — they're information, not waste
+- ~$0.05-0.20/experiment, ~$5-10 for 50 experiments
+- ~12 experiments/hour at a 5-minute eval budget; cached evals push much higher
+- When keep rate drops to 0% for 10+ experiments, the target likely has no remaining headroom`,
+        },
+      ],
+    }
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Resource: autoauto://program/{name}
+// ---------------------------------------------------------------------------
+
+server.registerResource(
+  "program",
+  new ResourceTemplate("autoauto://program/{name}", {
+    list: async () => {
+      const root = await getProjectRoot(cwd)
+      const programs = await loadProgramSummaries(root)
+      return {
+        resources: programs.map((p) => ({
+          uri: `autoauto://program/${p.slug}`,
+          name: p.slug,
+          description: p.goal,
+          mimeType: "text/markdown",
+        })),
+      }
+    },
+  }),
+  {
+    description: "Full details of an autoresearch program: program.md, config.json, measure.sh, and build.sh.",
+    mimeType: "text/markdown",
+  },
+  async (uri, { name }) => {
+    const slug = SlugSchema.parse(name)
+    const root = await getProjectRoot(cwd)
+    const programDir = getProgramDir(root, slug)
+
+    let config: ProgramConfig
+    try {
+      config = await loadProgramConfig(programDir)
+    } catch {
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "text/plain",
+            text: `Program '${slug}' not found.`,
+          },
+        ],
+      }
+    }
+
+    const { programMd, measureSh, buildSh } = await readProgramFiles(programDir)
+
+    const sections = [
+      `# Program: ${name}`,
+      "",
+      "## program.md",
+      programMd ?? "(not found)",
+      "",
+      "## config.json",
+      "```json",
+      JSON.stringify(config, null, 2),
+      "```",
+      "",
+      "## measure.sh",
+      "```bash",
+      measureSh ?? "(not found)",
+      "```",
+    ]
+
+    if (buildSh) {
+      sections.push("", "## build.sh", "```bash", buildSh, "```")
+    }
+
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "text/markdown",
+          text: sections.join("\n"),
+        },
+      ],
+    }
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
 
 const ModelSlotSchema = z.object({
   provider: z.enum(PROVIDER_CHOICES),
@@ -418,11 +726,7 @@ server.registerTool(
       return errorResult(`Program '${name}' not found or invalid config: ${err}`)
     }
 
-    const [programMd, measureSh, buildSh] = await Promise.all([
-      readFileOrNull(join(programDir, "program.md")),
-      readFileOrNull(join(programDir, "measure.sh")),
-      readFileOrNull(join(programDir, "build.sh")),
-    ])
+    const { programMd, measureSh, buildSh } = await readProgramFiles(programDir)
 
     return jsonText({
       name,
@@ -443,9 +747,10 @@ server.registerTool(
   {
     title: "Get Setup Guide",
     description: [
-      "Get the complete guide for creating AutoAuto programs.",
-      "Includes artifact formats (program.md, measure.sh, build.sh, config.json),",
-      "measurement requirements, quality gate design, and autoresearch best practices.",
+      "Get the setup workflow for creating AutoAuto programs.",
+      "Returns key principles, mandatory step-by-step workflow, and config field summary.",
+      "For full artifact formats, validation tables, and anti-gaming rules,",
+      "read the autoauto://setup-guide resource.",
       "Read this BEFORE calling create_program.",
     ].join(" "),
     inputSchema: z.object({}),
@@ -455,162 +760,68 @@ server.registerTool(
     const root = await getProjectRoot(cwd)
     const programsDir = getProgramsDir(root)
 
-    const guide = `# AutoAuto Program Setup Guide
+    const guide = `# AutoAuto Program Setup — Quick Guide
 
-## What is an AutoAuto Program?
+## What You're Creating
 
-An optimization program defines a repeatable, measurable experiment loop that an AI agent runs autonomously to improve a specific metric. Each program has:
-- **program.md** — Goal, scope, rules, and steps for the agent
-- **measure.sh** — Script that outputs a single JSON object with the metric
+An optimization program: a repeatable experiment loop that an AI agent runs autonomously. Each program has 3-4 files in ${programsDir}/<slug>/:
+- **program.md** — Goal, scope, rules, and steps
+- **measure.sh** — Outputs a single JSON object with the metric (must be fast, stable, deterministic)
 - **build.sh** (optional) — Build/compile step that runs once before measurements
-- **config.json** — Metric configuration, quality gates, and tuning parameters
+- **config.json** — Metric configuration, quality gates, tuning parameters
 
 ## Key Principles
 
-- **One metric, one direction, one target.** Every program optimizes exactly one number. Narrow is better — "reduce homepage JS chunk size in bytes" beats "reduce bundle size."
-- **Scope is safety.** The experiment agent will exploit any loophole. Tight scope prevents metric gaming.
-- **Measurement must be fast and stable.** The script runs hundreds of times. It should complete in seconds, not minutes.
-- **Binary over sliding scale.** For subjective metrics, prefer binary yes/no criteria over 1-7 scales.
+1. **One metric, one direction, one target.** Narrow beats broad — "reduce homepage JS chunk size in bytes" beats "reduce bundle size."
+2. **Scope is safety.** The experiment agent will exploit any loophole. Tight scope prevents metric gaming.
+3. **Measurement must be fast and stable.** The script runs hundreds of times. Seconds, not minutes.
+4. **Binary over sliding scale.** For subjective metrics, prefer binary yes/no criteria over 1-7 scales.
 
-## Program Directory Structure
+## Mandatory Workflow (follow every step)
 
-Programs live in: ${programsDir}/<slug>/
-\`\`\`
-${programsDir}/<slug>/
-├── program.md      # Goal, scope, rules, steps
-├── measure.sh      # Measurement script (chmod +x)
-├── build.sh        # Optional build step (chmod +x)
-└── config.json     # Metric configuration
-\`\`\`
+### 1. Understand the project
+Read the repo structure, config files, build system, and test setup before asking the user anything.
 
-## Artifact Formats
+### 2. Discuss goals with the user
+Narrow to ONE specific, measurable target. Confirm: metric name, direction (lower/higher), what "good" looks like.
 
-### program.md
+### 3. Define scope and rules
+Propose specific file paths. Define what's off-limits. Suggest 3-5 anti-gaming rules.
 
-\`\`\`markdown
-# Program: <Human-Readable Name>
+### 4. Discuss quality gates
+Suggest secondary metrics that must not regress (e.g., test pass rate). Not every program needs gates — say so if none are needed, but always discuss it.
 
-## Goal
-<One clear sentence describing what to optimize and in what direction.>
+### 5. Present artifacts and get user confirmation
+Present ALL artifacts (program.md, measure.sh, config.json) as code blocks. **Do NOT call create_program until the user explicitly confirms.** This is a hard requirement.
 
-## Scope
-- Files: <specific files or glob patterns the experiment agent may modify>
-- Off-limits: <files, directories, or systems the agent must NOT touch>
+### 6. Create the program
+Call create_program with the confirmed artifacts.
 
-## Rules
-<Numbered list of constraints. Be specific.>
-1. Do not remove features or functionality
-2. Do not modify test fixtures or test data
-3. Do not change the public API surface
-4. <domain-specific constraints>
+### 7. Validate measurement
+Call validate_measurement immediately after creation. Do NOT skip this step.
 
-## Steps
-1. ANALYZE: Read the codebase within scope, review results.tsv for past experiments
-2. PLAN: Choose ONE specific, targeted change
-3. IMPLEMENT: Make the change, keeping the diff small and focused
-4. TEST: Verify the change doesn't break anything
-5. COMMIT: Stage and commit with message format: "<type>(scope): description"
-\`\`\`
+### 8. Review validation results and update config
+Based on CV% results, propose updated noise_threshold and repeats to the user. Update config if needed via update_program. **Do NOT proceed to a run without reviewing validation results with the user.**
 
-### measure.sh
+### 9. Provide cost/time estimate before starting a run
+Before calling start_run, tell the user:
+- Estimated cost: ~$0.05-0.20/experiment, ~$5-10 for 50 experiments
+- Estimated time: ~12 experiments/hour at 5-minute eval, faster for cached evals
+- Expected keep rate: 5-25% is normal (most experiments get discarded)
 
-\`\`\`bash
-#!/usr/bin/env bash
-set -euo pipefail
+## config.json Field Summary
 
-# <Brief description of what this measures>
-# Output: JSON object with metric fields
+- \`metric_field\`: key from measure.sh JSON output
+- \`direction\`: "lower" or "higher"
+- \`noise_threshold\`: minimum relative improvement (decimal, e.g., 0.02 = 2%)
+- \`repeats\`: measurements per experiment (3 for stable, 5 for noisy)
+- \`max_experiments\`: cap per run (20 default)
+- \`quality_gates\`: hard pass/fail constraints, e.g., \`{"test_pass_rate": {"min": 1.0}}\`
+- \`secondary_metrics\`: advisory tracked metrics (not gating)
+- \`max_consecutive_discards\`: (optional) auto-stop after N consecutive non-improving experiments (default 10)
+- \`measurement_timeout\`: (optional) timeout in ms for each measure.sh run (default 60000)
 
-<measurement logic — assumes project is already built>
-
-# Output MUST be a single JSON object on stdout, nothing else
-echo '{"<metric_field>": <value>}'
-\`\`\`
-
-Requirements:
-- Shebang + \`set -euo pipefail\`
-- stdout: exactly ONE JSON object, nothing else (logs go to stderr)
-- Exit 0 on success, nonzero on failure
-- Must complete in <30 seconds ideally
-- Must be deterministic: lock random seeds, avoid network calls
-- All quality gate and secondary metric fields must be present as finite numbers
-- NEVER hardcode absolute home paths — use relative paths or \`$HOME\`
-
-### build.sh (optional)
-
-\`\`\`bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Build step — runs ONCE before measurement runs
-# MUST install dependencies (npm ci, bun install, etc.)
-<build logic>
-\`\`\`
-
-Only needed when the project has a build/compile step.
-
-### config.json
-
-\`\`\`json
-{
-  "metric_field": "<key from measure.sh JSON output>",
-  "direction": "lower|higher",
-  "noise_threshold": 0.02,
-  "repeats": 3,
-  "max_experiments": 20,
-  "quality_gates": {
-    "<field_name>": { "min": 1.0 }
-  },
-  "secondary_metrics": {
-    "<field_name>": { "direction": "lower|higher" }
-  }
-}
-\`\`\`
-
-Field reference:
-- \`metric_field\`: Key in measure.sh JSON output to optimize
-- \`direction\`: "lower" or "higher" — which direction is better
-- \`noise_threshold\`: Minimum relative improvement to keep (decimal: 0.02 = 2%)
-- \`repeats\`: Measurements per experiment (3 for stable, 5 for noisy)
-- \`max_experiments\`: Cap per run (20 default; 10-15 for expensive, 50+ for cheap)
-- \`quality_gates\`: Hard pass/fail constraints — experiment discarded if gate fails
-- \`secondary_metrics\`: Advisory metrics tracked but not gating (direction required)
-- \`max_consecutive_discards\`: (optional) Auto-stop after N consecutive non-improving experiments (default 10)
-- \`measurement_timeout\`: (optional) Timeout in ms for each measure.sh run (default 60000)
-- \`build_timeout\`: (optional) Timeout in ms for build.sh (default 600000)
-- \`max_cost_usd\`: (optional) Cost cap per run
-
-## Measurement Design Tips
-
-- If the metric is naturally deterministic (byte count, line count), noise_threshold=0.01 and repeats=1 may suffice
-- For tool-based metrics (Lighthouse, benchmarks), use repeats=3 minimum
-- Flag potential noise sources: cold starts, network calls, random seeds, caching
-- measure.sh can write \`.autoauto-diagnostics\` sidecar file for rich context to the agent
-
-## Quality Gate Design
-
-- Suggest gates based on what could break when optimizing the primary metric
-- Test pass rate is a common default gate: \`"test_pass_rate": { "min": 1.0 }\`
-- Keep gates focused — too many gates leads to checklist gaming
-- Prefer binary pass/fail over threshold-based gates
-
-## Anti-Gaming Rules
-
-Think about how the agent could game the metric and add rules against it:
-- Bundle size → agent might delete features or replace libraries with stubs
-- Test coverage → agent might add trivial tests
-- Latency → agent might remove error handling or validation
-- Line count → agent might minify code or remove comments
-
-## Expectations
-
-- 5-25% keep rate is normal (most experiments get discarded)
-- ~$0.05-0.20/experiment, ~$5-10 for 50 experiments
-- ~12 experiments/hour at a 5-minute eval budget
-
-## After Creating a Program
-
-Always run validate_measurement to verify the measurement script works and check variance (CV%).`
+For full artifact format templates, validation interpretation tables, anti-gaming rules, config tuning formulas, and measurement debugging tips, read the **autoauto://setup-guide** resource.`
 
     return text(guide)
   },
@@ -818,7 +1029,8 @@ server.registerTool(
     description: [
       "Create a new autoresearch program with all required files.",
       "Writes program.md, measure.sh, config.json, and optionally build.sh.",
-      "Call get_setup_guide first to understand the artifact formats.",
+      "Call get_setup_guide first for the workflow. Read autoauto://setup-guide for full artifact format reference.",
+      "IMPORTANT: Get explicit user confirmation before calling this tool.",
       "After creating, call validate_measurement to verify it works.",
     ].join(" "),
     inputSchema: z.object({
@@ -989,6 +1201,8 @@ server.registerTool(
       "Creates a temporary git worktree, runs build.sh + measure.sh multiple times,",
       "and reports CV%, assessment (deterministic/excellent/acceptable/noisy/unstable),",
       "and recommended config values.",
+      "After validation, review results with the user and update config via update_program if needed.",
+      "See autoauto://setup-guide for validation interpretation tables.",
     ].join(" "),
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
@@ -1061,6 +1275,7 @@ server.registerTool(
       "Start an experiment run for a program.",
       "Spawns a background daemon that measures a baseline then runs experiments autonomously.",
       "Returns immediately — use get_run_status to poll for progress.",
+      "IMPORTANT: Before starting, give the user a cost/time estimate (~$0.05-0.20/experiment, ~12 experiments/hour at 5-min eval).",
     ].join(" "),
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
@@ -1129,7 +1344,7 @@ server.registerTool(
       "Get the status of the latest (or a specific) run: phase, metrics, progress, cost, and whether the daemon is alive.",
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
-      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
     }),
     annotations: { readOnlyHint: true },
   },
@@ -1244,7 +1459,7 @@ server.registerTool(
       "Get the experiment results table for a run: experiment number, status (keep/discard/crash), metric value, change %, commit, and description.",
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
-      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
       limit: z.number().int().min(1).optional().describe("Return only the last N results"),
     }),
     annotations: { readOnlyHint: true },
@@ -1296,6 +1511,8 @@ server.registerTool(
         commit: r.commit.slice(0, 7),
         description: r.description,
         diff_stats: r.diff_stats ?? null,
+        p_value: r.p_value ?? null,
+        p_is_minimum: r.p_is_minimum ?? false,
       })),
     })
   },
@@ -1317,7 +1534,7 @@ server.registerTool(
         z.number().int().min(0),
         z.literal("latest"),
       ]).describe("Experiment number (0 = baseline) or 'latest'"),
-      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
     }),
     annotations: { readOnlyHint: true },
   },
@@ -1450,6 +1667,82 @@ server.registerTool(
 )
 
 // ---------------------------------------------------------------------------
+// Tool: set_guidance
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "set_guidance",
+  {
+    title: "Set Guidance",
+    description:
+      "Set human steering guidance for an active run. The experiment agent reads this at the start of each iteration and treats it as high-priority direction. Pass empty text to clear guidance.",
+    inputSchema: z.object({
+      name: SlugSchema.describe("Program slug"),
+      text: z.string().max(2000).describe("Guidance text for the experiment agent (empty string to clear, max 2000 chars)"),
+    }),
+  },
+  async ({ name, text: guidanceText }) => {
+    const root = await getProjectRoot(cwd)
+    const programDir = getProgramDir(root, name)
+
+    const active = await findActiveRun(programDir)
+    if (!active) return errorResult(`No active run for '${name}'.`)
+    if (!active.daemonAlive) return errorResult("Daemon is not running. Run may have already completed.")
+
+    await writeGuidance(active.runDir, guidanceText)
+
+    const trimmed = guidanceText.trim()
+    if (!trimmed) {
+      return text(`Guidance cleared for '${name}'. The next experiment will not receive human guidance.`)
+    }
+    return text(`Guidance set for '${name}'. The next experiment will include this in its context.`)
+  },
+)
+
+// ---------------------------------------------------------------------------
+// Tool: get_guidance
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_guidance",
+  {
+    title: "Get Guidance",
+    description:
+      "Get the current human steering guidance for an active or completed run.",
+    inputSchema: z.object({
+      name: SlugSchema.describe("Program slug"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ name, run_id }) => {
+    let resolved: Awaited<ReturnType<typeof resolveProgram>>
+    try {
+      resolved = await resolveProgram(name)
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+
+    let runDir: string
+    let resolvedRunId: string
+    try {
+      const r = await resolveRunDir(resolved.programDir, run_id)
+      runDir = r.runDir
+      resolvedRunId = r.runId
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
+    }
+
+    const guidance = await readGuidance(runDir)
+    return jsonText({
+      run_id: resolvedRunId,
+      has_guidance: guidance.length > 0,
+      guidance: guidance || null,
+    })
+  },
+)
+
+// ---------------------------------------------------------------------------
 // Tool: get_run_summary
 // ---------------------------------------------------------------------------
 
@@ -1464,7 +1757,7 @@ server.registerTool(
     ].join(" "),
     inputSchema: z.object({
       name: SlugSchema.describe("Program slug"),
-      run_id: z.string().optional().describe("Specific run ID (default: latest)"),
+      run_id: RunIdSchema.optional().describe("Specific run ID (default: latest)"),
       generate: z.boolean().default(false).describe("Generate stats summary if none exists (only for completed/crashed runs)"),
     }),
     annotations: { readOnlyHint: false },

@@ -6,6 +6,7 @@ import type { RunState, ExperimentResult, RunInfo } from "./run.ts"
 import { readAllResults, readState, getMetricHistory, backfillFinalizedAt, listRuns, isRunActive, writeState } from "./run.ts"
 import type { ProgramConfig } from "./programs.ts"
 import { loadProgramConfig, getProgramDir } from "./programs.ts"
+import { readGuidance } from "./guidance.ts"
 import {
   readDaemonJson,
   readRunConfig,
@@ -86,16 +87,18 @@ export async function reconstructState(runDir: string, programDir: string): Prom
   streamText: string
   ideasText: string
   summaryText: string
+  guidanceText: string
 }> {
   const [state, results, programConfig] = await Promise.all([
     readState(runDir),
     readAllResults(runDir),
     loadProgramConfig(programDir),
   ])
-  const [streamText, ideasText, summaryText] = await Promise.all([
+  const [streamText, ideasText, summaryText, guidanceText] = await Promise.all([
     readStreamTail(runDir, state.experiment_number),
     Bun.file(join(runDir, "ideas.md")).text().catch(() => ""),
     Bun.file(join(runDir, "summary.md")).text().catch(() => ""),
+    readGuidance(runDir),
   ])
 
   backfillFinalizedAt(state, Boolean(summaryText))
@@ -108,6 +111,7 @@ export async function reconstructState(runDir: string, programDir: string): Prom
     streamText,
     ideasText,
     summaryText,
+    guidanceText,
   }
 }
 
