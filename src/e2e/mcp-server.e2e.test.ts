@@ -1202,6 +1202,18 @@ describe("MCP config and provider metadata", () => {
     expect(data.ideasBacklogEnabled).toBe(false)
   })
 
+  test("set_config rejects opencode model without provider/model format", async () => {
+    const result = await mcp.client.callTool({
+      name: "set_config",
+      arguments: {
+        executionModel: { provider: "opencode", model: "glm-5.1", effort: "medium" },
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(getTextContent(result)).toContain("provider/model")
+  })
+
   test("list_models returns models for all providers", async () => {
     const result = await mcp.client.callTool({ name: "list_models", arguments: {} })
     const data = getJsonContent(result) as Array<{

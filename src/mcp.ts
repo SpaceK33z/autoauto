@@ -560,6 +560,21 @@ server.registerTool(
   },
   async (patch) => {
     const root = await getProjectRoot(cwd)
+
+    // Validate model slots before saving
+    const slotsToCheck: { name: string; slot: ModelSlot }[] = []
+    if (patch.executionModel) slotsToCheck.push({ name: "executionModel", slot: patch.executionModel })
+    if (patch.supportModel) slotsToCheck.push({ name: "supportModel", slot: patch.supportModel })
+    if (patch.executionFallbackModel) slotsToCheck.push({ name: "executionFallbackModel", slot: patch.executionFallbackModel })
+
+    for (const { name, slot } of slotsToCheck) {
+      try {
+        await assertCompatibleModelSlot(slot, root)
+      } catch (err) {
+        return errorResult(`${name}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
     const current = await loadProjectConfig(root)
     const next = mergeProjectConfig(current, patch)
     await saveProjectConfig(root, next)
