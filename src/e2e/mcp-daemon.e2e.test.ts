@@ -117,6 +117,39 @@ describe("MCP start_run", () => {
     expect(args[3]).toBe(50)
   })
 
+  test("switching provider without model uses that provider default model", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+
+    await mcp.client.callTool({
+      name: "start_run",
+      arguments: {
+        name: "test-prog",
+        provider: "codex",
+      },
+    })
+
+    expect(mockSpawnDaemon).toHaveBeenCalledTimes(1)
+    const args = mockSpawnDaemon.mock.calls[0]
+    expect(args[2]).toEqual({ provider: "codex", model: "default", effort: "high" })
+  })
+
+  test("rejects explicit incompatible provider/model combos", async () => {
+    await createProgramForMcp(fixture.cwd, "test-prog")
+
+    const result = await mcp.client.callTool({
+      name: "start_run",
+      arguments: {
+        name: "test-prog",
+        provider: "codex",
+        model: "sonnet",
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(getTextContent(result)).toContain(`Model "sonnet" is not available for provider "codex"`)
+    expect(mockSpawnDaemon).not.toHaveBeenCalled()
+  })
+
   test("allows start_run immediately after create_program adds .autoauto to .gitignore", async () => {
     const created = await mcp.client.callTool({
       name: "create_program",

@@ -5,7 +5,7 @@ import {
   useTerminalDimensions,
 } from "@opentui/react"
 import { colors } from "./lib/theme.ts"
-import { HomeScreen } from "./screens/HomeScreen.tsx"
+import { HomeScreen, type Panel } from "./screens/HomeScreen.tsx"
 import { SetupScreen } from "./screens/SetupScreen.tsx"
 import { SettingsScreen } from "./screens/SettingsScreen.tsx"
 import { ExecutionScreen } from "./screens/ExecutionScreen.tsx"
@@ -35,6 +35,7 @@ export function App() {
   const [showPostUpdatePrompt, setShowPostUpdatePrompt] = useState(false)
   const [draftName, setDraftName] = useState<string | null>(null)
   const [queueHasProgram, setQueueHasProgram] = useState(false)
+  const [homePanel, setHomePanel] = useState<Panel>("programs")
 
   useEffect(() => {
     getProjectRoot(cwd).then(setProjectRoot).catch(() => {})
@@ -87,9 +88,15 @@ export function App() {
     )
   }
 
+  const homeFooterByPanel: Record<Panel, string> = {
+    programs: " n: new/resume | e: edit | d: delete | s: settings | Tab: switch | Enter: select | q: quit",
+    runs:     " n: new/resume | d: delete | f: finalize | s: settings | Tab: switch | Enter: view | q: quit",
+    queue:    " n: new/resume | d: remove | c: clear all | s: resume queue | Tab: switch | q: quit",
+  }
+
   const footerText =
     screen === "home"
-      ? " n: new/resume | e: edit | d: delete | f: finalize | s: settings | Tab: cycle | Enter: run | q: quit"
+      ? homeFooterByPanel[homePanel]
       : screen === "settings"
           ? " ↑↓: navigate | ←→: change/open | Enter: open model picker | Escape: back"
           : screen === "first-setup"
@@ -164,6 +171,7 @@ export function App() {
               }
               setScreen("setup")
             }}
+            onPanelChange={setHomePanel}
             onResumeQueue={async () => {
               try {
                 await startNextFromQueue(projectRoot, projectConfig.ideasBacklogEnabled)

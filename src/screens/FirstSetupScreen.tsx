@@ -17,6 +17,7 @@ import { checkAuth } from "../lib/auth.ts"
 import { formatShellError } from "../lib/git.ts"
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
+import { resolveCompatibleModelSlot } from "../lib/model-options.ts"
 import { colors } from "../lib/theme.ts"
 
 interface FirstSetupScreenProps {
@@ -69,14 +70,17 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
     }
   }
 
-  function cycleProvider(which: "support" | "execution", direction: -1 | 1) {
+  async function cycleProvider(which: "support" | "execution", direction: -1 | 1) {
+    const slot = which === "support" ? supportSlot : executionSlot
     const setter = which === "support" ? setSupportSlot : setExecutionSlot
-    const defaultClaude = which === "support" ? "opus" : "sonnet"
-    setter((prev) => {
-      const nextProvider = cycleChoice(PROVIDER_CHOICES, prev.provider, direction)
-      const defaultModel = nextProvider === "claude" ? defaultClaude : "default"
-      return { provider: nextProvider, model: defaultModel, effort: "high" }
-    })
+    const fallbackClaude = which === "support" ? "opus" : "sonnet"
+    const nextProvider = cycleChoice(PROVIDER_CHOICES, slot.provider, direction)
+    const fallbackModel = nextProvider === "claude" ? fallbackClaude : "default"
+    const nextSlot = await resolveCompatibleModelSlot(
+      { provider: nextProvider, model: fallbackModel, effort: "high" },
+      cwd,
+    )
+    setter(nextSlot)
     setError(null)
   }
 
@@ -90,10 +94,10 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
   }
 
   function cycleValue(direction: -1 | 1) {
-    if (selected === 0) return cycleProvider("support", direction)
+    if (selected === 0) return cycleProvider("support", direction).catch(() => {})
     if (selected === 1) { setPickingSlot("support"); return }
     if (selected === 2) return cycleEffort("support", direction)
-    if (selected === 3) return cycleProvider("execution", direction)
+    if (selected === 3) return cycleProvider("execution", direction).catch(() => {})
     if (selected === 4) { setPickingSlot("execution"); return }
     if (selected === 5) return cycleEffort("execution", direction)
   }

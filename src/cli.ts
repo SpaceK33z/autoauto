@@ -43,7 +43,11 @@ import { generateSummaryReport, saveFinalizeReport } from "./lib/finalize.ts"
 import { streamLogName } from "./lib/daemon-callbacks.ts"
 import { closeProviders, type AgentProviderID } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
-import { getDefaultModel } from "./lib/model-options.ts"
+import {
+  assertCompatibleModelSlot,
+  getDefaultModel,
+  resolveCompatibleModelSlot,
+} from "./lib/model-options.ts"
 import { formatShellError } from "./lib/git.ts"
 import { formatRunDuration, formatChangePct, formatStatusWithP } from "./lib/format.ts"
 import {
@@ -192,13 +196,20 @@ async function resolveModelConfig(
   }
   if (!model) die("Could not resolve model.")
 
-  return {
+  const slot: ModelSlot = {
     provider,
     model,
     effort: provider !== "opencode"
       ? ((getFlag(flags, "effort") as EffortLevel) ?? projectConfig.executionModel.effort)
       : projectConfig.executionModel.effort,
   }
+
+  if (explicitModel) {
+    await assertCompatibleModelSlot(slot, root)
+    return slot
+  }
+
+  return await resolveCompatibleModelSlot(slot, root)
 }
 
 /** Resolve max experiments from --max-experiments flag or program config default. */

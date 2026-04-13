@@ -70,8 +70,9 @@ describe("FirstSetupScreen E2E", () => {
     )
     await harness.frame()
     await harness.press("l")
-    const frame = await harness.frame()
+    const frame = await harness.flush()
     expect(frame).toContain("Codex")
+    expect(frame).toContain("Codex / default")
   })
 
   test("Continue checks auth and navigates to setup on success", async () => {

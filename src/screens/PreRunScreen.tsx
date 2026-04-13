@@ -22,6 +22,7 @@ import {
 } from "../lib/config.ts"
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
+import { resolveCompatibleModelSlot } from "../lib/model-options.ts"
 import { colors } from "../lib/theme.ts"
 
 export interface PreRunOverrides {
@@ -135,12 +136,14 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     if (overrides) onAddToQueue(overrides)
   }
 
-  function handleCycleProvider(direction: -1 | 1) {
-    setModelSlot((slot) => {
-      const nextProvider = cycleChoice(PROVIDER_CHOICES, slot.provider, direction)
-      const defaultModel = nextProvider === "claude" ? "sonnet" : "default"
-      return { provider: nextProvider, model: defaultModel, effort: slot.effort }
-    })
+  async function handleCycleProvider(direction: -1 | 1) {
+    const nextProvider = cycleChoice(PROVIDER_CHOICES, modelSlot.provider, direction)
+    const fallbackModel = nextProvider === "claude" ? "sonnet" : "default"
+    const nextSlot = await resolveCompatibleModelSlot(
+      { provider: nextProvider, model: fallbackModel, effort: modelSlot.effort },
+      cwd,
+    )
+    setModelSlot(nextSlot)
   }
 
   function handleCycleEffort(direction: -1 | 1) {
@@ -168,7 +171,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     // Enter activates the focused field (cycle/toggle/open picker)
     if (key.name === "return") {
       if (selected === 0 || selected === 1) { handleStart(); return }
-      if (selected === 2) { handleCycleProvider(1); return }
+      if (selected === 2) { handleCycleProvider(1).catch(() => {}); return }
       if (selected === 3) { setPickingModel(true); return }
       if (selected === 4) { handleCycleEffort(1); return }
       if (selected === 5) { setUseWorktree((v) => !v); return }
@@ -195,8 +198,8 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       if (key.name === "backspace") setMaxCostText((t) => t.slice(0, -1))
       else if (/^[\d.]$/.test(key.name)) setMaxCostText((t) => t + key.name)
     } else if (selected === 2) {
-      if (key.name === "left" || key.name === "h") handleCycleProvider(-1)
-      if (key.name === "right" || key.name === "l") handleCycleProvider(1)
+      if (key.name === "left" || key.name === "h") handleCycleProvider(-1).catch(() => {})
+      if (key.name === "right" || key.name === "l") handleCycleProvider(1).catch(() => {})
     } else if (selected === 3) {
       if (key.name === "left" || key.name === "h" || key.name === "right" || key.name === "l") setPickingModel(true)
     } else if (selected === 4) {

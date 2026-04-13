@@ -149,12 +149,8 @@ class OpenCodeSession implements AgentSession {
       }
     }
 
-    this.run().catch((err: unknown) => {
-      if (!this.closed) {
-        const error = err instanceof Error ? err.message : String(err)
-        this.events.push(buildAgentErrorEvent(error))
-        this.events.push({ type: "result", success: false, error })
-      }
+    this.run().catch(() => {
+      // Safety net — run() handles its own errors, but ensure stream ends
       this.events.end()
     })
   }
@@ -188,32 +184,34 @@ class OpenCodeSession implements AgentSession {
   }
 
   private async run(): Promise<void> {
-    const { client } = await this.provider.getInstance()
-    const directory = this.config.cwd
-    const created = await client.session.create({
-      directory,
-      title: "AutoAuto",
-      permission: buildPermissionRules(this.config),
-    })
-    if (created.error) {
-      throw new Error(`Failed to create OpenCode session: ${JSON.stringify(created.error)}`)
-    }
-    if (!created.data) throw new Error("Failed to create OpenCode session")
-
-    this.sessionID = created.data.id
-
-    const eventAbort = new AbortController()
-    const subscription = await client.event.subscribe(
-      { directory },
-      { signal: eventAbort.signal },
-    )
-    const consumeEvents = this.consumeEvents(
-      subscription.stream as AsyncIterable<OpenCodeEvent>,
-      created.data.id,
-      eventAbort.signal,
-    )
-
+    let eventAbort: AbortController | undefined
+    let consumeEvents: Promise<void> | undefined
     try {
+      const { client } = await this.provider.getInstance()
+      const directory = this.config.cwd
+      const created = await client.session.create({
+        directory,
+        title: "AutoAuto",
+        permission: buildPermissionRules(this.config),
+      })
+      if (created.error) {
+        throw new Error(`Failed to create OpenCode session: ${JSON.stringify(created.error)}`)
+      }
+      if (!created.data) throw new Error("Failed to create OpenCode session")
+
+      this.sessionID = created.data.id
+
+      eventAbort = new AbortController()
+      const subscription = await client.event.subscribe(
+        { directory },
+        { signal: eventAbort.signal },
+      )
+      consumeEvents = this.consumeEvents(
+        subscription.stream as AsyncIterable<OpenCodeEvent>,
+        created.data.id,
+        eventAbort.signal,
+      )
+
       for await (const prompt of this.input) {
         if (this.closed || this.abortController.signal.aborted) break
 
@@ -250,9 +248,15 @@ class OpenCodeSession implements AgentSession {
           cost: combineAgentCosts(rootCost, childCost) ?? rootCost,
         })
       }
+    } catch (err: unknown) {
+      if (!this.closed) {
+        const error = err instanceof Error ? err.message : String(err)
+        this.events.push(buildAgentErrorEvent(error))
+        this.events.push({ type: "result", success: false, error })
+      }
     } finally {
-      eventAbort.abort()
-      await consumeEvents.catch(() => {})
+      eventAbort?.abort()
+      await consumeEvents?.catch(() => {})
       this.events.end()
     }
   }

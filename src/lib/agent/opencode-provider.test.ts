@@ -9,6 +9,44 @@ function emptyEventStream(): AsyncIterable<unknown> {
 }
 
 describe("OpenCodeProvider", () => {
+  test("surfaces parseModel error as error + failed result events", async () => {
+    const fakeClient = {
+      session: {
+        create: async () => ({ data: { id: "ses_root" } }),
+        prompt: async () => { throw new Error("should not reach prompt") },
+        abort: async () => {},
+      },
+      event: {
+        subscribe: async () => ({ stream: emptyEventStream() }),
+      },
+    }
+
+    const provider = new OpenCodeProvider()
+    ;(provider as OpenCodeProvider & { getInstance: () => Promise<unknown> }).getInstance = async () => ({
+      client: fakeClient,
+      server: { close() {} },
+    })
+
+    // "glm-5.1" has no slash — parseModel should throw, and the error should surface
+    const session = provider.runOnce("test prompt", { cwd: "/tmp/project", model: "glm-5.1" })
+    const events: AgentEvent[] = []
+    for await (const event of session) {
+      events.push(event)
+    }
+
+    const errorEvent = events.find((e) => e.type === "error")
+    expect(errorEvent).toBeDefined()
+    if (errorEvent?.type === "error") {
+      expect(errorEvent.error).toContain("provider/model")
+    }
+
+    const resultEvent = events.find((e) => e.type === "result")
+    expect(resultEvent).toBeDefined()
+    if (resultEvent?.type === "result") {
+      expect(resultEvent.success).toBe(false)
+    }
+  })
+
   test("aggregates child-session cost for a completed prompt", async () => {
     let prompted = false
 

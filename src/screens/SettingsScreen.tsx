@@ -22,6 +22,7 @@ import { sendNotification } from "../lib/notify.ts"
 import type { RunState } from "../lib/run.ts"
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
+import { resolveCompatibleModelSlot } from "../lib/model-options.ts"
 import { colors } from "../lib/theme.ts"
 
 interface SettingsScreenProps {
@@ -114,16 +115,17 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
     saveProjectConfig(cwd, next)
   }
 
-  function cycleProvider(slotKey: "executionModel" | "supportModel" | "executionFallbackModel", direction: -1 | 1) {
-    updateConfig((prev) => {
-      const slot = slotKey === "executionFallbackModel"
-        ? (prev.executionFallbackModel ?? DEFAULT_CONFIG.executionModel)
-        : prev[slotKey]
-      const nextProvider = cycleChoice(PROVIDER_CHOICES, slot.provider, direction)
-      const defaultModel = nextProvider === "claude" ? "sonnet" : "default"
-      const effort = nextProvider === "opencode" ? slot.effort : slot.effort
-      return { ...prev, [slotKey]: { provider: nextProvider, model: defaultModel, effort } }
-    })
+  async function cycleProvider(slotKey: "executionModel" | "supportModel" | "executionFallbackModel", direction: -1 | 1) {
+    const slot = slotKey === "executionFallbackModel"
+      ? (config.executionFallbackModel ?? DEFAULT_CONFIG.executionModel)
+      : config[slotKey]
+    const nextProvider = cycleChoice(PROVIDER_CHOICES, slot.provider, direction)
+    const fallbackModel = nextProvider === "claude" ? "sonnet" : "default"
+    const nextSlot = await resolveCompatibleModelSlot(
+      { provider: nextProvider, model: fallbackModel, effort: slot.effort },
+      cwd,
+    )
+    updateConfig((prev) => ({ ...prev, [slotKey]: nextSlot }))
   }
 
   function cyclePreset(direction: -1 | 1) {
@@ -151,9 +153,9 @@ export function SettingsScreen({ cwd, navigate, config, onConfigChange }: Settin
 
   function cycleValue(direction: -1 | 1) {
     // Provider rows
-    if (selected === 0) return cycleProvider("executionModel", direction)
-    if (selected === 3) return cycleProvider("supportModel", direction)
-    if (fallbackEnabled && selected === ROW_FALLBACK_PROVIDER) return cycleProvider("executionFallbackModel", direction)
+    if (selected === 0) return cycleProvider("executionModel", direction).catch(() => {})
+    if (selected === 3) return cycleProvider("supportModel", direction).catch(() => {})
+    if (fallbackEnabled && selected === ROW_FALLBACK_PROVIDER) return cycleProvider("executionFallbackModel", direction).catch(() => {})
 
     // Model rows — open picker
     if (selected === 1) { setPickingSlot("executionModel"); return }

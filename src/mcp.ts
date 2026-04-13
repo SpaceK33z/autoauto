@@ -82,6 +82,7 @@ import {
 } from "./lib/mcp-agent-sessions.ts"
 import { getProvider } from "./lib/agent/index.ts"
 import { registerDefaultProviders } from "./lib/agent/default-providers.ts"
+import { assertCompatibleModelSlot, resolveCompatibleModelSlot } from "./lib/model-options.ts"
 import { AUTOAUTO_VERSION } from "./version.ts"
 
 // ---------------------------------------------------------------------------
@@ -1319,10 +1320,21 @@ server.registerTool(
     const { root, programConfig } = resolved
 
     const projectConfig = await loadProjectConfig(root)
-    const modelConfig: ModelSlot = {
+    const requestedModelConfig: ModelSlot = {
       provider: provider ?? projectConfig.executionModel.provider,
       model: model ?? projectConfig.executionModel.model,
       effort: effort ?? projectConfig.executionModel.effort,
+    }
+    let modelConfig: ModelSlot
+    try {
+      modelConfig = model
+        ? await (async () => {
+          await assertCompatibleModelSlot(requestedModelConfig, root)
+          return requestedModelConfig
+        })()
+        : await resolveCompatibleModelSlot(requestedModelConfig, root)
+    } catch (err) {
+      return errorResult(err instanceof Error ? err.message : String(err))
     }
     const maxExp = max_experiments ?? programConfig.max_experiments ?? 10
 
