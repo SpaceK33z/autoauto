@@ -364,35 +364,22 @@ export class SandboxRunBackend implements RunBackend {
 
       const runDir = join(programDir, "runs", lockData.run_id)
 
-      // Check if this is a sandbox run with persisted identity
-      const sandboxInfoPath = join(runDir, "sandbox.json")
-      if (await Bun.file(sandboxInfoPath).exists()) {
-        try {
-          const sandboxInfo = await Bun.file(sandboxInfoPath).json() as { provider?: string; program_slug?: string; run_id?: string }
-          const metadata = {
-            run_id: sandboxInfo.run_id ?? lockData.run_id,
-            program_slug: sandboxInfo.program_slug ?? "",
-          }
+      try {
+        const sandboxInfo = await Bun.file(join(runDir, "sandbox.json")).json() as { provider?: string; program_slug?: string; run_id?: string }
+        const { lookupContainerByInfo } = await import("../container-provider/index.ts")
+        const handle = await lookupContainerByInfo({
+          provider: sandboxInfo.provider,
+          run_id: sandboxInfo.run_id ?? lockData.run_id,
+          program_slug: sandboxInfo.program_slug ?? "",
+        })
 
-          // Dispatch to the correct provider's lookup function
-          let handle: import("../container-provider/types.ts").ContainerHandle | null = null
-          if (sandboxInfo.provider === "docker") {
-            const { lookupDockerContainer } = await import("../container-provider/docker.ts")
-            handle = await lookupDockerContainer(metadata)
-          } else {
-            // Default to Modal for backwards compatibility (old sandbox.json files)
-            const { lookupModalSandbox } = await import("../container-provider/modal.ts")
-            handle = await lookupModalSandbox(metadata)
-          }
-
-          return {
-            runId: lockData.run_id,
-            runDir,
-            daemonAlive: handle !== null,
-          }
-        } catch {
-          // Lookup failed — fall through
+        return {
+          runId: lockData.run_id,
+          runDir,
+          daemonAlive: handle !== null,
         }
+      } catch {
+        // Not a sandbox run or lookup failed
       }
 
       return {

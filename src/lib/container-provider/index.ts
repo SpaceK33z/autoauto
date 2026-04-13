@@ -33,6 +33,22 @@ export function listContainerProviders(): string[] {
   return [...registry.keys()]
 }
 
+/** Look up an existing container by sandbox info. Centralizes docker/modal dispatch. */
+export async function lookupContainerByInfo(
+  info: { provider?: string; program_slug?: string; run_id?: string },
+): Promise<import("./types.ts").ContainerHandle | null> {
+  if (!info.program_slug || !info.run_id) return null
+  const metadata = { run_id: info.run_id, program_slug: info.program_slug }
+
+  if (info.provider === DOCKER_PROVIDER_ID) {
+    const { lookupDockerContainer } = await import("./docker.ts")
+    return lookupDockerContainer(metadata)
+  } else {
+    const { lookupModalSandbox } = await import("./modal.ts")
+    return lookupModalSandbox(metadata)
+  }
+}
+
 /** Register all built-in container providers (lazy-loaded). */
 export function registerDefaultContainerProviders(): void {
   registerContainerProvider(MODAL_PROVIDER_ID, async (config) => {
