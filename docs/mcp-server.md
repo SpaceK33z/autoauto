@@ -84,6 +84,10 @@ Interactive setup and update conversations powered by a support-model agent.
 
 ## Workflows
 
+### First-time setup
+
+1. `get_config` — if `_meta.is_default_config` is true, guide user through `list_models` → `set_config` → `check_auth`
+
 ### Creating a program
 
 1. `get_setup_guide` — learn artifact formats and best practices
@@ -115,7 +119,7 @@ Returns the full project configuration.
 
 **Input:** none
 
-**Output:** JSON with `executionModel`, `supportModel`, `executionFallbackModel`, `ideasBacklogEnabled`, `notificationPreset`, `notificationCommand`.
+**Output:** JSON with `executionModel`, `supportModel`, `executionFallbackModel`, `ideasBacklogEnabled`, `notificationPreset`, `notificationCommand`, and `_meta` (`config_exists`, `is_default_config`).
 
 ---
 

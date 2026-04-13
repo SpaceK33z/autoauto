@@ -62,6 +62,7 @@ export interface McpDaemonDeps {
 import {
   loadProjectConfig,
   saveProjectConfig,
+  configExists,
   NOTIFICATION_PRESET_IDS,
   PROVIDER_CHOICES,
   type ProjectConfig,
@@ -194,6 +195,7 @@ export function createMcpServer(cwd: string, daemonDeps?: Partial<McpDaemonDeps>
       capabilities: { logging: {}, resources: {} },
       instructions: [
         "AutoAuto manages autoresearch programs — autonomous experiment loops that optimize a single metric on any codebase.",
+        "First-time check: Call get_config first. If _meta.is_default_config is true, the user has never configured AutoAuto — guide them to choose execution and support models (set_config), then verify auth (check_auth) for the selected providers before proceeding. Use list_models to show available options.",
         "Setup workflow: (1) get_setup_guide to learn principles and workflow, (2) list_programs to check for duplicates, (3) create_program to write all files (get user confirmation first!), (4) validate_measurement to verify stability, (5) review config with user based on validation results.",
         "Run workflow: (1) start_run to launch an experiment loop (give cost/time estimate first), (2) get_run_status to check progress, (3) get_run_results to see experiment outcomes, (4) get_experiment_log for agent output on a specific experiment, (5) stop_run to stop when satisfied, (6) get_run_summary for a post-run report.",
         "Management: list_programs for overview, get_program to inspect, update_program to modify, delete_program to remove. Use list_runs to see run history, update_run_limit to change max experiments mid-run, set_guidance to steer the agent's direction.",
@@ -320,7 +322,7 @@ Only needed when the project has a build/compile step.
   "direction": "lower|higher",
   "noise_threshold": 0.02,
   "repeats": 3,
-  "max_experiments": 20,
+  "max_experiments": 10,
   "quality_gates": {
     "<field_name>": { "min": 1.0 }
   },
@@ -335,7 +337,7 @@ Field reference:
 - \`direction\`: "lower" or "higher" — which direction is better
 - \`noise_threshold\`: Minimum relative improvement to keep (decimal: 0.02 = 2%)
 - \`repeats\`: Measurements per experiment (3 for stable, 5 for noisy)
-- \`max_experiments\`: Cap per run (20 default; 10-15 for expensive, 50+ for cheap)
+- \`max_experiments\`: Cap per run (10 default for new programs — start small to validate, scale up later)
 - \`quality_gates\`: Hard pass/fail constraints — experiment discarded if gate fails
 - \`secondary_metrics\`: Advisory metrics tracked but not gating (direction required)
 - \`max_consecutive_discards\`: (optional) Auto-stop after N consecutive non-improving experiments (default 10)
@@ -398,7 +400,7 @@ Based on validation results, update these config values:
 - \`repeats\`: Set based on CV% table. More repeats = more reliable but slower.
 - \`measurement_timeout\`: Validation output includes \`recommended_timeout\` (3x avg duration, floor 60s). Set this when measurements take >15s average.
 - \`max_consecutive_discards\`: Fast/cheap measurements → 10-15. Slow/expensive → 5-8. Noisy (CV% 10%+) → 12-15.
-- \`max_experiments\`: 20 default. Lower (10-15) for expensive/slow, higher (50+) for cheap/fast.
+- \`max_experiments\`: 10 default for new programs. The first run is a dry run — validate measurement, scope, and agent behavior before scaling up. Users can increase to 30-50+ from the pre-run screen once validated.
 
 ## Cost & Time Expectations
 
@@ -534,8 +536,17 @@ server.registerTool(
   },
   async () => {
     const root = await getProjectRoot(cwd)
-    const config = await loadProjectConfig(root)
-    return jsonText(config)
+    const [config, exists] = await Promise.all([
+      loadProjectConfig(root),
+      configExists(root),
+    ])
+    return jsonText({
+      ...config,
+      _meta: {
+        config_exists: exists,
+        is_default_config: !exists,
+      },
+    })
   },
 )
 
@@ -759,10 +770,21 @@ server.registerTool(
   async () => {
     const root = await getProjectRoot(cwd)
     const programsDir = getProgramsDir(root)
+    const hasConfig = await configExists(root)
+
+    const firstTimeWarning = hasConfig ? "" : `## ⚠ First-Time Setup Required
+
+No project configuration found. Before creating programs, you must:
+1. **Choose models**: Call \`set_config\` with \`executionModel\` (experiment agent — cheaper models like Sonnet work well) and \`supportModel\` (setup/finalize agent — use a smarter model like Opus). Use \`list_models\` to see available options.
+2. **Verify authentication**: Call \`check_auth\` to confirm the selected providers are authenticated.
+
+---
+
+`
 
     const guide = `# AutoAuto Program Setup — Quick Guide
 
-## What You're Creating
+${firstTimeWarning}## What You're Creating
 
 An optimization program: a repeatable experiment loop that an AI agent runs autonomously. Each program has 3-4 files in ${programsDir}/<slug>/:
 - **program.md** — Goal, scope, rules, and steps
@@ -815,7 +837,7 @@ Before calling start_run, tell the user:
 - \`direction\`: "lower" or "higher"
 - \`noise_threshold\`: minimum relative improvement (decimal, e.g., 0.02 = 2%)
 - \`repeats\`: measurements per experiment (3 for stable, 5 for noisy)
-- \`max_experiments\`: cap per run (20 default)
+- \`max_experiments\`: cap per run (10 default for new programs)
 - \`quality_gates\`: hard pass/fail constraints, e.g., \`{"test_pass_rate": {"min": 1.0}}\`
 - \`secondary_metrics\`: advisory tracked metrics (not gating)
 - \`max_consecutive_discards\`: (optional) auto-stop after N consecutive non-improving experiments (default 10)
@@ -1302,7 +1324,7 @@ server.registerTool(
       model: model ?? projectConfig.executionModel.model,
       effort: effort ?? projectConfig.executionModel.effort,
     }
-    const maxExp = max_experiments ?? programConfig.max_experiments ?? 25
+    const maxExp = max_experiments ?? programConfig.max_experiments ?? 10
 
     try {
       const result = await spawnDaemon(

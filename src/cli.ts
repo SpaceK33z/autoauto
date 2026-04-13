@@ -204,7 +204,7 @@ async function resolveModelConfig(
 /** Resolve max experiments from --max-experiments flag or program config default. */
 function resolveMaxExperiments(flags: Record<string, string | boolean>, programConfig: ProgramConfig): number {
   const maxExperimentsStr = getFlag(flags, "max-experiments")
-  if (maxExperimentsStr == null) return programConfig.max_experiments ?? 25
+  if (maxExperimentsStr == null) return programConfig.max_experiments ?? 10
   const parsed = parsePositiveInt(maxExperimentsStr)
   if (parsed == null) die(`Invalid --max-experiments: "${maxExperimentsStr}". Must be a positive integer.`)
   return parsed

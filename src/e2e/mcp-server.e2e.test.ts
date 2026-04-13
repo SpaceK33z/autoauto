@@ -6,7 +6,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { join } from "node:path"
-import { mkdir } from "node:fs/promises"
+import { mkdir, unlink } from "node:fs/promises"
 import {
   createMcpTestClient,
   getTextContent,
@@ -165,6 +165,30 @@ describe("MCP get_setup_guide", () => {
     expect(text).toContain("config.json")
     // Emphasizes user confirmation
     expect(text).toContain("Do NOT call create_program until the user explicitly confirms")
+  })
+
+  test("includes first-time warning when no config exists", async () => {
+    await unlink(join(fixture.cwd, ".autoauto", "config.json"))
+    const result = await mcp.client.callTool({ name: "get_setup_guide", arguments: {} })
+    const text = getTextContent(result)
+    expect(text).toContain("First-Time Setup Required")
+    expect(text).toContain("set_config")
+    expect(text).toContain("check_auth")
+  })
+
+  test("omits first-time warning when config exists", async () => {
+    await saveProjectConfig(fixture.cwd, {
+      executionModel: { provider: "claude", model: "sonnet", effort: "high" },
+      supportModel: { provider: "claude", model: "sonnet", effort: "high" },
+      ideasBacklogEnabled: true,
+      notificationPreset: "off",
+      notificationCommand: null,
+    })
+
+    const result = await mcp.client.callTool({ name: "get_setup_guide", arguments: {} })
+    const text = getTextContent(result)
+    expect(text).toContain("Quick Guide")
+    expect(text).not.toContain("First-Time Setup Required")
   })
 })
 
@@ -1110,17 +1134,40 @@ describe("MCP config and provider metadata", () => {
     await fixture.cleanup()
   })
 
-  test("get_config returns defaults when no config exists", async () => {
+  test("get_config returns defaults with is_default_config=true when no config exists", async () => {
+    // Fixture creates config by default — remove it to simulate first-time user
+    await unlink(join(fixture.cwd, ".autoauto", "config.json"))
     const result = await mcp.client.callTool({ name: "get_config", arguments: {} })
     const data = getJsonContent(result) as {
       executionModel: { provider: string; model: string; effort: string }
       supportModel: { provider: string; model: string; effort: string }
       ideasBacklogEnabled: boolean
+      _meta: { config_exists: boolean; is_default_config: boolean }
     }
 
     expect(data.executionModel).toEqual({ provider: "claude", model: "sonnet", effort: "high" })
     expect(data.supportModel).toEqual({ provider: "claude", model: "sonnet", effort: "high" })
     expect(data.ideasBacklogEnabled).toBe(true)
+    expect(data._meta.config_exists).toBe(false)
+    expect(data._meta.is_default_config).toBe(true)
+  })
+
+  test("get_config returns is_default_config=false after config is saved", async () => {
+    await saveProjectConfig(fixture.cwd, {
+      executionModel: { provider: "claude", model: "sonnet", effort: "high" },
+      supportModel: { provider: "claude", model: "opus", effort: "high" },
+      ideasBacklogEnabled: true,
+      notificationPreset: "off",
+      notificationCommand: null,
+    })
+
+    const result = await mcp.client.callTool({ name: "get_config", arguments: {} })
+    const data = getJsonContent(result) as {
+      _meta: { config_exists: boolean; is_default_config: boolean }
+    }
+
+    expect(data._meta.config_exists).toBe(true)
+    expect(data._meta.is_default_config).toBe(false)
   })
 
   test("set_config merges provided fields", async () => {
