@@ -110,9 +110,16 @@ async function handleWrite(args: string[]): Promise<void> {
   const dir = dirname(filePath)
   await mkdir(dir, { recursive: true })
 
-  // Read all of stdin using Bun's built-in API
-  const data = await Bun.file("/dev/stdin").arrayBuffer()
-  await Bun.write(filePath, new Uint8Array(data))
+  // Read all of stdin via streaming (Bun.file("/dev/stdin") returns empty on Linux pipes)
+  const chunks: Uint8Array[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk))
+  }
+  const total = chunks.reduce((n, c) => n + c.length, 0)
+  const merged = new Uint8Array(total)
+  let off = 0
+  for (const c of chunks) { merged.set(c, off); off += c.length }
+  await Bun.write(filePath, merged)
 }
 
 async function handleStatus(args: string[]): Promise<void> {
