@@ -31,6 +31,7 @@ import {
   runExperimentAgent,
   checkLockViolation,
   type ExperimentCost,
+  type ExperimentOutcome,
 } from "./experiment.ts"
 import { appendIdeasBacklog, type ExperimentNotes } from "./ideas-backlog.ts"
 import { readRunConfig, writeRunConfig, setActiveModelInRunConfig } from "./daemon-lifecycle.ts"
@@ -168,6 +169,21 @@ async function recordIdeasBacklog(
 ): Promise<void> {
   if (!enabled) return
   await appendIdeasBacklog(runDir, result, notes).catch(() => {})
+}
+
+/** Build a diagnostic-rich crash description for no_commit outcomes. */
+function formatNoCommitDescription(outcome: Extract<ExperimentOutcome, { type: "no_commit" }>): string {
+  const d = outcome.diagnostics
+  if (!d) return "no commit produced"
+  const parts: string[] = []
+  if (d.stopReason) parts.push(`stop=${d.stopReason}`)
+  parts.push(`tools=${d.toolCallCount}`)
+  if (!d.textEmitted) parts.push("no_text")
+  if (!d.resultReceived) parts.push("no_result_event")
+  if (outcome.cost?.output_tokens) {
+    parts.push(`out_tokens=${outcome.cost.output_tokens}`)
+  }
+  return `no commit produced (${parts.join(", ")})`
 }
 
 async function maybeRebaseline(
@@ -755,7 +771,7 @@ export async function runExperimentLoop(
       const crashDesc = isLockViolation
         ? `lock violation: modified ${measurementViolations.join(", ")}`
         : outcome.type === "no_commit"
-          ? "no commit produced"
+          ? formatNoCommitDescription(outcome)
           : `agent error: ${outcome.error}`
       const crashResult: ExperimentResult = {
         experiment_number: experimentNumber,

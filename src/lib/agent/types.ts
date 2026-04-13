@@ -16,7 +16,18 @@ export type AgentEvent =
   | { type: "tool_use"; tool: string; input?: Record<string, unknown> }
   | { type: "assistant_complete"; text: string }
   | { type: "error"; error: string; retriable: boolean; errorKind?: ErrorKind }
-  | { type: "result"; success: boolean; error?: string; cost?: AgentCost }
+  | {
+      type: "result"
+      success: boolean
+      error?: string
+      cost?: AgentCost
+      /**
+       * Provider-supplied reason the session stopped, when available.
+       * Examples: "stop" / "end_turn", "length", "tool_use", "error:MessageOutputLengthError".
+       * Used for diagnosing silent no-commit failures.
+       */
+      stopReason?: string
+    }
   | { type: "quota_update"; quota: QuotaInfo }
 
 export type { ErrorKind } from "./error-classifier.ts"

@@ -55,10 +55,25 @@ export interface ContextPacket {
 /** Cost and usage data from an agent session. */
 export type ExperimentCost = AgentCost
 
+/**
+ * Diagnostics captured when an agent session ends without producing a commit.
+ * Used to distinguish silent provider drops from model-terminated-early from hit-output-limit.
+ */
+export interface NoCommitDiagnostics {
+  /** Provider-reported stop reason, e.g. "end_turn", "length", "error:MessageOutputLengthError". */
+  stopReason?: string
+  /** Number of tool calls observed during the session. */
+  toolCallCount: number
+  /** Whether any assistant-side text was emitted. */
+  textEmitted: boolean
+  /** Whether a provider `result` event was received (vs. stream ending without one). */
+  resultReceived: boolean
+}
+
 /** Result of running one experiment agent session */
 export type ExperimentOutcome =
   | { type: "committed"; sha: string; description: string; files_changed: string[]; diff_stats: DiffStats; cost?: ExperimentCost; notes?: ExperimentNotes }
-  | { type: "no_commit"; cost?: ExperimentCost; notes?: ExperimentNotes }
+  | { type: "no_commit"; cost?: ExperimentCost; notes?: ExperimentNotes; diagnostics?: NoCommitDiagnostics }
   | { type: "agent_error"; error: string; errorKind?: ErrorKind; cost?: ExperimentCost; notes?: ExperimentNotes }
 
 /** Result of checking whether locked files were modified */
@@ -343,6 +358,12 @@ async function runExperimentAgentRaw(
 
   let cost: ExperimentCost | undefined
   let assistantText = ""
+  const diagnostics: NoCommitDiagnostics = {
+    stopReason: undefined,
+    toolCallCount: 0,
+    textEmitted: false,
+    resultReceived: false,
+  }
 
   try {
     const session = getProvider(modelConfig.provider).runOnce(userPrompt, {
@@ -361,18 +382,23 @@ async function runExperimentAgentRaw(
 
       switch (event.type) {
         case "text_delta":
+          diagnostics.textEmitted = true
           onStreamText?.(event.text)
           break
         case "tool_use":
+          diagnostics.toolCallCount++
           onToolStatus?.(formatToolEvent(event.tool, event.input ?? {}))
           break
         case "assistant_complete":
+          diagnostics.textEmitted = true
           assistantText += `\n${event.text}`
           break
         case "error":
           return { outcome: { type: "agent_error", error: event.error, errorKind: event.errorKind, cost }, assistantText }
         case "result":
           cost = event.cost
+          diagnostics.resultReceived = true
+          if (event.stopReason) diagnostics.stopReason = event.stopReason
           if (!event.success) {
             const errorMsg = event.error ?? "unknown"
             return { outcome: { type: "agent_error", error: errorMsg, errorKind: classifyAgentError(errorMsg), cost }, assistantText }
@@ -398,7 +424,7 @@ async function runExperimentAgentRaw(
   const endSha = await getFullSha(cwd)
 
   if (endSha === startSha) {
-    return { outcome: { type: "no_commit", cost }, assistantText }
+    return { outcome: { type: "no_commit", cost, diagnostics }, assistantText }
   }
 
   const [description, filesChanged, diffStats] = await Promise.all([

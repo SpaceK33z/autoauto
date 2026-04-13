@@ -10,7 +10,8 @@ import type {
 } from "./types.ts"
 import { buildAgentErrorEvent } from "./error-classifier.ts"
 import { combineAgentCosts } from "./cost.ts"
-import { createPushStream } from "../push-stream.ts"
+import { createPushStream, type PushStream } from "../push-stream.ts"
+import { truncate } from "../format.ts"
 
 type OpenCodeServer = Awaited<ReturnType<typeof createOpencode>>["server"]
 type OpenCodeInstance = { client: OpencodeClient; server: OpenCodeServer }
@@ -33,12 +34,21 @@ type OpenCodePart = {
   }
 }
 
+type OpenCodeAssistantError = {
+  name?: string
+  data?: Record<string, unknown>
+}
+
 type OpenCodeAssistantMessage = {
   cost?: number
   tokens?: {
     input?: number
     output?: number
   }
+  /** Provider-reported finish reason (e.g. "stop", "length", "tool-calls"). */
+  finish?: string
+  /** Assistant-level error (e.g. MessageOutputLengthError, MessageAbortedError). */
+  error?: OpenCodeAssistantError
 }
 
 type OpenCodeSessionChild = {
@@ -230,29 +240,39 @@ class OpenCodeSession implements AgentSession {
         )
 
         if (result.error) {
-          const error = JSON.stringify(result.error)
-          this.events.push(buildAgentErrorEvent(error))
-          this.events.push({ type: "result", success: false, error })
+          emitErrorResult(this.events, JSON.stringify(result.error))
           continue
         }
 
+        const info = (result.data?.info ?? {}) as OpenCodeAssistantMessage
         const text = getTextFromParts(result.data?.parts)
         if (text.trim()) {
           this.events.push({ type: "assistant_complete", text })
         }
-        const rootCost = extractCost(result.data?.info, startedAt)
+        const rootCost = extractCost(info, startedAt)
         const childCost = await this.aggregateChildCosts(client, created.data.id, startedAt)
+        const combinedCost = combineAgentCosts(rootCost, childCost) ?? rootCost
+
+        // Assistant-level errors (OutputLength, Aborted, ApiError) are hidden inside
+        // an otherwise "successful" SDK response — surface them explicitly.
+        if (info.error) {
+          const name = info.error.name ?? "UnknownAssistantError"
+          const data = info.error.data ? JSON.stringify(info.error.data) : ""
+          const errorMsg = data ? `${name}: ${data}` : name
+          emitErrorResult(this.events, errorMsg, { cost: combinedCost, stopReason: `error:${name}` })
+          continue
+        }
+
         this.events.push({
           type: "result",
           success: true,
-          cost: combineAgentCosts(rootCost, childCost) ?? rootCost,
+          cost: combinedCost,
+          stopReason: info.finish,
         })
       }
     } catch (err: unknown) {
       if (!this.closed) {
-        const error = err instanceof Error ? err.message : String(err)
-        this.events.push(buildAgentErrorEvent(error))
-        this.events.push({ type: "result", success: false, error })
+        emitErrorResult(this.events, err instanceof Error ? err.message : String(err))
       }
     } finally {
       eventAbort?.abort()
@@ -303,6 +323,7 @@ class OpenCodeSession implements AgentSession {
   ): Promise<void> {
     const textByPartID = new Map<string, string>()
     const emittedTools = new Set<string>()
+    const unknownEventsSeen = new Set<string>()
 
     for await (const event of stream) {
       if (this.closed || signal.aborted) break
@@ -348,9 +369,37 @@ class OpenCodeSession implements AgentSession {
         this.events.push(buildAgentErrorEvent(
           JSON.stringify(properties.error ?? "OpenCode session error"),
         ))
+        continue
+      }
+
+      // Log unknown event types once per session to daemon.log via stderr — helps
+      // diagnose silent session terminations where OpenCode emits undocumented events.
+      if (
+        event.type !== "message.part.updated"
+        && !unknownEventsSeen.has(event.type)
+      ) {
+        unknownEventsSeen.add(event.type)
+        console.error(`[opencode] unhandled event type="${event.type}" props=${stringifyProps(properties)}`)
       }
     }
   }
+}
+
+function stringifyProps(value: unknown): string {
+  try {
+    return truncate(JSON.stringify(value), 500)
+  } catch {
+    return "<unserializable>"
+  }
+}
+
+function emitErrorResult(
+  events: PushStream<AgentEvent>,
+  error: string,
+  extra?: { cost?: AgentCost; stopReason?: string },
+): void {
+  events.push(buildAgentErrorEvent(error))
+  events.push({ type: "result", success: false, error, ...extra })
 }
 
 export class OpenCodeProvider implements AgentProvider {
