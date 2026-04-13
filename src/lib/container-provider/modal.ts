@@ -1,0 +1,307 @@
+/**
+ * ModalContainerProvider — wraps Modal JS SDK to implement ContainerProvider.
+ *
+ * Uses Modal Sandboxes for remote container execution. Auth requires
+ * MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables.
+ */
+
+import { dirname } from "node:path"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { unlink } from "node:fs/promises"
+import { ModalClient, NotFoundError } from "modal"
+import type { Sandbox, Secret } from "modal"
+import type {
+  ContainerProvider,
+  ContainerHandle,
+  ExecOptions,
+  ExecResult,
+  StreamingProcess,
+} from "./types.ts"
+import { bundleCreate } from "../git.ts"
+
+export interface ModalProviderConfig {
+  /** CPU cores for the sandbox (default: 2) */
+  cpu?: number
+  /** Memory in MiB (default: 4096) */
+  memoryMiB?: number
+  /** Sandbox timeout in ms (default: 86_400_000 = 24h) */
+  timeoutMs?: number
+  /** Modal app name (default: "autoauto") */
+  appName?: string
+  /** Sandbox name for reconnection (optional) */
+  sandboxName?: string
+}
+
+const encoder = new TextEncoder()
+
+export class ModalContainerProvider implements ContainerProvider {
+  private modal: ModalClient
+  private sandbox: Sandbox
+  private appName: string
+  private metadata: Record<string, string> = {}
+
+  constructor(modal: ModalClient, sandbox: Sandbox, appName: string) {
+    this.modal = modal
+    this.sandbox = sandbox
+    this.appName = appName
+  }
+
+  /** The Modal sandbox ID — exposed for persistence in sandbox.json */
+  get sandboxId(): string {
+    return this.sandbox.sandboxId
+  }
+
+  async exec(command: string[], opts?: ExecOptions): Promise<ExecResult> {
+    const p = await this.sandbox.exec(command, {
+      stdout: "pipe",
+      stderr: "pipe",
+      workdir: opts?.cwd,
+      env: opts?.env,
+      timeoutMs: opts?.timeout,
+    })
+    const [stdoutText, stderrText] = await Promise.all([
+      p.stdout.readText(),
+      p.stderr.readText(),
+    ])
+    const exitCode = await p.wait()
+    return {
+      exitCode,
+      stdout: encoder.encode(stdoutText),
+      stderr: encoder.encode(stderrText),
+    }
+  }
+
+  async execStreaming(command: string[], opts?: ExecOptions): Promise<StreamingProcess> {
+    const p = await this.sandbox.exec(command, {
+      mode: "binary",
+      stdout: "pipe",
+      stderr: "pipe",
+      workdir: opts?.cwd,
+      env: opts?.env,
+      timeoutMs: opts?.timeout,
+    })
+
+    return {
+      // ModalReadStream<Uint8Array> extends ReadableStream<Uint8Array>
+      stdout: p.stdout as ReadableStream<Uint8Array>,
+      stderr: p.stderr as ReadableStream<Uint8Array>,
+      exitCode: p.wait(),
+      kill: () => {
+        // Modal doesn't expose per-process kill; terminate the sandbox
+        this.sandbox.terminate().catch(() => {})
+      },
+    }
+  }
+
+  async readFile(remotePath: string): Promise<Uint8Array> {
+    const handle = await this.sandbox.open(remotePath, "r")
+    try {
+      return await handle.read()
+    } finally {
+      await handle.close()
+    }
+  }
+
+  async writeFile(remotePath: string, data: Uint8Array | string): Promise<void> {
+    // Ensure parent directory exists
+    const dir = dirname(remotePath)
+    if (dir !== "/" && dir !== ".") {
+      await this.sandbox.exec(["mkdir", "-p", dir], { stdout: "ignore", stderr: "ignore" })
+    }
+
+    const handle = await this.sandbox.open(remotePath, "w")
+    try {
+      const bytes = typeof data === "string" ? encoder.encode(data) : data
+      await handle.write(bytes)
+    } finally {
+      await handle.close()
+    }
+  }
+
+  async uploadRepo(localDir: string, remoteDir: string): Promise<void> {
+    // 1. Create git bundle locally
+    const bundleFileName = `autoauto-upload-${Date.now()}.bundle`
+    const localBundlePath = join(tmpdir(), bundleFileName)
+    const remoteBundlePath = `/tmp/${bundleFileName}`
+
+    try {
+      await bundleCreate(localDir, localBundlePath)
+
+      // 2. Upload bundle bytes to container
+      const bundleBytes = new Uint8Array(await Bun.file(localBundlePath).arrayBuffer())
+
+      await this.sandbox.exec(["mkdir", "-p", remoteDir], { stdout: "ignore", stderr: "ignore" })
+
+      const handle = await this.sandbox.open(remoteBundlePath, "w")
+      await handle.write(bundleBytes)
+      await handle.close()
+
+      // 3. Clone from bundle inside the container
+      const result = await this.sandbox.exec(
+        ["git", "clone", remoteBundlePath, remoteDir],
+        { stdout: "pipe", stderr: "pipe" },
+      )
+
+      if (await result.wait() !== 0) {
+        // Fallback: init + unbundle for repos with unusual ref layouts
+        const fallback = await this.sandbox.exec(
+          ["sh", "-c", `rm -rf ${remoteDir}/.git && cd ${remoteDir} && git init && git bundle unbundle ${remoteBundlePath} && git checkout HEAD`],
+          { stdout: "pipe", stderr: "pipe" },
+        )
+        if (await fallback.wait() !== 0) {
+          throw new Error("Failed to restore repository from git bundle")
+        }
+      }
+
+      // 4. Clean up remote bundle
+      await this.sandbox.exec(["rm", "-f", remoteBundlePath], { stdout: "ignore", stderr: "ignore" })
+    } finally {
+      // Clean up local bundle
+      await unlink(localBundlePath).catch(() => {})
+    }
+  }
+
+  async poll(): Promise<number | null> {
+    return this.sandbox.poll()
+  }
+
+  async terminate(): Promise<void> {
+    await this.sandbox.terminate()
+  }
+
+  async findByMetadata(metadata: Record<string, string>): Promise<ContainerHandle | null> {
+    // Construct sandbox name from metadata (matches name used at creation)
+    const name = buildSandboxName(metadata)
+    if (!name) return null
+
+    try {
+      const found = await this.modal.sandboxes.fromName(this.appName, name)
+      // Check if it's still alive
+      const exitCode = await found.poll()
+      if (exitCode !== null) return null
+
+      const modal = this.modal
+      const appName = this.appName
+      return {
+        attach: async () => new ModalContainerProvider(modal, found, appName),
+      }
+    } catch (err) {
+      if (err instanceof NotFoundError) return null
+      throw err
+    }
+  }
+
+  async setMetadata(metadata: Record<string, string>): Promise<void> {
+    this.metadata = { ...this.metadata, ...metadata }
+    await this.sandbox.setTags(this.metadata)
+  }
+
+  detach(): void {
+    this.sandbox.detach()
+  }
+}
+
+/** Build a deterministic sandbox name from metadata for reconnection */
+function buildSandboxName(metadata: Record<string, string>): string | null {
+  const slug = metadata.program_slug
+  const runId = metadata.run_id
+  if (!slug || !runId) return null
+  return `autoauto-${slug}-${runId}`
+}
+
+/**
+ * Create a new ModalContainerProvider. Called by the container provider registry.
+ *
+ * Config keys:
+ * - cpu, memoryMiB, timeoutMs: sandbox resource allocation
+ * - appName: Modal app name (default "autoauto")
+ * - sandboxName: explicit sandbox name (for reconnection)
+ * - programSlug, runId: used to construct sandbox name if sandboxName not set
+ */
+export async function createModalProvider(config: Record<string, unknown>): Promise<ModalContainerProvider> {
+  const modal = new ModalClient()
+  const appName = (config.appName as string) ?? "autoauto"
+  const app = await modal.apps.fromName(appName, { createIfMissing: true })
+
+  // Pre-install git + bun in image
+  const image = modal.images
+    .fromRegistry("ubuntu:22.04")
+    .dockerfileCommands([
+      "RUN apt-get update -qq && apt-get install -y -qq git curl",
+      "RUN curl -fsSL https://bun.sh/install | bash",
+      "ENV PATH=/root/.bun/bin:$PATH",
+    ])
+
+  // Collect secrets from env vars — the experiment agent needs these inside the sandbox
+  const envSecrets: Record<string, string> = {}
+  for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"]) {
+    if (process.env[key]) envSecrets[key] = process.env[key]!
+  }
+  const secrets: Secret[] = []
+  if (Object.keys(envSecrets).length > 0) {
+    secrets.push(await modal.secrets.fromObject(envSecrets))
+  }
+
+  // Construct sandbox name for reconnection
+  const name = (config.sandboxName as string) ??
+    (config.programSlug && config.runId
+      ? `autoauto-${config.programSlug}-${config.runId}`
+      : undefined)
+
+  const sandbox = await modal.sandboxes.create(app, image, {
+    cpu: (config.cpu as number) ?? 2,
+    memoryMiB: (config.memoryMiB as number) ?? 4096,
+    timeoutMs: (config.timeoutMs as number) ?? 86_400_000, // 24h
+    secrets,
+    ...(name ? { name } : {}),
+  })
+
+  return new ModalContainerProvider(modal, sandbox, appName)
+}
+
+/**
+ * Lightweight Modal sandbox lookup — only creates a ModalClient, does NOT
+ * provision a new sandbox. Use for reconnection checks in findActiveRun().
+ */
+export async function lookupModalSandbox(
+  metadata: Record<string, string>,
+  appName = "autoauto",
+): Promise<ContainerHandle | null> {
+  const name = buildSandboxName(metadata)
+  if (!name) return null
+
+  try {
+    const modal = new ModalClient()
+    const found = await modal.sandboxes.fromName(appName, name)
+    const exitCode = await found.poll()
+    if (exitCode !== null) return null
+
+    return {
+      attach: async () => new ModalContainerProvider(modal, found, appName),
+    }
+  } catch (err) {
+    if (err instanceof NotFoundError) return null
+    throw err
+  }
+}
+
+/**
+ * Check if Modal auth environment variables are set.
+ * This is a static check — does not make any API calls.
+ */
+export function checkModalAuth(): { ok: boolean; error?: string } {
+  if (!process.env.MODAL_TOKEN_ID || !process.env.MODAL_TOKEN_SECRET) {
+    return {
+      ok: false,
+      error: "Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables (https://modal.com/settings)",
+    }
+  }
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return {
+      ok: false,
+      error: "ANTHROPIC_API_KEY required — the experiment agent runs inside the sandbox",
+    }
+  }
+  return { ok: true }
+}

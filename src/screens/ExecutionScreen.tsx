@@ -19,7 +19,6 @@ import { runVerification, appendVerificationResults, type VerificationResult } f
 import { VerifyResultsOverlay } from "../components/VerifyResultsOverlay.tsx"
 import { formatShellError, DirtyWorkingTreeError, getWorkingTreeStatus } from "../lib/git.ts"
 import {
-  spawnDaemon,
   watchRunDir,
   sendStop,
   sendAbort,
@@ -44,8 +43,10 @@ import { syntaxStyle } from "../lib/syntax-theme.ts"
 import { truncateStreamText } from "../lib/format.ts"
 import type { QuotaInfo } from "../lib/agent/types.ts"
 import { extractExperimentIdeas } from "../lib/ideas-backlog.ts"
+import type { RunBackend, RunHandle } from "../lib/run-backend/types.ts"
+import { ProvisioningPhase } from "../components/ProvisioningPhase.tsx"
 
-type ExecutionPhase = "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error" | "dirty"
+type ExecutionPhase = "provisioning" | "starting" | "running" | "complete" | "finalizing" | "finalize_complete" | "error" | "dirty"
 
 const FINALIZE_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 import { colors } from "../lib/theme.ts"
@@ -81,6 +82,12 @@ interface ExecutionScreenProps {
   autoFinalize?: boolean
   /** Fallback model for auto-switching on quota/rate-limit exhaustion. */
   fallbackModel?: ModelSlot | null
+  /** RunBackend to use for spawning and controlling the run. */
+  runBackend: RunBackend
+  /** Whether this is a sandbox run (for badge display + provisioning). */
+  isSandbox?: boolean
+  /** Container provider name (for badge display). */
+  sandboxProvider?: string
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -229,7 +236,7 @@ function BottomPanels({ narrowWidth, ideasVisible, ideasText, activeBottomTab, f
   )
 }
 
-export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, keepSimplifications, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram, fallbackModel }: ExecutionScreenProps) {
+export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelConfig, ideasBacklogEnabled, navigate, maxExperiments, maxCostUsd, useWorktree = true, carryForward = true, keepSimplifications, attachRunId, readOnly = false, autoFinalize = false, onUpdateProgram, fallbackModel, runBackend, isSandbox = false, sandboxProvider }: ExecutionScreenProps) {
   const { width: termWidth, height: termHeight } = useTerminalDimensions()
   const compact = termHeight < 30
   const [phase, setPhase] = useState<ExecutionPhase>("starting")
@@ -284,6 +291,22 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     () => selectedResult ? extractExperimentIdeas(ideasText, selectedResult.experiment_number) : ideasText,
     [ideasText, selectedResult],
   )
+
+  const runHandleRef = useRef<RunHandle | null>(null)
+
+  // Dispatch helpers: use RunHandle when available, fall back to daemon-client for local attach
+  const dispatchStop = useCallback(() => {
+    if (runHandleRef.current) runHandleRef.current.sendControl("stop").catch(() => {})
+    else if (runDir) sendStop(runDir).catch(() => {})
+  }, [runDir])
+  const dispatchAbort = useCallback(() => {
+    if (runHandleRef.current) runHandleRef.current.sendControl("abort").catch(() => {})
+    else if (runDir) sendAbort(runDir).catch(() => {})
+  }, [runDir])
+  const dispatchTerminate = useCallback(() => {
+    if (runHandleRef.current) runHandleRef.current.terminate().catch(() => {})
+    else if (runDir) forceKillDaemon(runDir).catch(() => {})
+  }, [runDir])
 
   const watcherRef = useRef<DaemonWatcher | null>(null)
   const abortControllerRef = useRef<AbortController>(new AbortController())
@@ -396,12 +419,33 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
             }
           }
         } else {
-          // Spawn mode: create worktree, spawn daemon
-          const result = await spawnDaemon(cwd, programSlug, modelConfig, maxExperiments, ideasBacklogEnabled, useWorktree, carryForward, "manual", maxCostUsd, keepSimplifications, fallbackModel)
-          if (cancelled) return
+          // Spawn mode: use RunBackend (local or sandbox)
+          if (isSandbox) {
+            setPhase("provisioning")
+            setCurrentPhaseLabel("Provisioning sandbox...")
+          }
 
-          activeRunDir = result.runDir
-          setRunDir(result.runDir)
+          const handle = await runBackend.spawn({
+            mainRoot: cwd,
+            programSlug,
+            modelConfig,
+            maxExperiments,
+            ideasBacklogEnabled,
+            useWorktree,
+            carryForward,
+            source: "manual",
+            maxCostUsd,
+            keepSimplifications,
+            fallbackModel,
+          })
+          if (cancelled) {
+            await handle.terminate().catch(() => {})
+            return
+          }
+
+          runHandleRef.current = handle
+          activeRunDir = handle.runDir
+          setRunDir(handle.runDir)
 
           // Load program config for display
           const { loadProgramConfig } = await import("../lib/programs.ts")
@@ -414,8 +458,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
         // Start watching the run directory
         if (!cancelled) {
-          const watcher = watchRunDir(activeRunDir, {
-            onStateChange: (state) => {
+          const watchCallbacks = {
+            onStateChange: (state: RunState) => {
               if (cancelled) return
               // Clear quota data when provider switches (fallback model activated)
               if (lastProviderRef.current && lastProviderRef.current !== state.provider) {
@@ -434,17 +478,24 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   setLastError(state.error ?? "Daemon crashed")
                   setPhase("error")
                 } else {
-                  setPhase("complete")
+                  // For sandbox: materialize artifacts before showing complete UI
+                  if (isSandbox && runHandleRef.current) {
+                    runHandleRef.current.materializeArtifacts()
+                      .catch(() => {})
+                      .then(() => { if (!cancelled) setPhase("complete") })
+                  } else {
+                    setPhase("complete")
+                  }
                 }
-                watcher.stop()
+                watcherRef.current?.stop()
               }
             },
-            onResultsChange: (newResults, newMetricHistory) => {
+            onResultsChange: (newResults: ExperimentResult[], newMetricHistory: number[]) => {
               if (cancelled) return
               setResults(newResults)
               setMetricHistory(newMetricHistory)
             },
-            onStreamChange: (text) => {
+            onStreamChange: (text: string) => {
               if (cancelled) return
               setAgentStreamText(prev => truncateStreamText(prev, text))
             },
@@ -453,29 +504,31 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               setAgentStreamText("")
               setToolStatus(null)
             },
-            onToolStatus: (status) => {
+            onToolStatus: (status: string | null) => {
               if (cancelled) return
               setToolStatus(status)
             },
-            onIdeasChange: (text) => {
+            onIdeasChange: (text: string) => {
               if (cancelled) return
               setIdeasText(text)
             },
-            onGuidanceChange: (text) => {
-              if (cancelled) return
-              setGuidanceText(text)
-            },
-            onQuotaChange: (quota) => {
+            onQuotaChange: (quota: QuotaInfo) => {
               if (cancelled) return
               setQuotaInfo(quota)
             },
             onDaemonDied: () => {
               if (cancelled) return
-              // Re-read final state + daemon log for error context
-              Promise.all([
-                reconstructState(activeRunDir, programDir).catch(() => null),
-                readDaemonLogTail(activeRunDir),
-              ]).then(([final, logTail]) => {
+              // For sandbox: materialize artifacts before reading state
+              const materialize = isSandbox && runHandleRef.current
+                ? runHandleRef.current.materializeArtifacts().catch(() => {})
+                : Promise.resolve()
+              materialize.then(() => {
+                // Re-read final state + daemon log for error context
+                return Promise.all([
+                  reconstructState(activeRunDir, programDir).catch(() => null),
+                  readDaemonLogTail(activeRunDir),
+                ])
+              }).then(([final, logTail]) => {
                 if (cancelled) return
                 if (final) {
                   setRunState(final.state)
@@ -508,14 +561,19 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
                   setPhase("error")
                 }
               })
-              watcher.stop()
+              watcherRef.current?.stop()
             },
-          }, { startAtEnd: Boolean(attachRunId) })
+          }
+
+          // Use RunHandle.watch() if available (spawn path), fall back to local watchRunDir (attach path)
+          const watcher = runHandleRef.current
+            ? await runHandleRef.current.watch(watchCallbacks, { startAtEnd: Boolean(attachRunId) })
+            : watchRunDir(activeRunDir, watchCallbacks, { startAtEnd: Boolean(attachRunId) })
           watcherRef.current = watcher
         }
       } catch (err: unknown) {
         if (!cancelled) {
-          if (err instanceof DirtyWorkingTreeError) {
+          if (!isSandbox && err instanceof DirtyWorkingTreeError) {
             const status = await getWorkingTreeStatus(cwd)
             setDirtyFiles(status)
             setPhase("dirty")
@@ -531,9 +589,13 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
       cancelled = true
       watcherRef.current?.stop()
     }
-  }, [cwd, programSlug, modelConfig, maxExperiments, maxCostUsd, useWorktree, carryForward, keepSimplifications, attachRunId, ideasBacklogEnabled, retryCount, fallbackModel])
+  }, [cwd, programSlug, modelConfig, maxExperiments, maxCostUsd, useWorktree, carryForward, keepSimplifications, attachRunId, ideasBacklogEnabled, retryCount, fallbackModel, runBackend, isSandbox])
 
   const cleanupRunEnvironment = useCallback(async () => {
+    if (isSandbox) {
+      dispatchTerminate()
+      return
+    }
     if (runState?.in_place) {
       if (runState.original_branch) {
         const { checkoutBranch } = await import("../lib/git.ts")
@@ -542,7 +604,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
     } else if (runState?.worktree_path) {
       await removeWorktree(cwd, runState.worktree_path).catch(() => {})
     }
-  }, [cwd, runState])
+  }, [cwd, runState, isSandbox, dispatchTerminate])
 
   const handleAbandon = useCallback(async () => {
     await cleanupRunEnvironment()
@@ -693,6 +755,14 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
   }, [autoFinalize, phase, handleFinalize])
 
   useKeyboard((key) => {
+    if (phase === "provisioning") {
+      if (key.name === "escape") {
+        dispatchTerminate()
+        navigate("home")
+      }
+      return
+    }
+
     if (phase === "finalizing") {
       // Escape cancels finalize and returns to complete phase
       // (unmounting Chat triggers session cleanup)
@@ -780,7 +850,8 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
           setSettingsError(`Must be at least ${experimentNumber} (experiments already done)`)
         } else {
           setSettingsError(null)
-          if (runDir) updateMaxExperiments(runDir, parsed)
+          if (runHandleRef.current) runHandleRef.current.updateMaxExperiments(parsed)
+          else if (runDir) updateMaxExperiments(runDir, parsed)
         }
       }
       return
@@ -800,16 +871,14 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
         setShowStopConfirm(false)
         setStopping(true)
         setCurrentPhaseLabel("Stopping after current experiment...")
-        if (runDir) sendStop(runDir).catch(() => {})
+        dispatchStop()
       } else if (key.name === "a") {
         setShowStopConfirm(false)
         setStopping(true)
         setCurrentPhaseLabel("Aborting...")
         abortSentRef.current = true
-        if (runDir) sendAbort(runDir).catch(() => {})
-        abortTimerRef.current = setTimeout(() => {
-          if (runDir) forceKillDaemon(runDir).catch(() => {})
-        }, 5_000)
+        dispatchAbort()
+        abortTimerRef.current = setTimeout(dispatchTerminate, 5_000)
       } else if (key.name === "n" || key.name === "escape") {
         setShowStopConfirm(false)
       }
@@ -876,18 +945,14 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
       if (key.ctrl && key.name === "c") {
         if (abortSentRef.current) {
-          // Second Ctrl+C: force kill after timeout
-          if (runDir) {
-            forceKillDaemon(runDir).catch(() => {})
-          }
+          // Second Ctrl+C: force kill
+          dispatchTerminate()
         } else {
           // First Ctrl+C: abort
           abortSentRef.current = true
-          if (runDir) sendAbort(runDir).catch(() => {})
+          dispatchAbort()
           // Set up SIGKILL escalation after 5s
-          abortTimerRef.current = setTimeout(() => {
-            if (runDir) forceKillDaemon(runDir).catch(() => {})
-          }, 5_000)
+          abortTimerRef.current = setTimeout(dispatchTerminate, 5_000)
         }
         return
       }
@@ -904,6 +969,10 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
 
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0} minWidth={0}>
+      {phase === "provisioning" && (
+        <ProvisioningPhase status={null} />
+      )}
+
       {(phase === "starting" || phase === "running") && (
         <box flexDirection="column" flexGrow={1}>
           <box flexDirection="column" flexShrink={0} border borderStyle="rounded" borderColor={BORDER_DIM} title={programSlug}>
@@ -927,6 +996,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               improvementPct={runState && programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
               isRunning
               quotaInfo={quotaInfo}
+              sandboxLabel={isSandbox ? (sandboxProvider ?? "Sandbox") : undefined}
             />
           </box>
 
@@ -1066,6 +1136,7 @@ export function ExecutionScreen({ cwd, programSlug, modelConfig, supportModelCon
               currentPhaseLabel="Complete"
               improvementPct={programConfig ? getRunStats(runState, programConfig.direction).improvement_pct : 0}
               quotaInfo={quotaInfo}
+              sandboxLabel={isSandbox ? (sandboxProvider ?? "Sandbox") : undefined}
             />
           </box>
           <box
