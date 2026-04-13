@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.7.0](https://github.com/SpaceK33z/autoauto/compare/v1.6.0...v1.7.0) (2026-04-13)
+
+
+### Features
+
+* **experiment:** diagnose silent no-commit outcomes ([c84031c](https://github.com/SpaceK33z/autoauto/commit/c84031cec408300cf395f51874f12ab5a4aa01d7))
+* **mcp:** add first-time setup guidance for unconfigured projects ([49d7698](https://github.com/SpaceK33z/autoauto/commit/49d769857f5f9fa3c0ec7a7b1982075fe1ff3ec6))
+* **sandbox:** remote container execution via Modal ([#40](https://github.com/SpaceK33z/autoauto/issues/40)) ([afd6571](https://github.com/SpaceK33z/autoauto/commit/afd6571cc33ed5d3a41f62cfc315afab8ab508ad))
+
+
+### Bug Fixes
+
+* **agent:** validate model compatibility before starting runs ([8da8d89](https://github.com/SpaceK33z/autoauto/commit/8da8d8924bf4da45bf98f61e2d85319f1ac49467))
+* **home:** include onPanelChange in useEffect dependency array ([888655f](https://github.com/SpaceK33z/autoauto/commit/888655fd1b625ffb194c508d629b8b294a5b3991))
+* **mcp:** validate model compatibility in set_config before saving ([bbc523b](https://github.com/SpaceK33z/autoauto/commit/bbc523b4d1f2f1fdc6ae0be640049518f04bdf68))
+* **model:** include available models in opencode format error message ([20b330a](https://github.com/SpaceK33z/autoauto/commit/20b330a13aaa2dd72ccfddf3956aa32aebb9cd5e))
+* **setup:** lower default max_experiments to 10 for new programs ([34c8fef](https://github.com/SpaceK33z/autoauto/commit/34c8fefbeea7e80bd4e81419981102512060062e)), closes [#39](https://github.com/SpaceK33z/autoauto/issues/39)
+* **test:** stabilize concurrent e2e runs ([996f445](https://github.com/SpaceK33z/autoauto/commit/996f4458c0d41d50cf683035ce91875d49e6c5ff))
+
 ## [1.6.0](https://github.com/SpaceK33z/autoauto/compare/v1.5.0...v1.6.0) (2026-04-12)
 
 
