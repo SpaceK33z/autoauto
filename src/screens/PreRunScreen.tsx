@@ -352,7 +352,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       )}
 
       <CycleField label="Run Mode" value={useSandbox ? "In-place (sandbox)" : useWorktree ? "Worktree" : "In-place"} hint={!useSandbox && useWorktree ? "(recommended)" : undefined} description={useSandbox ? "Sandbox runs always use in-place mode — the sandbox itself is the isolation boundary" : useWorktree ? "Your checkout stays usable while experiments run in an isolated copy" : undefined} isFocused={selected === 6} />
-      {!useWorktree && (
+      {!useWorktree && !useSandbox && (
         <box flexDirection="column">
           <text fg={colors.error}>{"  \u26A0 DANGER: Runs git reset --hard in your main checkout."}</text>
           <text fg={colors.error}>{"    All uncommitted changes will be destroyed between experiments."}</text>
