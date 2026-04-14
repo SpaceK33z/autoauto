@@ -6,11 +6,11 @@
  * Zero npm dependencies — all ops go through the `docker` CLI via Bun.spawn.
  */
 
-import { join, dirname } from "node:path"
+import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
-import { lstat, unlink } from "node:fs/promises"
 import { createHash } from "node:crypto"
-import { getAgentConfigDirs } from "../agent-config.ts"
+import { lstat, unlink } from "node:fs/promises"
+import { collectContainerEnv, checkAgentAuth, getAgentConfigDirs, type AgentAuthMethod } from "../agent-config.ts"
 import { uploadRepoViaGitBundle } from "./sync.ts"
 import type {
   ContainerProvider,
@@ -31,14 +31,6 @@ export function setDockerBin(bin: string): void { _dockerBin = bin }
 
 /** Reset the docker binary to the default "docker". */
 export function resetDockerBin(): void { _dockerBin = "docker" }
-
-/** Env var keys forwarded into sandbox containers. Shared with modal.ts. */
-const CONTAINER_ENV_KEYS = [
-  "ANTHROPIC_API_KEY",
-  "OPENAI_API_KEY",
-  "OPENAI_BASE_URL",
-  "CLAUDE_CODE_OAUTH_TOKEN",  // subscription auth (from `claude setup-token`)
-] as const
 
 /** Read a subprocess stream to string, trimming whitespace. */
 async function readStream(stream: ReadableStream<Uint8Array> | null): Promise<string> {
@@ -342,19 +334,16 @@ export async function createDockerProvider(config: Record<string, unknown>): Pro
   const rmProc = Bun.spawn([_dockerBin, "rm", "-f", name], { stdout: "pipe", stderr: "pipe" })
   await rmProc.exited
 
-  // Collect env secrets
   const envFlags: string[] = []
-  for (const key of CONTAINER_ENV_KEYS) {
-    if (process.env[key]) envFlags.push("--env", `${key}=${process.env[key]}`)
+  for (const [key, value] of Object.entries(collectContainerEnv())) {
+    envFlags.push("--env", `${key}=${value}`)
   }
 
-  // Bind-mount agent config dirs (Claude, Codex, OpenCode) read-only
   const configMountFlags: string[] = []
   for (const { hostPath, containerPath } of getAgentConfigDirs()) {
     configMountFlags.push("-v", `${hostPath}:${containerPath}:ro`)
   }
 
-  // Construct labels
   const labelFlags = ["--label", "autoauto=true"]
   if (slug) labelFlags.push("--label", `program_slug=${slug}`)
   if (runId) labelFlags.push("--label", `run_id=${runId}`)
@@ -387,7 +376,7 @@ export async function createDockerProvider(config: Record<string, unknown>): Pro
 /**
  * Check if Docker is available and required env vars are set.
  */
-export async function checkDockerAuth(): Promise<{ ok: boolean; error?: string }> {
+export async function checkDockerAuth(): Promise<{ ok: boolean; error?: string; authMethod?: AgentAuthMethod }> {
   try {
     const proc = Bun.spawn([_dockerBin, "info"], { stdout: "pipe", stderr: "pipe" })
     const exitCode = await Promise.race([
@@ -410,12 +399,8 @@ export async function checkDockerAuth(): Promise<{ ok: boolean; error?: string }
     }
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return {
-      ok: false,
-      error: "ANTHROPIC_API_KEY required — the experiment agent runs inside the container",
-    }
-  }
+  const agentAuth = checkAgentAuth()
+  if (!agentAuth.ok) return agentAuth
 
-  return { ok: true }
+  return { ok: true, authMethod: agentAuth.authMethod }
 }

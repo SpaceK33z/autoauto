@@ -1,15 +1,14 @@
 /**
- * Agent configuration discovery — finds config files for Claude Code, Codex,
- * and OpenCode on the host machine so they can be forwarded into sandbox containers.
+ * Shared sandbox container configuration — env vars, auth checks, and
+ * agent config discovery for Claude Code, Codex, and OpenCode.
  *
- * When experiments run inside Docker/Modal containers, the agent CLI (claude,
- * codex, opencode) needs its local config for authentication and settings.
- * This module discovers those config directories and returns them as
- * (localPath, remotePath) pairs for the container providers to mount or upload.
+ * Claude subscription auth uses CLAUDE_CODE_OAUTH_TOKEN env var
+ * (credentials live in macOS Keychain, not on disk), but we still forward
+ * ~/.claude for CLI settings and project state.
  */
 
-import { homedir } from "node:os"
 import { join, relative } from "node:path"
+import { homedir } from "node:os"
 import { existsSync } from "node:fs"
 import { readdir } from "node:fs/promises"
 
@@ -19,12 +18,61 @@ const CONTAINER_HOME = "/root"
 /** Max file size to upload (skip large caches/sessions). */
 const MAX_FILE_SIZE = 1_000_000 // 1 MB
 
-/** Known agent config directories relative to $HOME. */
-const AGENT_CONFIG_DIRS = [
-  ".claude",
-  ".codex",
-  ".config/opencode",
-]
+/**
+ * Resolve agent config directories as absolute host paths + container names.
+ * Respects CODEX_HOME for custom Codex locations.
+ */
+function getAgentConfigSourceDirs(): Array<{ hostPath: string; containerName: string }> {
+  const home = homedir()
+  return [
+    { hostPath: join(home, ".claude"), containerName: ".claude" },
+    { hostPath: process.env.CODEX_HOME ?? join(home, ".codex"), containerName: ".codex" },
+    { hostPath: join(home, ".config/opencode"), containerName: ".config/opencode" },
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// Env vars forwarded into sandbox containers
+// ---------------------------------------------------------------------------
+
+/** Env var keys forwarded into sandbox containers. */
+const CONTAINER_ENV_KEYS = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+] as const
+
+export type AgentAuthMethod = "api_key" | "oauth_token"
+
+/**
+ * Check whether agent auth credentials are available for sandbox runs.
+ */
+export function checkAgentAuth(): { ok: true; authMethod: AgentAuthMethod } | { ok: false; error: string } {
+  if (process.env.ANTHROPIC_API_KEY) return { ok: true, authMethod: "api_key" }
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return { ok: true, authMethod: "oauth_token" }
+
+  return {
+    ok: false,
+    error: "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN required — the experiment agent runs inside the container. Run `claude setup-token` to generate a subscription token.",
+  }
+}
+
+/**
+ * Collect env vars that should be forwarded into sandbox containers.
+ * Only includes keys that are actually set.
+ */
+export function collectContainerEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const key of CONTAINER_ENV_KEYS) {
+    if (process.env[key]) env[key] = process.env[key]!
+  }
+  return env
+}
+
+// ---------------------------------------------------------------------------
+// Config directory discovery
+// ---------------------------------------------------------------------------
 
 export interface ConfigFileEntry {
   /** Absolute path on the host */
@@ -64,43 +112,33 @@ async function listFilesRecursive(dir: string): Promise<string[]> {
 
 /**
  * Returns agent config directories that exist on the host.
- * Used by the Docker provider for bind mounts.
+ * Used by the Docker provider for read-only bind mounts.
  */
 export function getAgentConfigDirs(): ConfigDirMount[] {
-  const home = homedir()
-  const mounts: ConfigDirMount[] = []
-
-  for (const dir of AGENT_CONFIG_DIRS) {
-    const hostPath = join(home, dir)
-    if (existsSync(hostPath)) {
-      mounts.push({
-        hostPath,
-        containerPath: `${CONTAINER_HOME}/${dir}`,
-      })
-    }
-  }
-
-  return mounts
+  return getAgentConfigSourceDirs()
+    .filter(({ hostPath }) => existsSync(hostPath))
+    .map(({ hostPath, containerName }) => ({
+      hostPath,
+      containerPath: `${CONTAINER_HOME}/${containerName}`,
+    }))
 }
 
 /**
  * Discover agent config files for upload to sandbox containers.
- * Scans ~/.claude, ~/.codex, and ~/.config/opencode.
  * Skips files larger than 1 MB to avoid uploading caches.
  */
 export async function getAgentConfigFiles(): Promise<ConfigFileEntry[]> {
-  const home = homedir()
+  const dirs = getAgentConfigSourceDirs()
 
   const nested = await Promise.all(
-    AGENT_CONFIG_DIRS.map(async (configDir) => {
-      const hostDir = join(home, configDir)
-      const files = await listFilesRecursive(hostDir)
+    dirs.map(async ({ hostPath, containerName }) => {
+      const files = await listFilesRecursive(hostPath)
 
       return files
         .filter((localPath) => Bun.file(localPath).size <= MAX_FILE_SIZE)
         .map((localPath) => ({
           localPath,
-          remotePath: `${CONTAINER_HOME}/${configDir}/${relative(hostDir, localPath)}`,
+          remotePath: `${CONTAINER_HOME}/${containerName}/${relative(hostPath, localPath)}`,
         }))
     }),
   )

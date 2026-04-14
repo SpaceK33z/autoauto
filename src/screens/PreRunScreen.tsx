@@ -33,8 +33,8 @@ const SANDBOX_LABELS: Record<SandboxChoice, string> = {
 
 const SANDBOX_DESCRIPTIONS: Record<SandboxChoice, string> = {
   off: "Experiments run locally on this machine",
-  [DOCKER_PROVIDER_ID]: "Experiments run in a local Docker container \u2014 consistent environment, no cloud account",
-  [MODAL_PROVIDER_ID]: "Experiments run in a remote Modal sandbox \u2014 your computer stays free",
+  [DOCKER_PROVIDER_ID]: "Experiments run in a local Docker container — consistent environment, no cloud account",
+  [MODAL_PROVIDER_ID]: "Experiments run in a remote Modal sandbox — your computer stays free",
 }
 import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
@@ -66,8 +66,8 @@ function QuotaWarning({ quota }: { quota: QuotaInfo }) {
   const isExhausted = quota.status === "rejected"
   const color = isExhausted ? colors.error : colors.warning
   const message = isExhausted
-    ? "\u26A0 Quota exhausted \u2014 this run will likely fail."
-    : `  \u26A0 Quota at ${quota.utilization != null ? `${Math.round(quota.utilization * 100)}%` : "high usage"} \u2014 may run out during this run.`
+    ? "⚠ Quota exhausted — this run will likely fail."
+    : `  ⚠ Quota at ${quota.utilization != null ? `${Math.round(quota.utilization * 100)}%` : "high usage"} — may run out during this run.`
   const advice = isExhausted
     ? "    Configure a fallback model in Settings, or wait for quota to reset."
     : "    Consider configuring a fallback model in Settings."
@@ -97,6 +97,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const [carryForward, setCarryForward] = useState(true)
   const [sandboxChoice, setSandboxChoice] = useState<SandboxChoice>("off")
   const [sandboxAuthError, setSandboxAuthError] = useState<string | null>(null)
+  const [sandboxAuthMethod, setSandboxAuthMethod] = useState<string | null>(null)
   const [hasPreviousRuns, setHasPreviousRuns] = useState(false)
   const [pickingModel, setPickingModel] = useState(false)
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
@@ -169,36 +170,36 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     setModelSlot(nextSlot)
   }
 
+  function applySandboxAuth(auth: { ok: boolean; error?: string; authMethod?: string }) {
+    if (!auth.ok) {
+      setSandboxAuthError(auth.error ?? "Sandbox auth failed")
+      setSandboxAuthMethod(null)
+    } else {
+      setSandboxAuthError(null)
+      setSandboxAuthMethod(auth.authMethod ?? null)
+    }
+  }
+
   function handleCycleSandbox(direction: -1 | 1) {
     const next = cycleChoice(SANDBOX_CHOICES, sandboxChoice, direction)
     setSandboxChoice(next)
 
     if (next === "off") {
       setSandboxAuthError(null)
+      setSandboxAuthMethod(null)
       return
     }
 
     if (next === DOCKER_PROVIDER_ID) {
       import("../lib/container-provider/docker.ts").then(({ checkDockerAuth }) => {
-        checkDockerAuth().then((auth) => {
-          if (!auth.ok) {
-            setSandboxAuthError(auth.error ?? "Docker auth failed")
-          } else {
-            setSandboxAuthError(null)
-          }
-        })
+        checkDockerAuth().then(applySandboxAuth)
       })
       return
     }
 
     if (next === MODAL_PROVIDER_ID) {
       import("../lib/container-provider/modal.ts").then(({ checkModalAuth }) => {
-        const auth = checkModalAuth()
-        if (!auth.ok) {
-          setSandboxAuthError(auth.error ?? "Modal auth failed")
-        } else {
-          setSandboxAuthError(null)
-        }
+        applySandboxAuth(checkModalAuth())
       })
     }
   }
@@ -315,7 +316,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       <box flexDirection="column">
         <text>
           {selected === 0 ? (
-            <span fg={colors.primary}><strong>{`  Max Experiments: ${maxExpText || ""}`}<span fg={colors.primary}>{"\u2588"}</span></strong></span>
+            <span fg={colors.primary}><strong>{`  Max Experiments: ${maxExpText || ""}`}<span fg={colors.primary}>{"█"}</span></strong></span>
           ) : (
             `  Max Experiments: ${maxExpText || "(required)"}`
           )}
@@ -328,13 +329,13 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       <box flexDirection="column">
         <text>
           {selected === 1 ? (
-            <span fg={colors.primary}><strong>{`  Budget Cap: ${maxCostText ? `$${maxCostText}` : ""}`}<span fg={colors.primary}>{"\u2588"}</span></strong></span>
+            <span fg={colors.primary}><strong>{`  Budget Cap: ${maxCostText ? `$${maxCostText}` : ""}`}<span fg={colors.primary}>{"█"}</span></strong></span>
           ) : (
             `  Budget Cap: ${maxCostText ? `$${maxCostText}` : "(no limit)"}`
           )}
         </text>
         {selected === 1 && (
-          <text fg={colors.textMuted}>{"  Max cost in USD (optional \u2014 blank for no limit)"}</text>
+          <text fg={colors.textMuted}>{"  Max cost in USD (optional — blank for no limit)"}</text>
         )}
       </box>
 
@@ -350,6 +351,9 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       {sandboxAuthError && (
         <text fg={colors.error}>{`  ⚠ ${sandboxAuthError}`}</text>
       )}
+      {useSandbox && !sandboxAuthError && sandboxAuthMethod === "oauth_token" && (
+        <text fg={colors.textMuted}>{"  Using Claude subscription auth (CLAUDE_CODE_OAUTH_TOKEN)"}</text>
+      )}
       {useSandbox && (
         <text fg={colors.textMuted}>{"  Sandbox runs cannot be queued yet"}</text>
       )}
@@ -357,7 +361,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       <CycleField label="Run Mode" value={useSandbox ? "In-place (sandbox)" : useWorktree ? "Worktree" : "In-place"} hint={!useSandbox && useWorktree ? "(recommended)" : undefined} description={useSandbox ? "Sandbox runs always use in-place mode — the sandbox itself is the isolation boundary" : useWorktree ? "Your checkout stays usable while experiments run in an isolated copy" : undefined} isFocused={selected === 6} />
       {!useWorktree && !useSandbox && (
         <box flexDirection="column">
-          <text fg={colors.error}>{"  \u26A0 DANGER: Runs git reset --hard in your main checkout."}</text>
+          <text fg={colors.error}>{"  ⚠ DANGER: Runs git reset --hard in your main checkout."}</text>
           <text fg={colors.error}>{"    All uncommitted changes will be destroyed between experiments."}</text>
           <text fg={colors.error}>{"    Your branch will be changed. Only use on a clean, throwaway branch."}</text>
         </box>
@@ -379,7 +383,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
           </text>
           {hasMaxExp && (
             <text fg={colors.textMuted}>
-              {`  ${maxExp} experiments \u2248 ~${Math.ceil((avgMs * maxExp * repeats) / 60000)} min (measurement only)`}
+              {`  ${maxExp} experiments ≈ ~${Math.ceil((avgMs * maxExp * repeats) / 60000)} min (measurement only)`}
             </text>
           )}
         </box>
@@ -392,7 +396,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       <box flexGrow={1} />
 
       {programHasQueueEntries && (
-        <text fg={colors.orange}>{"  \u26A0 This program has queued runs. Press 'a' to add to queue."}</text>
+        <text fg={colors.orange}>{"  ⚠ This program has queued runs. Press 'a' to add to queue."}</text>
       )}
       <text fg={colors.textDim}>{footerHint}</text>
     </box>
