@@ -7,6 +7,8 @@ import type { Screen } from "../lib/programs.ts"
 import type { ProjectConfig } from "../lib/config.ts"
 import { setProvider } from "../lib/agent/index.ts"
 import { MockProvider } from "../lib/agent/mock-provider.ts"
+import type { AuthResult } from "../lib/agent/types.ts"
+import { getUserAuthConfigPath } from "../lib/user-auth.ts"
 
 let fixture: TestFixture
 let harness: TuiHarness | null = null
@@ -16,13 +18,41 @@ beforeAll(async () => {
   fixture = await createTestFixture()
 })
 
+const originalConfigHome = process.env.AUTOAUTO_CONFIG_HOME
+const originalOauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
+const originalApiKey = process.env.ANTHROPIC_API_KEY
+
 afterEach(async () => {
   await harness?.destroy()
   harness = null
   resetProjectRoot()
+  if (originalConfigHome === undefined) delete process.env.AUTOAUTO_CONFIG_HOME
+  else process.env.AUTOAUTO_CONFIG_HOME = originalConfigHome
+  if (originalOauthToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN
+  else process.env.CLAUDE_CODE_OAUTH_TOKEN = originalOauthToken
+  if (originalApiKey === undefined) delete process.env.ANTHROPIC_API_KEY
+  else process.env.ANTHROPIC_API_KEY = originalApiKey
   // Restore default mock provider in case a test replaced it
   setProvider("claude", new MockProvider())
 })
+
+class EnvClaudeProvider extends MockProvider {
+  async checkAuth(): Promise<AuthResult> {
+    return process.env.CLAUDE_CODE_OAUTH_TOKEN === "persisted-token"
+      ? { authenticated: true, account: { email: "persisted@example.com" } }
+      : { authenticated: false, error: "No Claude auth configured" }
+  }
+}
+
+async function focusContinue(harness: TuiHarness): Promise<void> {
+  await Array.from({ length: 6 }).reduce(
+    async (prev) => {
+      await prev
+      await harness.press("j")
+    },
+    Promise.resolve(),
+  )
+}
 
 afterAll(async () => {
   await fixture.cleanup()
@@ -87,7 +117,7 @@ describe("FirstSetupScreen E2E", () => {
     )
     await harness.frame()
     // Navigate to Continue button at row 6
-    for (let i = 0; i < 6; i++) await harness.press("j")
+    await focusContinue(harness)
     await harness.enter()
     await harness.waitForText("setup", 3000).catch(() => {})
     await harness.flush(300)
@@ -110,9 +140,47 @@ describe("FirstSetupScreen E2E", () => {
     )
     await harness.frame()
     // Navigate to Continue button at row 6
-    for (let i = 0; i < 6; i++) await harness.press("j")
+    await focusContinue(harness)
     await harness.enter()
     const frame = await harness.waitForText("Auth failed", 3000)
     expect(frame).toContain("Invalid API key")
+  })
+
+  test("offers permanent Claude token setup and saves it", async () => {
+    process.env.AUTOAUTO_CONFIG_HOME = `${fixture.cwd}/.test-auth`
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN
+    delete process.env.ANTHROPIC_API_KEY
+    setProvider("claude", new EnvClaudeProvider())
+
+    let lastNav: Screen | null = null
+    let savedConfig: ProjectConfig | null = null
+    harness = await renderTui(
+      <FirstSetupScreen
+        cwd={fixture.cwd}
+        navigate={(s) => { lastNav = s }}
+        onConfigChange={(c) => { savedConfig = c }}
+      />,
+    )
+    await harness.frame()
+    await focusContinue(harness)
+    await harness.enter()
+
+    const helpFrame = await harness.waitForText("Press t to paste it into AutoAuto", 3000)
+    expect(helpFrame).toContain("claude setup-token")
+
+    await harness.press("t")
+    await harness.waitForText("Paste CLAUDE_CODE_OAUTH_TOKEN", 3000)
+    await harness.type("persisted-token")
+    await harness.enter()
+
+    await harness.waitForText("setup", 3000).catch(() => {})
+    await harness.flush(300)
+
+    expect(lastNav).toBe("setup")
+    expect(savedConfig).not.toBeNull()
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe("persisted-token")
+
+    const stored = await Bun.file(getUserAuthConfigPath()).json() as { claudeCodeOAuthToken?: string }
+    expect(stored.claudeCodeOAuthToken).toBe("persisted-token")
   })
 })

@@ -74,6 +74,27 @@ describe("SandboxRunBackend", () => {
     expect(new TextDecoder().decode(result.stdout)).toContain("init")
   })
 
+  test("spawn copies explicit sandbox extra paths after repo upload", async () => {
+    await setup()
+    await mkdir(join(mainRoot, "extra-data", "nested"), { recursive: true })
+    await Bun.write(join(mainRoot, "extra-data", "config.local.json"), '{"secret":true}\n')
+    await Bun.write(join(mainRoot, "extra-data", "nested", "note.txt"), "hello sandbox\n")
+
+    const backend = new SandboxRunBackend(async () => provider)
+    const handle = await backend.spawn({
+      mainRoot,
+      programSlug: "test-prog",
+      modelConfig: { provider: "claude", model: "sonnet", effort: "high" },
+      maxExperiments: 5,
+      sandboxExtraCopyPaths: ["extra-data/config.local.json", "extra-data/nested"],
+    })
+
+    expect(new TextDecoder().decode(await provider.readFile("/workspace/extra-data/config.local.json"))).toContain("secret")
+    expect(new TextDecoder().decode(await provider.readFile("/workspace/extra-data/nested/note.txt"))).toContain("hello sandbox")
+
+    await handle.terminate()
+  })
+
   test("sendControl writes control.json inside container", async () => {
     await setup()
 

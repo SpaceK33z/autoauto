@@ -232,6 +232,7 @@ export class SandboxRunBackend implements RunBackend {
     const provider = await this.providerFactory({
       programSlug: input.programSlug,
       runId,
+      mainRoot: input.mainRoot,
     })
 
     await provider.setMetadata({
@@ -239,7 +240,9 @@ export class SandboxRunBackend implements RunBackend {
       program_slug: input.programSlug,
     })
 
-    await provider.uploadRepo(input.mainRoot, REMOTE_WORKSPACE)
+    await provider.uploadRepo(input.mainRoot, REMOTE_WORKSPACE, {
+      extraCopyPaths: input.sandboxExtraCopyPaths,
+    })
 
     // --- Provisioning: install project dependencies ---
     // Check if a package.json/bun.lock exists before running install

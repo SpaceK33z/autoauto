@@ -4,7 +4,7 @@
  * using the local filesystem. No real Docker daemon required.
  *
  * Covers:
- * - checkDockerAuth (daemon detection, API key validation)
+ * - checkDockerAuth (daemon detection, provider-specific auth validation)
  * - createDockerProvider (container creation, labels, env vars)
  * - exec, readFile, writeFile, uploadRepo
  * - poll / terminate lifecycle
@@ -180,6 +180,53 @@ describe("Docker E2E (mocked CLI)", () => {
       const status = (await Bun.file(join(mockDir, "containers", staleName, "status")).text()).trim()
       expect(status).toBe("running")
     })
+
+    test("builds the default image on first use", async () => {
+      await makeProvider("image-default", "run-image-default")
+
+      expect(await Bun.file(join(mockDir, "last-build-args")).exists()).toBe(true)
+      const buildArgs = (await Bun.file(join(mockDir, "last-build-args")).text()).trim().split("\n")
+      expect(buildArgs[0]).toBe("-t")
+      expect(buildArgs[1]).toContain("autoauto-runner:")
+      expect(buildArgs[2]).toBe("-")
+    })
+
+    test("mock docker image without subcommand returns a helpful usage error", async () => {
+      const proc = Bun.spawn([join(mockBinDir, "docker"), "image"], { stdout: "pipe", stderr: "pipe" })
+      const [stderr, exitCode] = await Promise.all([
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ])
+
+      expect(exitCode).toBe(1)
+      expect(stderr).toContain("Usage: docker image <subcommand>")
+    })
+
+    test("uses .autoauto/Dockerfile when mainRoot provides one", async () => {
+      const projectRoot = await mkdtemp(join(tmpdir(), "docker-project-"))
+      await mkdir(join(projectRoot, ".autoauto"), { recursive: true })
+      await Bun.write(
+        join(projectRoot, ".autoauto", "Dockerfile"),
+        "FROM ubuntu:22.04\nRUN echo custom > /custom.txt\n",
+      )
+
+      try {
+        await createDockerProvider({
+          programSlug: "custom-image",
+          runId: "run-custom-image",
+          mainRoot: projectRoot,
+        })
+
+        const buildArgs = (await Bun.file(join(mockDir, "last-build-args")).text()).trim().split("\n")
+        expect(buildArgs[0]).toBe("-t")
+        expect(buildArgs[1]).toContain("autoauto-runner:")
+        expect(buildArgs[2]).toBe("-f")
+        expect(buildArgs[3]).toBe(join(projectRoot, ".autoauto", "Dockerfile"))
+        expect(buildArgs[4]).toBe(projectRoot)
+      } finally {
+        await rm(projectRoot, { recursive: true, force: true })
+      }
+    })
   })
 
   // =========================================================================
@@ -213,6 +260,17 @@ describe("Docker E2E (mocked CLI)", () => {
       const result = await provider.exec(["cat", "data.txt"], { cwd: "/mydir" })
       expect(result.exitCode).toBe(0)
       expect(decoder.decode(result.stdout).trim()).toBe("found it")
+    })
+
+    test("fails clearly when workdir cannot be entered", async () => {
+      const provider = await makeProvider("bad-wd", "run-bad-wd")
+
+      const rootfs = join(mockDir, "containers", "autoauto-bad-wd-run-bad-wd", "rootfs")
+      await Bun.write(join(rootfs, "blocked"), "not a directory")
+
+      const result = await provider.exec(["pwd"], { cwd: "/blocked" })
+      expect(result.exitCode).not.toBe(0)
+      expect(decoder.decode(result.stderr)).toContain("Failed to cd to workdir")
     })
 
     test("passes --env option", async () => {
@@ -267,26 +325,34 @@ describe("Docker E2E (mocked CLI)", () => {
   // uploadRepo
   // =========================================================================
   describe("uploadRepo", () => {
-    test("copies local directory into container", async () => {
+    test("restores committed repo contents into container via git bundle", async () => {
       const provider = await makeProvider("upload-test", "run-up")
 
-      // Create a temp local directory with files
-      const localDir = await mkdtemp(join(tmpdir(), "upload-src-"))
+      const localRepo = await mkdtemp(join(tmpdir(), "upload-src-"))
       try {
-        await Bun.write(join(localDir, "README.md"), "# Test Repo\n")
-        await mkdir(join(localDir, "src"), { recursive: true })
-        await Bun.write(join(localDir, "src", "index.ts"), "console.log('hello')\n")
+        await $`git init`.cwd(localRepo).quiet()
+        await $`git config user.email "test@test.com"`.cwd(localRepo).quiet()
+        await $`git config user.name "Test"`.cwd(localRepo).quiet()
+        await Bun.write(join(localRepo, "README.md"), "# Test Repo\n")
+        await mkdir(join(localRepo, "src"), { recursive: true })
+        await Bun.write(join(localRepo, "src", "index.ts"), "console.log('hello')\n")
+        await $`git add -A`.cwd(localRepo).quiet()
+        await $`git commit -m "initial commit"`.cwd(localRepo).quiet()
 
-        await provider.uploadRepo(localDir, "/workspace")
+        await Bun.write(join(localRepo, "README.md"), "# Uncommitted change\n")
+        await Bun.write(join(localRepo, "untracked.txt"), "should not upload\n")
 
-        // Verify files exist in the container
+        await provider.uploadRepo(localRepo, "/workspace")
+
         const readme = await provider.readFile("/workspace/README.md")
         expect(decoder.decode(readme)).toBe("# Test Repo\n")
 
         const index = await provider.readFile("/workspace/src/index.ts")
         expect(decoder.decode(index)).toBe("console.log('hello')\n")
+
+        await expect(provider.readFile("/workspace/untracked.txt")).rejects.toThrow("ENOENT")
       } finally {
-        await rm(localDir, { recursive: true, force: true })
+        await rm(localRepo, { recursive: true, force: true })
       }
     })
 
@@ -309,6 +375,33 @@ describe("Docker E2E (mocked CLI)", () => {
         const result = await provider.exec(["git", "log", "--oneline"], { cwd: "/workspace" })
         expect(result.exitCode).toBe(0)
         expect(decoder.decode(result.stdout)).toContain("initial commit")
+      } finally {
+        await rm(localRepo, { recursive: true, force: true })
+      }
+    })
+
+    test("copies explicit extra files and directories after the bundle restore", async () => {
+      const provider = await makeProvider("upload-extra", "run-extra")
+
+      const localRepo = await mkdtemp(join(tmpdir(), "upload-extra-src-"))
+      try {
+        await $`git init`.cwd(localRepo).quiet()
+        await $`git config user.email "test@test.com"`.cwd(localRepo).quiet()
+        await $`git config user.name "Test"`.cwd(localRepo).quiet()
+        await mkdir(join(localRepo, "extras", "nested"), { recursive: true })
+        await Bun.write(join(localRepo, "README.md"), "# Test Repo\n")
+        await $`git add -A`.cwd(localRepo).quiet()
+        await $`git commit -m "initial commit"`.cwd(localRepo).quiet()
+
+        await Bun.write(join(localRepo, "extras", "config.local.json"), '{"token":"secret"}\n')
+        await Bun.write(join(localRepo, "extras", "nested", "note.txt"), "nested note\n")
+
+        await provider.uploadRepo(localRepo, "/workspace", {
+          extraCopyPaths: ["extras/config.local.json", "extras/nested"],
+        })
+
+        expect(decoder.decode(await provider.readFile("/workspace/extras/config.local.json"))).toContain("secret")
+        expect(decoder.decode(await provider.readFile("/workspace/extras/nested/note.txt"))).toContain("nested note")
       } finally {
         await rm(localRepo, { recursive: true, force: true })
       }
@@ -453,6 +546,7 @@ describe("Docker E2E (mocked CLI)", () => {
     })
 
     function renderPreRun(opts?: {
+      defaultModelConfig?: PreRunOverrides["modelConfig"]
       navigate?: (s: import("../lib/programs.ts").Screen) => void
       onStart?: (o: PreRunOverrides) => void
     }) {
@@ -460,7 +554,7 @@ describe("Docker E2E (mocked CLI)", () => {
         <PreRunScreen
           cwd={fixture.cwd}
           programSlug="docker-e2e"
-          defaultModelConfig={DEFAULT_CONFIG.executionModel}
+          defaultModelConfig={opts?.defaultModelConfig ?? DEFAULT_CONFIG.executionModel}
           navigate={opts?.navigate ?? (() => {})}
           onStart={opts?.onStart ?? (() => {})}
         />,
@@ -531,6 +625,32 @@ describe("Docker E2E (mocked CLI)", () => {
       expect(startOverrides!.sandboxProvider).toBe("docker")
       // Sandbox forces worktree off
       expect(startOverrides!.useWorktree).toBe(false)
+    })
+
+    test("Codex sandbox auth does not require ANTHROPIC_API_KEY", async () => {
+      const saved = process.env.ANTHROPIC_API_KEY
+      delete process.env.ANTHROPIC_API_KEY
+
+      try {
+        let startOverrides: PreRunOverrides | null = null
+        harness = await renderPreRun({
+          defaultModelConfig: { provider: "codex", model: "default", effort: "high" },
+          onStart: (o) => { startOverrides = o },
+        })
+        await goToSandbox(harness)
+
+        await harness.press("l")
+        const frame = await harness.waitForText("local Docker container")
+        expect(frame).toContain("Docker")
+        expect(frame).not.toContain("ANTHROPIC_API_KEY")
+
+        await harness.press("s")
+        expect(startOverrides).not.toBeNull()
+        expect(startOverrides!.modelConfig.provider).toBe("codex")
+        expect(startOverrides!.useSandbox).toBe(true)
+      } finally {
+        if (saved !== undefined) process.env.ANTHROPIC_API_KEY = saved
+      }
     })
   })
 })

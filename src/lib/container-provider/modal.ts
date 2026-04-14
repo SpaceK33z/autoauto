@@ -5,12 +5,10 @@
  * MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables.
  */
 
-import { dirname } from "node:path"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { unlink } from "node:fs/promises"
+import { dirname, join, posix } from "node:path"
+import { readdir } from "node:fs/promises"
 import { ModalClient, NotFoundError } from "modal"
-import { getAgentConfigFiles, collectContainerEnv, checkAgentAuth, type AgentAuthMethod } from "../agent-config.ts"
+import { collectContainerEnv, checkSandboxAgentAuth, getAgentConfigFiles, type AgentAuthMethod } from "../agent-config.ts"
 import type { Sandbox, Secret } from "modal"
 import type {
   ContainerProvider,
@@ -18,8 +16,10 @@ import type {
   ExecOptions,
   ExecResult,
   StreamingProcess,
+  UploadRepoOptions,
 } from "./types.ts"
-import { bundleCreate } from "../git.ts"
+import { uploadRepoViaGitBundle } from "./sync.ts"
+import type { AgentProviderID } from "../agent/types.ts"
 
 export interface ModalProviderConfig {
   /** CPU cores for the sandbox (default: 2) */
@@ -120,47 +120,65 @@ export class ModalContainerProvider implements ContainerProvider {
     }
   }
 
-  async uploadRepo(localDir: string, remoteDir: string): Promise<void> {
-    // 1. Create git bundle locally
-    const bundleFileName = `autoauto-upload-${Date.now()}.bundle`
-    const localBundlePath = join(tmpdir(), bundleFileName)
-    const remoteBundlePath = `/tmp/${bundleFileName}`
+  async copyIn(localPath: string, remotePath: string): Promise<void> {
+    await this.copyInRecursive(localPath, remotePath, new Set())
+  }
 
-    try {
-      await bundleCreate(localDir, localBundlePath)
+  private async copyInRecursive(
+    localPath: string,
+    remotePath: string,
+    visitedDirs: Set<string>,
+  ): Promise<void> {
+    const info = await Bun.file(localPath).stat()
 
-      // 2. Upload bundle bytes to container
-      const bundleBytes = new Uint8Array(await Bun.file(localBundlePath).arrayBuffer())
+    if (info.isDirectory()) {
+      // Ancestor-stack cycle guard: only tracks the active recursion chain so
+      // non-cyclic symlink aliases (e.g. dir/link -> ../dir/real) still get
+      // materialized while true cycles are detected and skipped.
+      const dirKey = `${info.dev}:${info.ino}`
+      if (visitedDirs.has(dirKey)) return
+      visitedDirs.add(dirKey)
 
-      await this.sandbox.exec(["mkdir", "-p", remoteDir], { stdout: "ignore", stderr: "ignore" })
-
-      const handle = await this.sandbox.open(remoteBundlePath, "w")
-      await handle.write(bundleBytes)
-      await handle.close()
-
-      // 3. Clone from bundle inside the container
-      const result = await this.sandbox.exec(
-        ["git", "clone", remoteBundlePath, remoteDir],
-        { stdout: "pipe", stderr: "pipe" },
-      )
-
-      if (await result.wait() !== 0) {
-        // Fallback: init + unbundle for repos with unusual ref layouts
-        const fallback = await this.sandbox.exec(
-          ["sh", "-c", `rm -rf ${remoteDir}/.git && cd ${remoteDir} && git init && git bundle unbundle ${remoteBundlePath} && git checkout HEAD`],
-          { stdout: "pipe", stderr: "pipe" },
-        )
-        if (await fallback.wait() !== 0) {
-          throw new Error("Failed to restore repository from git bundle")
+      try {
+        await this.sandbox.exec(["mkdir", "-p", remotePath], { stdout: "ignore", stderr: "ignore" })
+        const entries = await readdir(localPath, { withFileTypes: true })
+        for (const entry of entries) {
+          await this.copyInRecursive(
+            join(localPath, entry.name),
+            posix.join(remotePath, entry.name),
+            visitedDirs,
+          )
         }
+      } finally {
+        visitedDirs.delete(dirKey)
       }
-
-      // 4. Clean up remote bundle
-      await this.sandbox.exec(["rm", "-f", remoteBundlePath], { stdout: "ignore", stderr: "ignore" })
-    } finally {
-      // Clean up local bundle
-      await unlink(localBundlePath).catch(() => {})
+      return
     }
+
+    const bytes = new Uint8Array(await Bun.file(localPath).arrayBuffer())
+    await this.writeFile(remotePath, bytes)
+
+    const mode = (info.mode & 0o777).toString(8)
+    const chmod = await this.sandbox.exec(["chmod", mode, remotePath], {
+      stdout: "ignore",
+      stderr: "pipe",
+    })
+    const [stderrText, exitCode] = await Promise.all([
+      chmod.stderr.readText(),
+      chmod.wait(),
+    ])
+    if (exitCode !== 0) {
+      const stderr = stderrText.trim()
+      throw new Error(
+        stderr
+          ? `Failed to chmod ${remotePath} to ${mode} in Modal sandbox: ${stderr}`
+          : `Failed to chmod ${remotePath} to ${mode} in Modal sandbox (exit ${exitCode})`,
+      )
+    }
+  }
+
+  async uploadRepo(localDir: string, remoteDir: string, options?: UploadRepoOptions): Promise<void> {
+    await uploadRepoViaGitBundle(this, localDir, remoteDir, options)
   }
 
   async poll(): Promise<number | null> {
@@ -257,14 +275,22 @@ export async function createModalProvider(config: Record<string, unknown>): Prom
 
   const provider = new ModalContainerProvider(modal, sandbox, appName)
 
-  // Upload agent config files (Codex, OpenCode) into the sandbox
+  // Upload agent config files (Claude, Codex, OpenCode) into the sandbox
   const configFiles = await getAgentConfigFiles()
-  await Promise.allSettled(
+  const uploadResults = await Promise.allSettled(
     configFiles.map(async ({ localPath, remotePath }) => {
       const data = new Uint8Array(await Bun.file(localPath).arrayBuffer())
       await provider.writeFile(remotePath, data)
     }),
   )
+  uploadResults.forEach((result, index) => {
+    if (result.status === "fulfilled") return
+    const { localPath, remotePath } = configFiles[index]!
+    const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
+    process.stderr.write(
+      `[modal] Failed to upload agent config via provider.writeFile: ${localPath} -> ${remotePath}: ${reason}\n`,
+    )
+  })
 
   return provider
 }
@@ -296,17 +322,19 @@ export async function lookupModalSandbox(
 }
 
 /**
- * Check if Modal auth environment variables are set.
- * This is a static check — does not make any API calls.
+ * Check if Modal auth env vars are set and the selected agent provider can
+ * authenticate inside the sandbox.
  */
-export function checkModalAuth(): { ok: boolean; error?: string; authMethod?: AgentAuthMethod } {
+export async function checkModalAuth(
+  provider: AgentProviderID = "claude",
+): Promise<{ ok: boolean; error?: string; authMethod?: AgentAuthMethod }> {
   if (!process.env.MODAL_TOKEN_ID || !process.env.MODAL_TOKEN_SECRET) {
     return {
       ok: false,
       error: "Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables (https://modal.com/settings)",
     }
   }
-  const agentAuth = checkAgentAuth()
+  const agentAuth = await checkSandboxAgentAuth(provider)
   if (!agentAuth.ok) return agentAuth
 
   return { ok: true, authMethod: agentAuth.authMethod }

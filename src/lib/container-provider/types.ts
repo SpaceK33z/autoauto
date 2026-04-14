@@ -31,6 +31,11 @@ export interface ContainerHandle {
   attach(): Promise<ContainerProvider>
 }
 
+export interface UploadRepoOptions {
+  /** Extra repo-relative files or directories to copy after the git bundle restore. */
+  extraCopyPaths?: string[]
+}
+
 export interface ContainerProvider {
   /** Run a command to completion, collecting output */
   exec(command: string[], opts?: ExecOptions): Promise<ExecResult>
@@ -44,8 +49,11 @@ export interface ContainerProvider {
   /** Write a file to the container filesystem */
   writeFile(remotePath: string, data: Uint8Array | string): Promise<void>
 
-  /** Upload a local repo into the container (e.g. via git bundle) */
-  uploadRepo(localDir: string, remoteDir: string): Promise<void>
+  /** Copy a host file or directory into the container filesystem. */
+  copyIn(localPath: string, remotePath: string): Promise<void>
+
+  /** Upload a local repo into the container via git bundle, then optionally copy extra paths. */
+  uploadRepo(localDir: string, remoteDir: string, options?: UploadRepoOptions): Promise<void>
 
   /** Check if container is still running. Returns exit code if exited, null if alive. */
   poll(): Promise<number | null>

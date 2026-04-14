@@ -8,6 +8,7 @@ export type {
   ExecOptions,
   ExecResult,
   StreamingProcess,
+  UploadRepoOptions,
 } from "./types.ts"
 
 export { MockContainerProvider } from "./mock.ts"

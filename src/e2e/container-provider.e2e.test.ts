@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test"
 import { $ } from "bun"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, symlink } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { MockContainerProvider } from "../lib/container-provider/mock.ts"
@@ -102,6 +102,74 @@ describe("ContainerProvider contract (MockContainerProvider)", () => {
     expect(result.exitCode).toBe(0)
     const logOutput = new TextDecoder().decode(result.stdout).trim()
     expect(logOutput).toContain("init")
+  })
+
+  test("uploadRepo copies explicit extra paths after restoring the git bundle", async () => {
+    await setup()
+    const localRepo = join(rootDir, "local-repo-extra")
+    const { mkdir: mkdirFs } = await import("node:fs/promises")
+    await mkdirFs(join(localRepo, "extras", "nested"), { recursive: true })
+    await $`git init`.cwd(localRepo).quiet()
+    await $`git config user.email "test@test.com"`.cwd(localRepo).quiet()
+    await $`git config user.name "Test"`.cwd(localRepo).quiet()
+    await Bun.write(join(localRepo, "tracked.txt"), "tracked")
+    await $`git add -A`.cwd(localRepo).quiet()
+    await $`git commit -m "init"`.cwd(localRepo).quiet()
+
+    await Bun.write(join(localRepo, "extras", "config.local.json"), '{"token":"secret"}\n')
+    await Bun.write(join(localRepo, "extras", "nested", "note.txt"), "nested note\n")
+
+    await provider.uploadRepo(localRepo, "workspace", {
+      extraCopyPaths: ["extras/config.local.json", "extras/nested"],
+    })
+
+    expect(new TextDecoder().decode(await provider.readFile("workspace/extras/config.local.json"))).toContain("secret")
+    expect(new TextDecoder().decode(await provider.readFile("workspace/extras/nested/note.txt"))).toContain("nested note")
+  })
+
+  test("uploadRepo follows symlinked extra directories", async () => {
+    await setup()
+    const localRepo = join(rootDir, "local-repo-symlink")
+    const { mkdir: mkdirFs } = await import("node:fs/promises")
+    await mkdirFs(join(localRepo, "extras", "real-dir"), { recursive: true })
+    await $`git init`.cwd(localRepo).quiet()
+    await $`git config user.email "test@test.com"`.cwd(localRepo).quiet()
+    await $`git config user.name "Test"`.cwd(localRepo).quiet()
+    await Bun.write(join(localRepo, "tracked.txt"), "tracked")
+    await $`git add -A`.cwd(localRepo).quiet()
+    await $`git commit -m "init"`.cwd(localRepo).quiet()
+
+    await Bun.write(join(localRepo, "extras", "real-dir", "note.txt"), "through symlink\n")
+    await symlink("real-dir", join(localRepo, "extras", "link-dir"))
+
+    await provider.uploadRepo(localRepo, "workspace", {
+      extraCopyPaths: ["extras/link-dir"],
+    })
+
+    expect(new TextDecoder().decode(await provider.readFile("workspace/extras/link-dir/note.txt"))).toContain("through symlink")
+  })
+
+  test("uploadRepo ignores broken symlink extra paths", async () => {
+    await setup()
+    const localRepo = join(rootDir, "local-repo-broken-symlink")
+    const { mkdir: mkdirFs } = await import("node:fs/promises")
+    await mkdirFs(join(localRepo, "extras"), { recursive: true })
+    await $`git init`.cwd(localRepo).quiet()
+    await $`git config user.email "test@test.com"`.cwd(localRepo).quiet()
+    await $`git config user.name "Test"`.cwd(localRepo).quiet()
+    await Bun.write(join(localRepo, "tracked.txt"), "tracked")
+    await $`git add -A`.cwd(localRepo).quiet()
+    await $`git commit -m "init"`.cwd(localRepo).quiet()
+
+    await symlink("missing-dir", join(localRepo, "extras", "broken-link"))
+
+    await expect(provider.uploadRepo(localRepo, "workspace", {
+      extraCopyPaths: ["extras/broken-link"],
+    })).resolves.toBeUndefined()
+
+    const result = await provider.exec(["git", "log", "--oneline"], { cwd: "workspace" })
+    expect(result.exitCode).toBe(0)
+    await expect(provider.readFile("workspace/extras/broken-link")).rejects.toThrow("ENOENT")
   })
 
   // --- poll / terminate ---

@@ -1,20 +1,23 @@
 /**
  * Shared sandbox container configuration — env vars, auth checks, and
- * agent config directory discovery (Codex, OpenCode).
+ * agent config discovery for Claude Code, Codex, and OpenCode.
  *
  * Claude subscription auth uses CLAUDE_CODE_OAUTH_TOKEN env var
- * (credentials live in macOS Keychain, not on disk).
+ * (credentials live in macOS Keychain, not on disk), but we still forward
+ * ~/.claude for CLI settings and project state.
  */
 
 import { join, relative } from "node:path"
 import { homedir } from "node:os"
 import { existsSync } from "node:fs"
-import { readdir } from "node:fs/promises"
+import { lstat, readdir } from "node:fs/promises"
+import { checkAuth } from "./auth.ts"
+import type { AgentProviderID } from "./agent/types.ts"
 
 /** Where agent config lives inside the container (runs as root). */
 const CONTAINER_HOME = "/root"
 
-/** Max file size to upload (skip large caches). */
+/** Max file size to upload (skip large caches/sessions). */
 const MAX_FILE_SIZE = 1_000_000 // 1 MB
 
 /**
@@ -24,6 +27,7 @@ const MAX_FILE_SIZE = 1_000_000 // 1 MB
 function getAgentConfigSourceDirs(): Array<{ hostPath: string; containerName: string }> {
   const home = homedir()
   return [
+    { hostPath: join(home, ".claude"), containerName: ".claude" },
     { hostPath: process.env.CODEX_HOME ?? join(home, ".codex"), containerName: ".codex" },
     { hostPath: join(home, ".config/opencode"), containerName: ".config/opencode" },
   ]
@@ -44,9 +48,10 @@ const CONTAINER_ENV_KEYS = [
 export type AgentAuthMethod = "api_key" | "oauth_token"
 
 /**
- * Check whether agent auth credentials are available for sandbox runs.
+ * Claude sandbox auth must be env-backed because subscription tokens live in
+ * macOS Keychain on the host and are not portable via config files alone.
  */
-export function checkAgentAuth(): { ok: true; authMethod: AgentAuthMethod } | { ok: false; error: string } {
+function checkClaudeSandboxAuth(): { ok: true; authMethod: AgentAuthMethod } | { ok: false; error: string } {
   if (process.env.ANTHROPIC_API_KEY) return { ok: true, authMethod: "api_key" }
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return { ok: true, authMethod: "oauth_token" }
 
@@ -54,6 +59,24 @@ export function checkAgentAuth(): { ok: true; authMethod: AgentAuthMethod } | { 
     ok: false,
     error: "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN required — the experiment agent runs inside the container. Run `claude setup-token` to generate a subscription token.",
   }
+}
+
+/**
+ * Check whether the selected agent provider has portable auth for sandbox runs.
+ * Claude requires env forwarding; Codex/OpenCode auth is carried via mounted
+ * config dirs, so host-side provider auth is sufficient.
+ */
+export async function checkSandboxAgentAuth(
+  provider: AgentProviderID,
+): Promise<{ ok: true; authMethod?: AgentAuthMethod } | { ok: false; error: string }> {
+  if (provider === "claude") return checkClaudeSandboxAuth()
+
+  const auth = await checkAuth(provider)
+  if (!auth.authenticated) {
+    return { ok: false, error: auth.error }
+  }
+
+  return { ok: true }
 }
 
 /**
@@ -73,15 +96,23 @@ export function collectContainerEnv(): Record<string, string> {
 // ---------------------------------------------------------------------------
 
 export interface ConfigFileEntry {
+  /** Absolute path on the host */
   localPath: string
+  /** Absolute path inside the container */
   remotePath: string
 }
 
 export interface ConfigDirMount {
+  /** Absolute path on the host */
   hostPath: string
+  /** Absolute path inside the container */
   containerPath: string
 }
 
+/**
+ * Recursively list all regular files in a directory.
+ * Returns empty array if the directory doesn't exist or isn't readable.
+ */
 async function listFilesRecursive(dir: string): Promise<string[]> {
   let entries
   try {
@@ -113,6 +144,16 @@ export function getAgentConfigDirs(): ConfigDirMount[] {
     }))
 }
 
+async function getRegularFileSize(localPath: string): Promise<number | null> {
+  try {
+    const stats = await lstat(localPath)
+    if (!stats.isFile()) return null
+    return stats.size
+  } catch {
+    return null
+  }
+}
+
 /**
  * Discover agent config files for upload to sandbox containers.
  * Skips files larger than 1 MB to avoid uploading caches.
@@ -123,13 +164,18 @@ export async function getAgentConfigFiles(): Promise<ConfigFileEntry[]> {
   const nested = await Promise.all(
     dirs.map(async ({ hostPath, containerName }) => {
       const files = await listFilesRecursive(hostPath)
+      const entries = await Promise.all(
+        files.map(async (localPath) => {
+          const size = await getRegularFileSize(localPath)
+          if (size === null || size > MAX_FILE_SIZE) return null
+          return {
+            localPath,
+            remotePath: `${CONTAINER_HOME}/${containerName}/${relative(hostPath, localPath)}`,
+          }
+        }),
+      )
 
-      return files
-        .filter((localPath) => Bun.file(localPath).size <= MAX_FILE_SIZE)
-        .map((localPath) => ({
-          localPath,
-          remotePath: `${CONTAINER_HOME}/${containerName}/${relative(hostPath, localPath)}`,
-        }))
+      return entries.filter((entry): entry is ConfigFileEntry => entry !== null)
     }),
   )
 

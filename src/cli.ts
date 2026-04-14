@@ -384,11 +384,11 @@ async function cmdStart(args: ParsedArgs) {
       // Validate and check auth for the chosen provider
       if (sandboxProvider === "docker") {
         const { checkDockerAuth } = await import("./lib/container-provider/docker.ts")
-        const auth = await checkDockerAuth()
+        const auth = await checkDockerAuth(modelConfig.provider)
         if (!auth.ok) die(auth.error!)
       } else if (sandboxProvider === "modal") {
         const { checkModalAuth } = await import("./lib/container-provider/modal.ts")
-        const auth = checkModalAuth()
+        const auth = await checkModalAuth(modelConfig.provider)
         if (!auth.ok) die(auth.error!)
       } else {
         die(`Unknown sandbox provider: "${sandboxProvider}". Use "docker" or "modal".`)
@@ -1762,8 +1762,9 @@ async function cmdSandbox(args: ParsedArgs) {
   try { await loadProgramConfig(programDir) }
   catch { die(`Program "${slug}" not found.`) }
 
+  const projectConfig = await loadProjectConfig(root)
   const { checkModalAuth } = await import("./lib/container-provider/modal.ts")
-  const auth = checkModalAuth()
+  const auth = await checkModalAuth(projectConfig.executionModel.provider)
   if (!auth.ok) die(auth.error!)
 
   const { getContainerProviderFactory, MODAL_PROVIDER_ID } = await import("./lib/container-provider/index.ts")
