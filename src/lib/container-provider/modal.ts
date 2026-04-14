@@ -6,9 +6,9 @@
  */
 
 import { dirname, join, posix } from "node:path"
-import { readdir, stat } from "node:fs/promises"
+import { readdir } from "node:fs/promises"
 import { ModalClient, NotFoundError } from "modal"
-import { collectContainerEnv, checkAgentAuth, getAgentConfigFiles, type AgentAuthMethod } from "../agent-config.ts"
+import { collectContainerEnv, checkSandboxAgentAuth, getAgentConfigFiles, type AgentAuthMethod } from "../agent-config.ts"
 import type { Sandbox, Secret } from "modal"
 import type {
   ContainerProvider,
@@ -19,6 +19,7 @@ import type {
   UploadRepoOptions,
 } from "./types.ts"
 import { uploadRepoViaGitBundle } from "./sync.ts"
+import type { AgentProviderID } from "../agent/types.ts"
 
 export interface ModalProviderConfig {
   /** CPU cores for the sandbox (default: 2) */
@@ -120,14 +121,30 @@ export class ModalContainerProvider implements ContainerProvider {
   }
 
   async copyIn(localPath: string, remotePath: string): Promise<void> {
-    const info = await stat(localPath)
+    await this.copyInRecursive(localPath, remotePath, new Set())
+  }
+
+  private async copyInRecursive(
+    localPath: string,
+    remotePath: string,
+    visitedDirs: Set<string>,
+  ): Promise<void> {
+    const info = await Bun.file(localPath).stat()
 
     if (info.isDirectory()) {
+      const dirKey = `${info.dev}:${info.ino}`
+      if (visitedDirs.has(dirKey)) return
+      visitedDirs.add(dirKey)
+
       await this.sandbox.exec(["mkdir", "-p", remotePath], { stdout: "ignore", stderr: "ignore" })
       const entries = await readdir(localPath, { withFileTypes: true })
-      await Promise.all(entries.map((entry) =>
-        this.copyIn(join(localPath, entry.name), posix.join(remotePath, entry.name))
-      ))
+      for (const entry of entries) {
+        await this.copyInRecursive(
+          join(localPath, entry.name),
+          posix.join(remotePath, entry.name),
+          visitedDirs,
+        )
+      }
       return
     }
 
@@ -298,17 +315,19 @@ export async function lookupModalSandbox(
 }
 
 /**
- * Check if Modal auth environment variables are set.
- * This is a static check — does not make any API calls.
+ * Check if Modal auth env vars are set and the selected agent provider can
+ * authenticate inside the sandbox.
  */
-export function checkModalAuth(): { ok: boolean; error?: string; authMethod?: AgentAuthMethod } {
+export async function checkModalAuth(
+  provider: AgentProviderID = "claude",
+): Promise<{ ok: boolean; error?: string; authMethod?: AgentAuthMethod }> {
   if (!process.env.MODAL_TOKEN_ID || !process.env.MODAL_TOKEN_SECRET) {
     return {
       ok: false,
       error: "Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables (https://modal.com/settings)",
     }
   }
-  const agentAuth = checkAgentAuth()
+  const agentAuth = await checkSandboxAgentAuth(provider)
   if (!agentAuth.ok) return agentAuth
 
   return { ok: true, authMethod: agentAuth.authMethod }
