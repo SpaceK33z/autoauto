@@ -14,7 +14,6 @@
 
 import { describe, test, expect, beforeAll, afterEach, afterAll } from "bun:test"
 import { mkdtemp, rm, mkdir, chmod, readdir } from "node:fs/promises"
-import { existsSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { $ } from "bun"
@@ -185,11 +184,22 @@ describe("Docker E2E (mocked CLI)", () => {
     test("builds the default image on first use", async () => {
       await makeProvider("image-default", "run-image-default")
 
-      expect(existsSync(join(mockDir, "last-build-args"))).toBe(true)
+      expect(await Bun.file(join(mockDir, "last-build-args")).exists()).toBe(true)
       const buildArgs = (await Bun.file(join(mockDir, "last-build-args")).text()).trim().split("\n")
       expect(buildArgs[0]).toBe("-t")
       expect(buildArgs[1]).toContain("autoauto-runner:")
       expect(buildArgs[2]).toBe("-")
+    })
+
+    test("mock docker image without subcommand returns a helpful usage error", async () => {
+      const proc = Bun.spawn([join(mockBinDir, "docker"), "image"], { stdout: "pipe", stderr: "pipe" })
+      const [stderr, exitCode] = await Promise.all([
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ])
+
+      expect(exitCode).toBe(1)
+      expect(stderr).toContain("Usage: docker image <subcommand>")
     })
 
     test("uses .autoauto/Dockerfile when mainRoot provides one", async () => {
@@ -250,6 +260,17 @@ describe("Docker E2E (mocked CLI)", () => {
       const result = await provider.exec(["cat", "data.txt"], { cwd: "/mydir" })
       expect(result.exitCode).toBe(0)
       expect(decoder.decode(result.stdout).trim()).toBe("found it")
+    })
+
+    test("fails clearly when workdir cannot be entered", async () => {
+      const provider = await makeProvider("bad-wd", "run-bad-wd")
+
+      const rootfs = join(mockDir, "containers", "autoauto-bad-wd-run-bad-wd", "rootfs")
+      await Bun.write(join(rootfs, "blocked"), "not a directory")
+
+      const result = await provider.exec(["pwd"], { cwd: "/blocked" })
+      expect(result.exitCode).not.toBe(0)
+      expect(decoder.decode(result.stderr)).toContain("Failed to cd to workdir")
     })
 
     test("passes --env option", async () => {

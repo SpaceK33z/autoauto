@@ -6,7 +6,7 @@
  */
 
 import { dirname, join, posix } from "node:path"
-import { lstat, readdir } from "node:fs/promises"
+import { readdir, stat } from "node:fs/promises"
 import { ModalClient, NotFoundError } from "modal"
 import { collectContainerEnv, checkAgentAuth, getAgentConfigFiles, type AgentAuthMethod } from "../agent-config.ts"
 import type { Sandbox, Secret } from "modal"
@@ -120,7 +120,7 @@ export class ModalContainerProvider implements ContainerProvider {
   }
 
   async copyIn(localPath: string, remotePath: string): Promise<void> {
-    const info = await lstat(localPath)
+    const info = await stat(localPath)
 
     if (info.isDirectory()) {
       await this.sandbox.exec(["mkdir", "-p", remotePath], { stdout: "ignore", stderr: "ignore" })
@@ -236,12 +236,20 @@ export async function createModalProvider(config: Record<string, unknown>): Prom
 
   // Upload agent config files (Claude, Codex, OpenCode) into the sandbox
   const configFiles = await getAgentConfigFiles()
-  await Promise.allSettled(
+  const uploadResults = await Promise.allSettled(
     configFiles.map(async ({ localPath, remotePath }) => {
       const data = new Uint8Array(await Bun.file(localPath).arrayBuffer())
       await provider.writeFile(remotePath, data)
     }),
   )
+  uploadResults.forEach((result, index) => {
+    if (result.status === "fulfilled") return
+    const { localPath, remotePath } = configFiles[index]!
+    const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
+    process.stderr.write(
+      `[modal] Failed to upload agent config via provider.writeFile: ${localPath} -> ${remotePath}: ${reason}\n`,
+    )
+  })
 
   return provider
 }

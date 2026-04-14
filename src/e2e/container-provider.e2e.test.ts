@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test"
 import { $ } from "bun"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, symlink } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { MockContainerProvider } from "../lib/container-provider/mock.ts"
@@ -125,6 +125,28 @@ describe("ContainerProvider contract (MockContainerProvider)", () => {
 
     expect(new TextDecoder().decode(await provider.readFile("workspace/extras/config.local.json"))).toContain("secret")
     expect(new TextDecoder().decode(await provider.readFile("workspace/extras/nested/note.txt"))).toContain("nested note")
+  })
+
+  test("uploadRepo follows symlinked extra directories", async () => {
+    await setup()
+    const localRepo = join(rootDir, "local-repo-symlink")
+    const { mkdir: mkdirFs } = await import("node:fs/promises")
+    await mkdirFs(join(localRepo, "extras", "real-dir"), { recursive: true })
+    await $`git init`.cwd(localRepo).quiet()
+    await $`git config user.email "test@test.com"`.cwd(localRepo).quiet()
+    await $`git config user.name "Test"`.cwd(localRepo).quiet()
+    await Bun.write(join(localRepo, "tracked.txt"), "tracked")
+    await $`git add -A`.cwd(localRepo).quiet()
+    await $`git commit -m "init"`.cwd(localRepo).quiet()
+
+    await Bun.write(join(localRepo, "extras", "real-dir", "note.txt"), "through symlink\n")
+    await symlink("real-dir", join(localRepo, "extras", "link-dir"))
+
+    await provider.uploadRepo(localRepo, "workspace", {
+      extraCopyPaths: ["extras/link-dir"],
+    })
+
+    expect(new TextDecoder().decode(await provider.readFile("workspace/extras/link-dir/note.txt"))).toContain("through symlink")
   })
 
   // --- poll / terminate ---

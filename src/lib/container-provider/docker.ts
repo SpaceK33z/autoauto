@@ -9,7 +9,7 @@
 import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
 import { createHash } from "node:crypto"
-import { lstat, unlink } from "node:fs/promises"
+import { stat, unlink } from "node:fs/promises"
 import { collectContainerEnv, checkAgentAuth, getAgentConfigDirs, type AgentAuthMethod } from "../agent-config.ts"
 import { uploadRepoViaGitBundle } from "./sync.ts"
 import type {
@@ -141,7 +141,7 @@ export class DockerContainerProvider implements ContainerProvider {
   }
 
   async copyIn(localPath: string, remotePath: string): Promise<void> {
-    const info = await lstat(localPath)
+    const info = await stat(localPath)
     if (info.isDirectory()) {
       await this.exec(["mkdir", "-p", remotePath])
       const source = `${localPath.replace(/\/+$/, "")}/.`
@@ -299,8 +299,20 @@ async function ensureImage(mainRoot?: string): Promise<string> {
     if (!stdin) {
       throw new Error(`Failed to stream default Dockerfile for image ${imageTag}`)
     }
-    stdin.write(DEFAULT_DOCKERFILE)
-    stdin.end()
+    try {
+      stdin.write(DEFAULT_DOCKERFILE)
+      stdin.end()
+    } catch (error) {
+      try {
+        stdin.end()
+      } catch {}
+      build.kill()
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(
+        `Failed to stream default Dockerfile for image ${imageTag}: ${message}`,
+        { cause: error },
+      )
+    }
   }
 
   const [stderrText, exitCode] = await Promise.all([

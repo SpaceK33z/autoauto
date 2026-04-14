@@ -56,7 +56,12 @@ info)
 # docker image inspect IMAGE — succeed only for previously built images
 # ---------------------------------------------------------------------------
 image)
-  subcmd="$1"; shift
+  subcmd="${1:-}"
+  if [ -z "$subcmd" ]; then
+    echo "Usage: docker image <subcommand>" >&2
+    exit 1
+  fi
+  shift
   if [ "$subcmd" != "inspect" ]; then
     echo "Unsupported docker image subcommand: $subcmd" >&2
     exit 1
@@ -233,7 +238,10 @@ exec)
           rewritten_args+=("$arg")
         fi
       done
-      cd "$exec_cwd"
+      if ! cd "$exec_cwd"; then
+        echo "Failed to cd to workdir: $exec_cwd" >&2
+        exit 1
+      fi
       "$cmd_name" "${rewritten_args[@]}"
       exit $?
       ;;

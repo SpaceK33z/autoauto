@@ -7,7 +7,7 @@
  */
 
 import { join, dirname } from "node:path"
-import { chmod, lstat, mkdir, readdir } from "node:fs/promises"
+import { chmod, lstat, mkdir, readdir, stat } from "node:fs/promises"
 import type {
   ContainerProvider,
   ContainerHandle,
@@ -103,7 +103,7 @@ export class MockContainerProvider implements ContainerProvider {
 
   async copyIn(localPath: string, remotePath: string): Promise<void> {
     const fullPath = join(this.rootDir, remotePath)
-    const info = await lstat(localPath)
+    const info = await stat(localPath)
 
     if (info.isDirectory()) {
       await mkdir(fullPath, { recursive: true })

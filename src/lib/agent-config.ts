@@ -10,7 +10,7 @@
 import { join, relative } from "node:path"
 import { homedir } from "node:os"
 import { existsSync } from "node:fs"
-import { readdir } from "node:fs/promises"
+import { lstat, readdir } from "node:fs/promises"
 
 /** Where agent config lives inside the container (runs as root). */
 const CONTAINER_HOME = "/root"
@@ -123,6 +123,16 @@ export function getAgentConfigDirs(): ConfigDirMount[] {
     }))
 }
 
+async function getRegularFileSize(localPath: string): Promise<number | null> {
+  try {
+    const stats = await lstat(localPath)
+    if (!stats.isFile()) return null
+    return stats.size
+  } catch {
+    return null
+  }
+}
+
 /**
  * Discover agent config files for upload to sandbox containers.
  * Skips files larger than 1 MB to avoid uploading caches.
@@ -133,13 +143,18 @@ export async function getAgentConfigFiles(): Promise<ConfigFileEntry[]> {
   const nested = await Promise.all(
     dirs.map(async ({ hostPath, containerName }) => {
       const files = await listFilesRecursive(hostPath)
+      const entries = await Promise.all(
+        files.map(async (localPath) => {
+          const size = await getRegularFileSize(localPath)
+          if (size === null || size > MAX_FILE_SIZE) return null
+          return {
+            localPath,
+            remotePath: `${CONTAINER_HOME}/${containerName}/${relative(hostPath, localPath)}`,
+          }
+        }),
+      )
 
-      return files
-        .filter((localPath) => Bun.file(localPath).size <= MAX_FILE_SIZE)
-        .map((localPath) => ({
-          localPath,
-          remotePath: `${CONTAINER_HOME}/${containerName}/${relative(hostPath, localPath)}`,
-        }))
+      return entries.filter((entry): entry is ConfigFileEntry => entry !== null)
     }),
   )
 
