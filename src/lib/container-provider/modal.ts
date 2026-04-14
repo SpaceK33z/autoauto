@@ -10,6 +10,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { unlink } from "node:fs/promises"
 import { ModalClient, NotFoundError } from "modal"
+import { getAgentConfigFiles, collectContainerEnv, checkAgentAuth, type AgentAuthMethod } from "../agent-config.ts"
 import type { Sandbox, Secret } from "modal"
 import type {
   ContainerProvider,
@@ -234,10 +235,7 @@ export async function createModalProvider(config: Record<string, unknown>): Prom
     ])
 
   // Collect secrets from env vars — the experiment agent needs these inside the sandbox
-  const envSecrets: Record<string, string> = {}
-  for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"]) {
-    if (process.env[key]) envSecrets[key] = process.env[key]!
-  }
+  const envSecrets = collectContainerEnv()
   const secrets: Secret[] = []
   if (Object.keys(envSecrets).length > 0) {
     secrets.push(await modal.secrets.fromObject(envSecrets))
@@ -257,7 +255,18 @@ export async function createModalProvider(config: Record<string, unknown>): Prom
     ...(name ? { name } : {}),
   })
 
-  return new ModalContainerProvider(modal, sandbox, appName)
+  const provider = new ModalContainerProvider(modal, sandbox, appName)
+
+  // Upload agent config files (Codex, OpenCode) into the sandbox
+  const configFiles = await getAgentConfigFiles()
+  await Promise.allSettled(
+    configFiles.map(async ({ localPath, remotePath }) => {
+      const data = new Uint8Array(await Bun.file(localPath).arrayBuffer())
+      await provider.writeFile(remotePath, data)
+    }),
+  )
+
+  return provider
 }
 
 /**
@@ -290,18 +299,15 @@ export async function lookupModalSandbox(
  * Check if Modal auth environment variables are set.
  * This is a static check — does not make any API calls.
  */
-export function checkModalAuth(): { ok: boolean; error?: string } {
+export function checkModalAuth(): { ok: boolean; error?: string; authMethod?: AgentAuthMethod } {
   if (!process.env.MODAL_TOKEN_ID || !process.env.MODAL_TOKEN_SECRET) {
     return {
       ok: false,
       error: "Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables (https://modal.com/settings)",
     }
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return {
-      ok: false,
-      error: "ANTHROPIC_API_KEY required — the experiment agent runs inside the sandbox",
-    }
-  }
-  return { ok: true }
+  const agentAuth = checkAgentAuth()
+  if (!agentAuth.ok) return agentAuth
+
+  return { ok: true, authMethod: agentAuth.authMethod }
 }
