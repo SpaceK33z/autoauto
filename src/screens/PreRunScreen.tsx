@@ -97,6 +97,7 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
   const [carryForward, setCarryForward] = useState(true)
   const [sandboxChoice, setSandboxChoice] = useState<SandboxChoice>("off")
   const [sandboxAuthError, setSandboxAuthError] = useState<string | null>(null)
+  const [sandboxAuthMethod, setSandboxAuthMethod] = useState<string | null>(null)
   const [hasPreviousRuns, setHasPreviousRuns] = useState(false)
   const [pickingModel, setPickingModel] = useState(false)
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null)
@@ -147,12 +148,14 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
   function handleStart() {
     if (programHasQueueEntries) return
+    if (sandboxAuthError) return
     const overrides = buildOverrides()
     if (overrides) onStart(overrides)
   }
 
   function handleAddToQueue() {
     if (!onAddToQueue) return
+    if (sandboxAuthError) return
     const overrides = buildOverrides()
     if (overrides) onAddToQueue(overrides)
   }
@@ -167,38 +170,36 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
     setModelSlot(nextSlot)
   }
 
+  function applySandboxAuth(auth: { ok: boolean; error?: string; authMethod?: string }) {
+    if (!auth.ok) {
+      setSandboxAuthError(auth.error ?? "Sandbox auth failed")
+      setSandboxAuthMethod(null)
+    } else {
+      setSandboxAuthError(null)
+      setSandboxAuthMethod(auth.authMethod ?? null)
+    }
+  }
+
   function handleCycleSandbox(direction: -1 | 1) {
     const next = cycleChoice(SANDBOX_CHOICES, sandboxChoice, direction)
+    setSandboxChoice(next)
 
     if (next === "off") {
-      setSandboxChoice("off")
       setSandboxAuthError(null)
+      setSandboxAuthMethod(null)
       return
     }
 
     if (next === DOCKER_PROVIDER_ID) {
       import("../lib/container-provider/docker.ts").then(({ checkDockerAuth }) => {
-        checkDockerAuth().then((auth) => {
-          if (!auth.ok) {
-            setSandboxAuthError(auth.error ?? "Docker auth failed")
-            return
-          }
-          setSandboxAuthError(null)
-          setSandboxChoice(DOCKER_PROVIDER_ID)
-        })
+        checkDockerAuth().then(applySandboxAuth)
       })
       return
     }
 
     if (next === MODAL_PROVIDER_ID) {
       import("../lib/container-provider/modal.ts").then(({ checkModalAuth }) => {
-        const auth = checkModalAuth()
-        if (!auth.ok) {
-          setSandboxAuthError(auth.error ?? "Modal auth failed")
-          return
-        }
-        setSandboxAuthError(null)
-        setSandboxChoice(MODAL_PROVIDER_ID)
+        applySandboxAuth(checkModalAuth())
       })
     }
   }
@@ -349,6 +350,9 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
       <CycleField label="Sandbox" value={SANDBOX_LABELS[sandboxChoice]} description={SANDBOX_DESCRIPTIONS[sandboxChoice]} isFocused={selected === 5} />
       {sandboxAuthError && (
         <text fg={colors.error}>{`  ⚠ ${sandboxAuthError}`}</text>
+      )}
+      {useSandbox && !sandboxAuthError && sandboxAuthMethod === "oauth_token" && (
+        <text fg={colors.textMuted}>{"  Using Claude subscription auth (CLAUDE_CODE_OAUTH_TOKEN)"}</text>
       )}
       {useSandbox && (
         <text fg={colors.textMuted}>{"  Sandbox runs cannot be queued yet"}</text>
