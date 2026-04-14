@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.0](https://github.com/SpaceK33z/autoauto/compare/v1.7.0...v1.8.0) (2026-04-14)
+
+
+### Features
+
+* **sandbox:** forward agent configs and subscription auth into containers ([#43](https://github.com/SpaceK33z/autoauto/issues/43)) ([e299b69](https://github.com/SpaceK33z/autoauto/commit/e299b69fc4d411e7b3a7c1eacae71757661427ba))
+* **sandbox:** sync agent config into remote containers ([#45](https://github.com/SpaceK33z/autoauto/issues/45)) ([acf2f24](https://github.com/SpaceK33z/autoauto/commit/acf2f244774fd4a7c2fb6766ceb4340f12c90a44))
+
 ## [1.7.0](https://github.com/SpaceK33z/autoauto/compare/v1.6.0...v1.7.0) (2026-04-13)
 
 
