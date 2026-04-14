@@ -7,13 +7,14 @@
  */
 
 import { join, dirname } from "node:path"
-import { mkdir } from "node:fs/promises"
+import { chmod, lstat, mkdir, readdir } from "node:fs/promises"
 import type {
   ContainerProvider,
   ContainerHandle,
   ExecOptions,
   ExecResult,
   StreamingProcess,
+  UploadRepoOptions,
 } from "./types.ts"
 import { bundleCreate, bundleUnbundle } from "../git.ts"
 
@@ -41,8 +42,9 @@ export class MockContainerProvider implements ContainerProvider {
 
   async exec(command: string[], opts?: ExecOptions): Promise<ExecResult> {
     const cwd = opts?.cwd ? join(this.rootDir, opts.cwd) : this.rootDir
-    const env = opts?.env ? { ...process.env, ...opts.env } : undefined
-    const proc = Bun.spawn(command, {
+    const env = { ...process.env, ...opts?.env }
+    const [bin, ...args] = command
+    const proc = Bun.spawn([Bun.which(bin) ?? bin, ...args], {
       cwd,
       env,
       stdout: "pipe",
@@ -62,8 +64,9 @@ export class MockContainerProvider implements ContainerProvider {
 
   async execStreaming(command: string[], opts?: ExecOptions): Promise<StreamingProcess> {
     const cwd = opts?.cwd ? join(this.rootDir, opts.cwd) : this.rootDir
-    const env = opts?.env ? { ...process.env, ...opts.env } : undefined
-    const proc = Bun.spawn(command, {
+    const env = { ...process.env, ...opts?.env }
+    const [bin, ...args] = command
+    const proc = Bun.spawn([Bun.which(bin) ?? bin, ...args], {
       cwd,
       env,
       stdout: "pipe",
@@ -98,18 +101,47 @@ export class MockContainerProvider implements ContainerProvider {
     await Bun.write(fullPath, data)
   }
 
-  async uploadRepo(localDir: string, remoteDir: string): Promise<void> {
+  async copyIn(localPath: string, remotePath: string): Promise<void> {
+    const fullPath = join(this.rootDir, remotePath)
+    const info = await lstat(localPath)
+
+    if (info.isDirectory()) {
+      await mkdir(fullPath, { recursive: true })
+      const entries = await readdir(localPath, { withFileTypes: true })
+      await Promise.all(entries.map((entry) =>
+        this.copyIn(join(localPath, entry.name), join(remotePath, entry.name))
+      ))
+      return
+    }
+
+    const dir = dirname(fullPath)
+    await mkdir(dir, { recursive: true })
+    await Bun.write(fullPath, Bun.file(localPath))
+    await chmod(fullPath, info.mode & 0o777)
+  }
+
+  async uploadRepo(localDir: string, remoteDir: string, options?: UploadRepoOptions): Promise<void> {
     const absoluteRemoteDir = join(this.rootDir, remoteDir)
     await mkdir(absoluteRemoteDir, { recursive: true })
 
-    // Use git bundle to transfer the repo
     const bundlePath = join(this.rootDir, ".tmp-upload.bundle")
-    await bundleCreate(localDir, bundlePath)
-    await bundleUnbundle(absoluteRemoteDir, bundlePath)
+    try {
+      await bundleCreate(localDir, bundlePath)
+      await bundleUnbundle(absoluteRemoteDir, bundlePath)
 
-    // Clean up bundle
-    const { unlink } = await import("node:fs/promises")
-    await unlink(bundlePath).catch(() => {})
+      await Promise.all((options?.extraCopyPaths ?? []).map(async (relativePath) => {
+        const hostPath = join(localDir, relativePath)
+        try {
+          await lstat(hostPath)
+        } catch {
+          return
+        }
+        await this.copyIn(hostPath, join(remoteDir, relativePath))
+      }))
+    } finally {
+      const { unlink } = await import("node:fs/promises")
+      await unlink(bundlePath).catch(() => {})
+    }
   }
 
   async poll(): Promise<number | null> {

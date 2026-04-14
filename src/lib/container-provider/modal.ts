@@ -5,11 +5,10 @@
  * MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables.
  */
 
-import { dirname } from "node:path"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { unlink } from "node:fs/promises"
+import { dirname, join, posix } from "node:path"
+import { lstat, readdir } from "node:fs/promises"
 import { ModalClient, NotFoundError } from "modal"
+import { getAgentConfigFiles } from "../agent-config.ts"
 import type { Sandbox, Secret } from "modal"
 import type {
   ContainerProvider,
@@ -17,8 +16,9 @@ import type {
   ExecOptions,
   ExecResult,
   StreamingProcess,
+  UploadRepoOptions,
 } from "./types.ts"
-import { bundleCreate } from "../git.ts"
+import { uploadRepoViaGitBundle } from "./sync.ts"
 
 export interface ModalProviderConfig {
   /** CPU cores for the sandbox (default: 2) */
@@ -119,47 +119,25 @@ export class ModalContainerProvider implements ContainerProvider {
     }
   }
 
-  async uploadRepo(localDir: string, remoteDir: string): Promise<void> {
-    // 1. Create git bundle locally
-    const bundleFileName = `autoauto-upload-${Date.now()}.bundle`
-    const localBundlePath = join(tmpdir(), bundleFileName)
-    const remoteBundlePath = `/tmp/${bundleFileName}`
+  async copyIn(localPath: string, remotePath: string): Promise<void> {
+    const info = await lstat(localPath)
 
-    try {
-      await bundleCreate(localDir, localBundlePath)
-
-      // 2. Upload bundle bytes to container
-      const bundleBytes = new Uint8Array(await Bun.file(localBundlePath).arrayBuffer())
-
-      await this.sandbox.exec(["mkdir", "-p", remoteDir], { stdout: "ignore", stderr: "ignore" })
-
-      const handle = await this.sandbox.open(remoteBundlePath, "w")
-      await handle.write(bundleBytes)
-      await handle.close()
-
-      // 3. Clone from bundle inside the container
-      const result = await this.sandbox.exec(
-        ["git", "clone", remoteBundlePath, remoteDir],
-        { stdout: "pipe", stderr: "pipe" },
-      )
-
-      if (await result.wait() !== 0) {
-        // Fallback: init + unbundle for repos with unusual ref layouts
-        const fallback = await this.sandbox.exec(
-          ["sh", "-c", `rm -rf ${remoteDir}/.git && cd ${remoteDir} && git init && git bundle unbundle ${remoteBundlePath} && git checkout HEAD`],
-          { stdout: "pipe", stderr: "pipe" },
-        )
-        if (await fallback.wait() !== 0) {
-          throw new Error("Failed to restore repository from git bundle")
-        }
-      }
-
-      // 4. Clean up remote bundle
-      await this.sandbox.exec(["rm", "-f", remoteBundlePath], { stdout: "ignore", stderr: "ignore" })
-    } finally {
-      // Clean up local bundle
-      await unlink(localBundlePath).catch(() => {})
+    if (info.isDirectory()) {
+      await this.sandbox.exec(["mkdir", "-p", remotePath], { stdout: "ignore", stderr: "ignore" })
+      const entries = await readdir(localPath, { withFileTypes: true })
+      await Promise.all(entries.map((entry) =>
+        this.copyIn(join(localPath, entry.name), posix.join(remotePath, entry.name))
+      ))
+      return
     }
+
+    const bytes = new Uint8Array(await Bun.file(localPath).arrayBuffer())
+    await this.writeFile(remotePath, bytes)
+    await this.sandbox.exec(["chmod", (info.mode & 0o777).toString(8), remotePath], { stdout: "ignore", stderr: "ignore" })
+  }
+
+  async uploadRepo(localDir: string, remoteDir: string, options?: UploadRepoOptions): Promise<void> {
+    await uploadRepoViaGitBundle(this, localDir, remoteDir, options)
   }
 
   async poll(): Promise<number | null> {
@@ -235,7 +213,7 @@ export async function createModalProvider(config: Record<string, unknown>): Prom
 
   // Collect secrets from env vars — the experiment agent needs these inside the sandbox
   const envSecrets: Record<string, string> = {}
-  for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"]) {
+  for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN"]) {
     if (process.env[key]) envSecrets[key] = process.env[key]!
   }
   const secrets: Secret[] = []
@@ -257,7 +235,18 @@ export async function createModalProvider(config: Record<string, unknown>): Prom
     ...(name ? { name } : {}),
   })
 
-  return new ModalContainerProvider(modal, sandbox, appName)
+  const provider = new ModalContainerProvider(modal, sandbox, appName)
+
+  // Upload agent config files (Claude, Codex, OpenCode) into the sandbox
+  const configFiles = await getAgentConfigFiles()
+  await Promise.allSettled(
+    configFiles.map(async ({ localPath, remotePath }) => {
+      const data = new Uint8Array(await Bun.file(localPath).arrayBuffer())
+      await provider.writeFile(remotePath, data)
+    }),
+  )
+
+  return provider
 }
 
 /**

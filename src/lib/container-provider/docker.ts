@@ -2,20 +2,23 @@
  * DockerContainerProvider — uses the Docker CLI to implement ContainerProvider.
  *
  * Runs containers locally via `docker run`, executes commands via `docker exec`,
- * and transfers files via `docker cp`. Zero npm dependencies — all ops go through
- * the `docker` CLI via Bun.spawn.
+ * writes individual files via `docker cp`, and uploads repos via git bundles.
+ * Zero npm dependencies — all ops go through the `docker` CLI via Bun.spawn.
  */
 
-import { join } from "node:path"
-import { dirname } from "node:path"
+import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
-import { unlink } from "node:fs/promises"
+import { lstat, unlink } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { getAgentConfigDirs } from "../agent-config.ts"
+import { uploadRepoViaGitBundle } from "./sync.ts"
 import type {
   ContainerProvider,
   ContainerHandle,
   ExecOptions,
   ExecResult,
   StreamingProcess,
+  UploadRepoOptions,
 } from "./types.ts"
 
 const decoder = new TextDecoder()
@@ -30,7 +33,12 @@ export function setDockerBin(bin: string): void { _dockerBin = bin }
 export function resetDockerBin(): void { _dockerBin = "docker" }
 
 /** Env var keys forwarded into sandbox containers. Shared with modal.ts. */
-const CONTAINER_ENV_KEYS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"] as const
+const CONTAINER_ENV_KEYS = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "CLAUDE_CODE_OAUTH_TOKEN",  // subscription auth (from `claude setup-token`)
+] as const
 
 /** Read a subprocess stream to string, trimming whitespace. */
 async function readStream(stream: ReadableStream<Uint8Array> | null): Promise<string> {
@@ -45,6 +53,20 @@ export class DockerContainerProvider implements ContainerProvider {
   constructor(containerId: string, containerName: string) {
     this.containerId = containerId
     this.containerName = containerName
+  }
+
+  private async copyFileToContainer(localPath: string, remotePath: string, context: string): Promise<void> {
+    const proc = Bun.spawn([_dockerBin, "cp", localPath, `${this.containerId}:${remotePath}`], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [stderrText, exitCode] = await Promise.all([
+      readStream(proc.stderr),
+      proc.exited,
+    ])
+    if (exitCode !== 0) {
+      throw new Error(`${context}: ${stderrText}`)
+    }
   }
 
   private buildExecArgs(command: string[], opts?: ExecOptions): string[] {
@@ -120,37 +142,30 @@ export class DockerContainerProvider implements ContainerProvider {
     const tmpFile = join(tmpdir(), `autoauto-docker-write-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     try {
       await Bun.write(tmpFile, data)
-      const proc = Bun.spawn([_dockerBin, "cp", tmpFile, `${this.containerId}:${remotePath}`], {
-        stdout: "pipe",
-        stderr: "pipe",
-      })
-      // Read stderr before awaiting exit to avoid stream-closed race
-      const [stderrText, exitCode] = await Promise.all([
-        readStream(proc.stderr),
-        proc.exited,
-      ])
-      if (exitCode !== 0) {
-        throw new Error(`docker cp write failed: ${stderrText}`)
-      }
+      await this.copyFileToContainer(tmpFile, remotePath, "docker cp write failed")
     } finally {
       await unlink(tmpFile).catch(() => {})
     }
   }
 
-  async uploadRepo(localDir: string, remoteDir: string): Promise<void> {
-    await this.exec(["mkdir", "-p", remoteDir])
-
-    const proc = Bun.spawn(
-      [_dockerBin, "cp", `${localDir}/.`, `${this.containerId}:${remoteDir}`],
-      { stdout: "pipe", stderr: "pipe" },
-    )
-    const [stderrText, exitCode] = await Promise.all([
-      readStream(proc.stderr),
-      proc.exited,
-    ])
-    if (exitCode !== 0) {
-      throw new Error(`docker cp upload failed: ${stderrText}`)
+  async copyIn(localPath: string, remotePath: string): Promise<void> {
+    const info = await lstat(localPath)
+    if (info.isDirectory()) {
+      await this.exec(["mkdir", "-p", remotePath])
+      const source = `${localPath.replace(/\/+$/, "")}/.`
+      await this.copyFileToContainer(source, remotePath, "docker cp directory copy failed")
+      return
     }
+
+    const dir = dirname(remotePath)
+    if (dir !== "/" && dir !== ".") {
+      await this.exec(["mkdir", "-p", dir])
+    }
+    await this.copyFileToContainer(localPath, remotePath, "docker cp file copy failed")
+  }
+
+  async uploadRepo(localDir: string, remoteDir: string, options?: UploadRepoOptions): Promise<void> {
+    await uploadRepoViaGitBundle(this, localDir, remoteDir, options)
   }
 
   async poll(): Promise<number | null> {
@@ -237,34 +252,74 @@ export async function lookupDockerContainer(
   }
 }
 
-const DOCKERFILE = `FROM ubuntu:22.04
+const DEFAULT_DOCKERFILE = `FROM ubuntu:22.04
 RUN apt-get update -qq && apt-get install -y -qq git curl
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH=/root/.bun/bin:$PATH
 WORKDIR /workspace
 `
 
-/** Ensure the autoauto-runner Docker image exists, building it if needed. */
-async function ensureImage(): Promise<void> {
+function hashTag(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16)
+}
+
+async function resolveImage(mainRoot?: string): Promise<{ imageTag: string; dockerfilePath?: string }> {
+  if (!mainRoot) {
+    return { imageTag: `autoauto-runner:${hashTag(DEFAULT_DOCKERFILE)}` }
+  }
+
+  const dockerfilePath = join(mainRoot, ".autoauto", "Dockerfile")
+  if (!await Bun.file(dockerfilePath).exists()) {
+    return { imageTag: `autoauto-runner:${hashTag(DEFAULT_DOCKERFILE)}` }
+  }
+
+  const dockerfile = await Bun.file(dockerfilePath).text()
+  const projectHash = hashTag(mainRoot)
+  const dockerfileHash = hashTag(dockerfile)
+  return {
+    imageTag: `autoauto-runner:${projectHash}-${dockerfileHash}`,
+    dockerfilePath,
+  }
+}
+
+/** Ensure the Docker image exists, building it if needed. */
+async function ensureImage(mainRoot?: string): Promise<string> {
+  const { imageTag, dockerfilePath } = await resolveImage(mainRoot)
+
   const check = Bun.spawn(
-    [_dockerBin, "image", "inspect", "autoauto-runner:latest"],
+    [_dockerBin, "image", "inspect", imageTag],
     { stdout: "pipe", stderr: "pipe" },
   )
-  if ((await check.exited) === 0) return
+  if ((await check.exited) === 0) return imageTag
 
-  const build = Bun.spawn(
-    [_dockerBin, "build", "-t", "autoauto-runner:latest", "-"],
-    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
-  )
-  build.stdin.write(DOCKERFILE)
-  build.stdin.end()
+  const build = dockerfilePath
+    ? Bun.spawn(
+      [_dockerBin, "build", "-t", imageTag, "-f", dockerfilePath, mainRoot!],
+      { stdout: "pipe", stderr: "pipe" },
+    )
+    : Bun.spawn(
+      [_dockerBin, "build", "-t", imageTag, "-"],
+      { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+    )
+
+  if (!dockerfilePath) {
+    const stdin = build.stdin
+    if (!stdin) {
+      throw new Error(`Failed to stream default Dockerfile for image ${imageTag}`)
+    }
+    stdin.write(DEFAULT_DOCKERFILE)
+    stdin.end()
+  }
+
   const [stderrText, exitCode] = await Promise.all([
     readStream(build.stderr),
     build.exited,
   ])
   if (exitCode !== 0) {
-    throw new Error(`Failed to build autoauto-runner image: ${stderrText}`)
+    throw new Error(`Failed to build Docker image ${imageTag}: ${stderrText}`)
   }
+
+  return imageTag
 }
 
 /**
@@ -274,7 +329,8 @@ async function ensureImage(): Promise<void> {
  * - programSlug, runId: used to construct container name and labels
  */
 export async function createDockerProvider(config: Record<string, unknown>): Promise<DockerContainerProvider> {
-  await ensureImage()
+  const mainRoot = config.mainRoot as string | undefined
+  const imageTag = await ensureImage(mainRoot)
 
   const slug = config.programSlug as string | undefined
   const runId = config.runId as string | undefined
@@ -292,6 +348,12 @@ export async function createDockerProvider(config: Record<string, unknown>): Pro
     if (process.env[key]) envFlags.push("--env", `${key}=${process.env[key]}`)
   }
 
+  // Bind-mount agent config dirs (Claude, Codex, OpenCode) read-only
+  const configMountFlags: string[] = []
+  for (const { hostPath, containerPath } of getAgentConfigDirs()) {
+    configMountFlags.push("-v", `${hostPath}:${containerPath}:ro`)
+  }
+
   // Construct labels
   const labelFlags = ["--label", "autoauto=true"]
   if (slug) labelFlags.push("--label", `program_slug=${slug}`)
@@ -302,7 +364,8 @@ export async function createDockerProvider(config: Record<string, unknown>): Pro
     "--name", name,
     ...labelFlags,
     ...envFlags,
-    "autoauto-runner:latest",
+    ...configMountFlags,
+    imageTag,
     "sleep", "infinity",
   ]
 

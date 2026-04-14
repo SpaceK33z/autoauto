@@ -53,17 +53,44 @@ info)
   ;;
 
 # ---------------------------------------------------------------------------
-# docker image inspect — always succeed (pretend image exists)
+# docker image inspect IMAGE — succeed only for previously built images
 # ---------------------------------------------------------------------------
 image)
-  exit 0
+  subcmd="$1"; shift
+  if [ "$subcmd" != "inspect" ]; then
+    echo "Unsupported docker image subcommand: $subcmd" >&2
+    exit 1
+  fi
+  image_ref="$1"
+  image_key=$(printf '%s' "$image_ref" | tr '/:' '__')
+  if [ -f "$DOCKER_MOCK_DIR/images/$image_key" ]; then
+    echo "$image_ref"
+    exit 0
+  fi
+  echo "Error: No such image: $image_ref" >&2
+  exit 1
   ;;
 
 # ---------------------------------------------------------------------------
-# docker build — consume stdin (Dockerfile), report success
+# docker build -t IMAGE [-f DOCKERFILE] CONTEXT | -
 # ---------------------------------------------------------------------------
 build)
-  cat >/dev/null
+  image_ref=""
+  build_args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -t) image_ref="$2"; build_args+=("$1" "$2"); shift 2 ;;
+      -f) build_args+=("$1" "$2"); shift 2 ;;
+      *) build_args+=("$1"); shift ;;
+    esac
+  done
+  mkdir -p "$DOCKER_MOCK_DIR/images"
+  printf '%s\n' "${build_args[@]}" > "$DOCKER_MOCK_DIR/last-build-args"
+  cat >/dev/null || true
+  if [ -n "$image_ref" ]; then
+    image_key=$(printf '%s' "$image_ref" | tr '/:' '__')
+    : > "$DOCKER_MOCK_DIR/images/$image_key"
+  fi
   echo "sha256:mockimage"
   exit 0
   ;;
@@ -197,9 +224,17 @@ exec)
       exit 0
       ;;
     *)
-      # General command: run in exec_cwd
+      # General command: rewrite container-absolute paths into rootfs paths
+      rewritten_args=()
+      for arg in "$@"; do
+        if [[ "$arg" == /* ]]; then
+          rewritten_args+=("$rootfs$arg")
+        else
+          rewritten_args+=("$arg")
+        fi
+      done
       cd "$exec_cwd"
-      "$cmd_name" "$@"
+      "$cmd_name" "${rewritten_args[@]}"
       exit $?
       ;;
   esac

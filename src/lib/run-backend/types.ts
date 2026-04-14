@@ -24,6 +24,8 @@ export interface SpawnRunInput {
   maxCostUsd?: number
   keepSimplifications?: boolean
   fallbackModel?: ModelSlot | null
+  /** Extra repo-relative files or directories to copy into sandbox runs after bundle restore. */
+  sandboxExtraCopyPaths?: string[]
 }
 
 /** Full state reconstructed from run files — used for attach/reconnect */

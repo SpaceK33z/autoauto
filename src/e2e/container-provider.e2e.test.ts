@@ -104,6 +104,29 @@ describe("ContainerProvider contract (MockContainerProvider)", () => {
     expect(logOutput).toContain("init")
   })
 
+  test("uploadRepo copies explicit extra paths after restoring the git bundle", async () => {
+    await setup()
+    const localRepo = join(rootDir, "local-repo-extra")
+    const { mkdir: mkdirFs } = await import("node:fs/promises")
+    await mkdirFs(join(localRepo, "extras", "nested"), { recursive: true })
+    await $`git init`.cwd(localRepo).quiet()
+    await $`git config user.email "test@test.com"`.cwd(localRepo).quiet()
+    await $`git config user.name "Test"`.cwd(localRepo).quiet()
+    await Bun.write(join(localRepo, "tracked.txt"), "tracked")
+    await $`git add -A`.cwd(localRepo).quiet()
+    await $`git commit -m "init"`.cwd(localRepo).quiet()
+
+    await Bun.write(join(localRepo, "extras", "config.local.json"), '{"token":"secret"}\n')
+    await Bun.write(join(localRepo, "extras", "nested", "note.txt"), "nested note\n")
+
+    await provider.uploadRepo(localRepo, "workspace", {
+      extraCopyPaths: ["extras/config.local.json", "extras/nested"],
+    })
+
+    expect(new TextDecoder().decode(await provider.readFile("workspace/extras/config.local.json"))).toContain("secret")
+    expect(new TextDecoder().decode(await provider.readFile("workspace/extras/nested/note.txt"))).toContain("nested note")
+  })
+
   // --- poll / terminate ---
 
   test("poll returns null when no main process", async () => {
