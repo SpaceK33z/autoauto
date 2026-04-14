@@ -4,7 +4,7 @@
  * using the local filesystem. No real Docker daemon required.
  *
  * Covers:
- * - checkDockerAuth (daemon detection, API key validation)
+ * - checkDockerAuth (daemon detection, provider-specific auth validation)
  * - createDockerProvider (container creation, labels, env vars)
  * - exec, readFile, writeFile, uploadRepo
  * - poll / terminate lifecycle
@@ -546,6 +546,7 @@ describe("Docker E2E (mocked CLI)", () => {
     })
 
     function renderPreRun(opts?: {
+      defaultModelConfig?: PreRunOverrides["modelConfig"]
       navigate?: (s: import("../lib/programs.ts").Screen) => void
       onStart?: (o: PreRunOverrides) => void
     }) {
@@ -553,7 +554,7 @@ describe("Docker E2E (mocked CLI)", () => {
         <PreRunScreen
           cwd={fixture.cwd}
           programSlug="docker-e2e"
-          defaultModelConfig={DEFAULT_CONFIG.executionModel}
+          defaultModelConfig={opts?.defaultModelConfig ?? DEFAULT_CONFIG.executionModel}
           navigate={opts?.navigate ?? (() => {})}
           onStart={opts?.onStart ?? (() => {})}
         />,
@@ -624,6 +625,32 @@ describe("Docker E2E (mocked CLI)", () => {
       expect(startOverrides!.sandboxProvider).toBe("docker")
       // Sandbox forces worktree off
       expect(startOverrides!.useWorktree).toBe(false)
+    })
+
+    test("Codex sandbox auth does not require ANTHROPIC_API_KEY", async () => {
+      const saved = process.env.ANTHROPIC_API_KEY
+      delete process.env.ANTHROPIC_API_KEY
+
+      try {
+        let startOverrides: PreRunOverrides | null = null
+        harness = await renderPreRun({
+          defaultModelConfig: { provider: "codex", model: "default", effort: "high" },
+          onStart: (o) => { startOverrides = o },
+        })
+        await goToSandbox(harness)
+
+        await harness.press("l")
+        const frame = await harness.waitForText("local Docker container")
+        expect(frame).toContain("Docker")
+        expect(frame).not.toContain("ANTHROPIC_API_KEY")
+
+        await harness.press("s")
+        expect(startOverrides).not.toBeNull()
+        expect(startOverrides!.modelConfig.provider).toBe("codex")
+        expect(startOverrides!.useSandbox).toBe(true)
+      } finally {
+        if (saved !== undefined) process.env.ANTHROPIC_API_KEY = saved
+      }
     })
   })
 })

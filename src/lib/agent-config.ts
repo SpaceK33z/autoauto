@@ -11,6 +11,8 @@ import { join, relative } from "node:path"
 import { homedir } from "node:os"
 import { existsSync } from "node:fs"
 import { lstat, readdir } from "node:fs/promises"
+import { checkAuth } from "./auth.ts"
+import type { AgentProviderID } from "./agent/types.ts"
 
 /** Where agent config lives inside the container (runs as root). */
 const CONTAINER_HOME = "/root"
@@ -46,9 +48,10 @@ const CONTAINER_ENV_KEYS = [
 export type AgentAuthMethod = "api_key" | "oauth_token"
 
 /**
- * Check whether agent auth credentials are available for sandbox runs.
+ * Claude sandbox auth must be env-backed because subscription tokens live in
+ * macOS Keychain on the host and are not portable via config files alone.
  */
-export function checkAgentAuth(): { ok: true; authMethod: AgentAuthMethod } | { ok: false; error: string } {
+function checkClaudeSandboxAuth(): { ok: true; authMethod: AgentAuthMethod } | { ok: false; error: string } {
   if (process.env.ANTHROPIC_API_KEY) return { ok: true, authMethod: "api_key" }
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return { ok: true, authMethod: "oauth_token" }
 
@@ -56,6 +59,24 @@ export function checkAgentAuth(): { ok: true; authMethod: AgentAuthMethod } | { 
     ok: false,
     error: "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN required — the experiment agent runs inside the container. Run `claude setup-token` to generate a subscription token.",
   }
+}
+
+/**
+ * Check whether the selected agent provider has portable auth for sandbox runs.
+ * Claude requires env forwarding; Codex/OpenCode auth is carried via mounted
+ * config dirs, so host-side provider auth is sufficient.
+ */
+export async function checkSandboxAgentAuth(
+  provider: AgentProviderID,
+): Promise<{ ok: true; authMethod?: AgentAuthMethod } | { ok: false; error: string }> {
+  if (provider === "claude") return checkClaudeSandboxAuth()
+
+  const auth = await checkAuth(provider)
+  if (!auth.authenticated) {
+    return { ok: false, error: auth.error }
+  }
+
+  return { ok: true }
 }
 
 /**

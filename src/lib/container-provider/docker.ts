@@ -10,7 +10,7 @@ import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { stat, unlink } from "node:fs/promises"
-import { collectContainerEnv, checkAgentAuth, getAgentConfigDirs, type AgentAuthMethod } from "../agent-config.ts"
+import { collectContainerEnv, checkSandboxAgentAuth, getAgentConfigDirs, type AgentAuthMethod } from "../agent-config.ts"
 import { uploadRepoViaGitBundle } from "./sync.ts"
 import type {
   ContainerProvider,
@@ -20,6 +20,7 @@ import type {
   StreamingProcess,
   UploadRepoOptions,
 } from "./types.ts"
+import type { AgentProviderID } from "../agent/types.ts"
 
 const decoder = new TextDecoder()
 
@@ -386,9 +387,12 @@ export async function createDockerProvider(config: Record<string, unknown>): Pro
 }
 
 /**
- * Check if Docker is available and required env vars are set.
+ * Check if Docker is available and the selected agent provider can authenticate
+ * inside the sandbox.
  */
-export async function checkDockerAuth(): Promise<{ ok: boolean; error?: string; authMethod?: AgentAuthMethod }> {
+export async function checkDockerAuth(
+  provider: AgentProviderID = "claude",
+): Promise<{ ok: boolean; error?: string; authMethod?: AgentAuthMethod }> {
   try {
     const proc = Bun.spawn([_dockerBin, "info"], { stdout: "pipe", stderr: "pipe" })
     const exitCode = await Promise.race([
@@ -411,7 +415,7 @@ export async function checkDockerAuth(): Promise<{ ok: boolean; error?: string; 
     }
   }
 
-  const agentAuth = checkAgentAuth()
+  const agentAuth = await checkSandboxAgentAuth(provider)
   if (!agentAuth.ok) return agentAuth
 
   return { ok: true, authMethod: agentAuth.authMethod }

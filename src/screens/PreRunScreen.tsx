@@ -192,14 +192,14 @@ export function PreRunScreen({ cwd, programSlug, defaultModelConfig, navigate, o
 
     if (next === DOCKER_PROVIDER_ID) {
       import("../lib/container-provider/docker.ts").then(({ checkDockerAuth }) => {
-        checkDockerAuth().then(applySandboxAuth)
+        checkDockerAuth(modelSlot.provider).then(applySandboxAuth)
       })
       return
     }
 
     if (next === MODAL_PROVIDER_ID) {
       import("../lib/container-provider/modal.ts").then(({ checkModalAuth }) => {
-        applySandboxAuth(checkModalAuth())
+        checkModalAuth(modelSlot.provider).then(applySandboxAuth)
       })
     }
   }

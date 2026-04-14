@@ -1,4 +1,5 @@
 import { colors } from "../lib/theme.ts"
+import { formatUserAuthConfigPath } from "../lib/user-auth.ts"
 
 export function AuthErrorScreen({ error }: { error: string }) {
   return (
@@ -19,8 +20,9 @@ export function AuthErrorScreen({ error }: { error: string }) {
       <box height={1} />
       <text>Run one of:</text>
       <text fg={colors.primary}>{"  claude login         (recommended)"}</text>
-      <text fg={colors.primary}>{"  claude setup-token   (API key)"}</text>
+      <text fg={colors.primary}>{"  claude setup-token   (long-lived token)"}</text>
       <box height={1} />
+      <text>{`You can also save the token in ${formatUserAuthConfigPath()} for future launches.`}</text>
       <text>Then restart AutoAuto.</text>
       {error && (
         <>

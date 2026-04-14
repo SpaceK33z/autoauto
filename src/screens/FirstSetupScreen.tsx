@@ -19,6 +19,7 @@ import { CycleField } from "../components/CycleField.tsx"
 import { ModelPicker } from "../components/ModelPicker.tsx"
 import { resolveCompatibleModelSlot } from "../lib/model-options.ts"
 import { colors } from "../lib/theme.ts"
+import { formatUserAuthConfigPath, saveClaudeCodeOAuthToken } from "../lib/user-auth.ts"
 
 interface FirstSetupScreenProps {
   cwd: string
@@ -40,30 +41,78 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
   const [pickingSlot, setPickingSlot] = useState<"support" | "execution" | null>(null)
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [offerClaudeTokenSetup, setOfferClaudeTokenSetup] = useState(false)
+  const [editingClaudeToken, setEditingClaudeToken] = useState(false)
+  const [tokenInputKey, setTokenInputKey] = useState(0)
+
+  async function authenticateSelectedProviders(): Promise<{ ok: true } | { ok: false; provider: ModelSlot["provider"]; error: string }> {
+    const providers = [...new Set([supportSlot.provider, executionSlot.provider])]
+    const results = await Promise.all(
+      providers.map(async (provider) => ({ provider, result: await checkAuth(provider) })),
+    )
+    const failed = results.find(({ result }) => !result.authenticated)
+    if (!failed) return { ok: true }
+    const { result } = failed
+    return {
+      ok: false,
+      provider: failed.provider,
+      error: result.authenticated ? "Authentication failed" : result.error,
+    }
+  }
+
+  async function completeSetup() {
+    const config: ProjectConfig = {
+      executionModel: { ...executionSlot },
+      supportModel: { ...supportSlot },
+      ideasBacklogEnabled: true,
+      notificationPreset: "off",
+      notificationCommand: null,
+    }
+    await saveProjectConfig(cwd, config)
+    onConfigChange(config)
+    navigate("setup")
+  }
 
   async function handleContinue() {
     setChecking(true)
     setError(null)
+    setOfferClaudeTokenSetup(false)
     try {
-      const providers = new Set([supportSlot.provider, executionSlot.provider])
-      for (const provider of providers) {
-        const result = await checkAuth(provider)
-        if (!result.authenticated) {
-          setError(`${PROVIDER_LABELS[provider]}: ${result.error}`)
-          setChecking(false)
-          return
-        }
+      const auth = await authenticateSelectedProviders()
+      if (!auth.ok) {
+        setError(`${PROVIDER_LABELS[auth.provider]}: ${auth.error}`)
+        setOfferClaudeTokenSetup(auth.provider === "claude" && !process.env.ANTHROPIC_API_KEY)
+        setChecking(false)
+        return
       }
-      const config: ProjectConfig = {
-        executionModel: { ...executionSlot },
-        supportModel: { ...supportSlot },
-        ideasBacklogEnabled: true,
-        notificationPreset: "off",
-        notificationCommand: null,
+      await completeSetup()
+    } catch (err) {
+      setError(formatShellError(err))
+      setChecking(false)
+    }
+  }
+
+  async function handleClaudeTokenSubmit(value: unknown) {
+    if (typeof value !== "string") return
+    const token = value.trim()
+    if (!token) {
+      setError("Claude token cannot be empty")
+      return
+    }
+
+    setChecking(true)
+    setError(null)
+    try {
+      await saveClaudeCodeOAuthToken(token)
+      setEditingClaudeToken(false)
+      const auth = await authenticateSelectedProviders()
+      if (!auth.ok) {
+        setError(`${PROVIDER_LABELS[auth.provider]}: ${auth.error}`)
+        setOfferClaudeTokenSetup(auth.provider === "claude" && !process.env.ANTHROPIC_API_KEY)
+        setChecking(false)
+        return
       }
-      await saveProjectConfig(cwd, config)
-      onConfigChange(config)
-      navigate("setup")
+      await completeSetup()
     } catch (err) {
       setError(formatShellError(err))
       setChecking(false)
@@ -104,6 +153,17 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
 
   useKeyboard((key) => {
     if (pickingSlot || checking) return
+    if (editingClaudeToken) {
+      if (key.name === "escape") {
+        setEditingClaudeToken(false)
+      }
+      return
+    }
+    if (offerClaudeTokenSetup && key.name === "t") {
+      setEditingClaudeToken(true)
+      setTokenInputKey((k) => k + 1)
+      return
+    }
     if (key.name === "up" || key.name === "k")
       setSelected((s) => Math.max(0, s - 1))
     if (key.name === "down" || key.name === "j")
@@ -207,6 +267,27 @@ export function FirstSetupScreen({ cwd, navigate, onConfigChange }: FirstSetupSc
           <box height={1} />
           <text fg={colors.error}>{`  Auth failed: ${error}`}</text>
           <text fg={colors.textMuted}>{"  Change provider or fix credentials, then try again."}</text>
+        </>
+      )}
+      {offerClaudeTokenSetup && (
+        <>
+          <box height={1} />
+          <text fg={colors.textMuted}>{"  No Claude subscription token is configured."}</text>
+          <text fg={colors.primary}>{"  Run: claude setup-token"}</text>
+          <text fg={colors.textMuted}>{`  Press t to paste it into AutoAuto and save it to ${formatUserAuthConfigPath()}`}</text>
+          {editingClaudeToken && (
+            <>
+              <box height={1} />
+              <box border borderStyle="rounded" height={3}>
+                <input
+                  key={tokenInputKey}
+                  focused
+                  placeholder="Paste CLAUDE_CODE_OAUTH_TOKEN and press Enter"
+                  onSubmit={handleClaudeTokenSubmit}
+                />
+              </box>
+            </>
+          )}
         </>
       )}
     </box>
