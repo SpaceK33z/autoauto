@@ -102,15 +102,35 @@ export class MockContainerProvider implements ContainerProvider {
   }
 
   async copyIn(localPath: string, remotePath: string): Promise<void> {
+    await this.copyInRecursive(localPath, remotePath, new Set())
+  }
+
+  private async copyInRecursive(
+    localPath: string,
+    remotePath: string,
+    visitedDirs: Set<string>,
+  ): Promise<void> {
     const fullPath = join(this.rootDir, remotePath)
     const info = await stat(localPath)
 
     if (info.isDirectory()) {
-      await mkdir(fullPath, { recursive: true })
-      const entries = await readdir(localPath, { withFileTypes: true })
-      await Promise.all(entries.map((entry) =>
-        this.copyIn(join(localPath, entry.name), join(remotePath, entry.name))
-      ))
+      const dirKey = `${info.dev}:${info.ino}`
+      if (visitedDirs.has(dirKey)) return
+      visitedDirs.add(dirKey)
+
+      try {
+        await mkdir(fullPath, { recursive: true })
+        const entries = await readdir(localPath, { withFileTypes: true })
+        for (const entry of entries) {
+          await this.copyInRecursive(
+            join(localPath, entry.name),
+            join(remotePath, entry.name),
+            visitedDirs,
+          )
+        }
+      } finally {
+        visitedDirs.delete(dirKey)
+      }
       return
     }
 

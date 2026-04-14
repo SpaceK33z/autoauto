@@ -132,18 +132,25 @@ export class ModalContainerProvider implements ContainerProvider {
     const info = await Bun.file(localPath).stat()
 
     if (info.isDirectory()) {
+      // Ancestor-stack cycle guard: only tracks the active recursion chain so
+      // non-cyclic symlink aliases (e.g. dir/link -> ../dir/real) still get
+      // materialized while true cycles are detected and skipped.
       const dirKey = `${info.dev}:${info.ino}`
       if (visitedDirs.has(dirKey)) return
       visitedDirs.add(dirKey)
 
-      await this.sandbox.exec(["mkdir", "-p", remotePath], { stdout: "ignore", stderr: "ignore" })
-      const entries = await readdir(localPath, { withFileTypes: true })
-      for (const entry of entries) {
-        await this.copyInRecursive(
-          join(localPath, entry.name),
-          posix.join(remotePath, entry.name),
-          visitedDirs,
-        )
+      try {
+        await this.sandbox.exec(["mkdir", "-p", remotePath], { stdout: "ignore", stderr: "ignore" })
+        const entries = await readdir(localPath, { withFileTypes: true })
+        for (const entry of entries) {
+          await this.copyInRecursive(
+            join(localPath, entry.name),
+            posix.join(remotePath, entry.name),
+            visitedDirs,
+          )
+        }
+      } finally {
+        visitedDirs.delete(dirKey)
       }
       return
     }
