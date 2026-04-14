@@ -7,7 +7,7 @@
  */
 
 import { join, dirname } from "node:path"
-import { chmod, lstat, mkdir, readdir, stat } from "node:fs/promises"
+import { chmod, mkdir, readdir, stat, unlink } from "node:fs/promises"
 import type {
   ContainerProvider,
   ContainerHandle,
@@ -132,14 +132,13 @@ export class MockContainerProvider implements ContainerProvider {
       await Promise.all((options?.extraCopyPaths ?? []).map(async (relativePath) => {
         const hostPath = join(localDir, relativePath)
         try {
-          await lstat(hostPath)
+          await stat(hostPath)
         } catch {
           return
         }
         await this.copyIn(hostPath, join(remoteDir, relativePath))
       }))
     } finally {
-      const { unlink } = await import("node:fs/promises")
       await unlink(bundlePath).catch(() => {})
     }
   }

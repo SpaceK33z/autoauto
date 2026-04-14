@@ -149,6 +149,29 @@ describe("ContainerProvider contract (MockContainerProvider)", () => {
     expect(new TextDecoder().decode(await provider.readFile("workspace/extras/link-dir/note.txt"))).toContain("through symlink")
   })
 
+  test("uploadRepo ignores broken symlink extra paths", async () => {
+    await setup()
+    const localRepo = join(rootDir, "local-repo-broken-symlink")
+    const { mkdir: mkdirFs } = await import("node:fs/promises")
+    await mkdirFs(join(localRepo, "extras"), { recursive: true })
+    await $`git init`.cwd(localRepo).quiet()
+    await $`git config user.email "test@test.com"`.cwd(localRepo).quiet()
+    await $`git config user.name "Test"`.cwd(localRepo).quiet()
+    await Bun.write(join(localRepo, "tracked.txt"), "tracked")
+    await $`git add -A`.cwd(localRepo).quiet()
+    await $`git commit -m "init"`.cwd(localRepo).quiet()
+
+    await symlink("missing-dir", join(localRepo, "extras", "broken-link"))
+
+    await expect(provider.uploadRepo(localRepo, "workspace", {
+      extraCopyPaths: ["extras/broken-link"],
+    })).resolves.toBeUndefined()
+
+    const result = await provider.exec(["git", "log", "--oneline"], { cwd: "workspace" })
+    expect(result.exitCode).toBe(0)
+    await expect(provider.readFile("workspace/extras/broken-link")).rejects.toThrow("ENOENT")
+  })
+
   // --- poll / terminate ---
 
   test("poll returns null when no main process", async () => {

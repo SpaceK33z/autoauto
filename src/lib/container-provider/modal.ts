@@ -133,7 +133,24 @@ export class ModalContainerProvider implements ContainerProvider {
 
     const bytes = new Uint8Array(await Bun.file(localPath).arrayBuffer())
     await this.writeFile(remotePath, bytes)
-    await this.sandbox.exec(["chmod", (info.mode & 0o777).toString(8), remotePath], { stdout: "ignore", stderr: "ignore" })
+
+    const mode = (info.mode & 0o777).toString(8)
+    const chmod = await this.sandbox.exec(["chmod", mode, remotePath], {
+      stdout: "ignore",
+      stderr: "pipe",
+    })
+    const [stderrText, exitCode] = await Promise.all([
+      chmod.stderr.readText(),
+      chmod.wait(),
+    ])
+    if (exitCode !== 0) {
+      const stderr = stderrText.trim()
+      throw new Error(
+        stderr
+          ? `Failed to chmod ${remotePath} to ${mode} in Modal sandbox: ${stderr}`
+          : `Failed to chmod ${remotePath} to ${mode} in Modal sandbox (exit ${exitCode})`,
+      )
+    }
   }
 
   async uploadRepo(localDir: string, remoteDir: string, options?: UploadRepoOptions): Promise<void> {
